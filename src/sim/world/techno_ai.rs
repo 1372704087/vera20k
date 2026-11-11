@@ -2841,6 +2841,12 @@ fn techno_common_post(sim: &mut Simulation, id: u64, rules: &RuleSet, _effects: 
     // before EMP. Its simulation discovery prelude is independent of radar
     // presentation, viewport admission and rendering cadence.
     sim.update_techno_discovery_from_shroud(id);
+    // Phobos `TechnoExt::OnEarlyUpdate -> UpdateRecountBurst`
+    // (`Ext/Techno/Body.Update.cpp:22,544-566`): between the AttachEffect /
+    // EatPassengers / range-limit steps and `UpdateRearmInEMPState`, a stale
+    // burst index recounts here.
+    #[cfg(feature = "phobos")]
+    crate::sim::combat::burst::update_phobos_recount_burst(sim, id, rules);
     // Phobos `TechnoExt::OnEarlyUpdate -> UpdateRearmInEMPState`
     // (`Ext/Techno/Body.Update.cpp:23,866-880`), after the AttachEffect update
     // this visit ran in `techno_common_steps` and before the Ares EMP

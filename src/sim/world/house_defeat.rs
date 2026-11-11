@@ -316,6 +316,16 @@ impl Simulation {
                 registry,
                 frame_effects,
             );
+            // Phobos `HouseClass_AI_Superweapons` (`0x4F9038`,
+            // `Ext/House/Hooks.cpp:518-541`), at the start of `HouseClass::Update`'s
+            // chooser block.
+            crate::sim::house_strategy::update_ai_superweapon_delay(
+                self,
+                rules,
+                owner,
+                registry,
+                frame_effects,
+            );
             crate::sim::ai_base_building::update_production_choices(self, rules, owner, registry);
             generated.extend(self.recheck_house_tech_tree(owner, rules));
             if let Some(house) = self.houses.get_mut(&owner) {

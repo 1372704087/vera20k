@@ -3,6 +3,11 @@
 use serde::{Deserialize, Serialize};
 use std::hash::{Hash, Hasher};
 
+#[cfg(feature = "phobos")]
+use crate::rules::ruleset::RuleSet;
+#[cfg(feature = "phobos")]
+use crate::sim::world::Simulation;
+
 /// Techno+3B8: ctor6F2F01 initializes zero; FireAt6FF274 increments before
 /// GetROF and6FF2C5 stores the signed remainder afterwards. Target assignment
 /// to another non-null target does not reset it. Assign_Target6FCF5B clears
@@ -124,6 +129,61 @@ impl WeaponBurst {
     pub(crate) fn set_force_full_rearm(&mut self) {
         self.force_full_rearm = true;
     }
+}
+
+/// Phobos `TechnoExt::UpdateRecountBurst` (`Ext/Techno/Body.Update.cpp:544-566`),
+/// called from `OnEarlyUpdate` (`:22`): with `RecountBurst` enabled, no
+/// target, a retained burst index and the last weapon's
+/// `LastFireBulletFrame + max(ROF, 30)` elapsed, the index resets and a
+/// positive remaining ROF re-arms the shot. No RNG, attachment or detach is
+/// involved.
+#[cfg(feature = "phobos")]
+pub(crate) fn update_phobos_recount_burst(sim: &mut Simulation, id: u64, rules: &RuleSet) {
+    let frame = sim.session.binary_frame() as i32;
+    let Some(entity) = sim.substrate.entities.get(id) else {
+        return;
+    };
+    let Some(obj) = sim.interner.object_type(entity.type_ref(), rules) else {
+        return;
+    };
+    if !obj
+        .phobos_recount_burst
+        .unwrap_or(rules.phobos_globals.recount_burst)
+    {
+        return;
+    }
+    let index = entity.weapon_burst.index();
+    if index == 0 || entity.attack_target.target().is_some() {
+        return;
+    }
+    let Some(last_ref) = entity.phobos_last_weapon_type else {
+        return;
+    };
+    let Some(weapon) = rules.weapon(sim.interner.resolve(last_ref)) else {
+        return;
+    };
+    if weapon.burst == 0 {
+        return;
+    }
+    let threshold = weapon.rof.max(30);
+    if entity
+        .last_fire_frame
+        .frame()
+        .wrapping_add(i64::from(threshold))
+        > i64::from(frame)
+    {
+        return;
+    }
+    let ratio = f64::from(index) / f64::from(weapon.burst);
+    let rof = (ratio * f64::from(weapon.rof) * entity.phobos_rof_multiplier()) as i32;
+    let rof = rof.wrapping_sub(threshold);
+    let Some(entity) = sim.substrate.entities.get_mut(id) else {
+        return;
+    };
+    if rof > 0 {
+        entity.rearm_after_fire(frame, rof);
+    }
+    entity.weapon_burst.reset();
 }
 
 #[cfg(test)]
@@ -394,5 +454,51 @@ mod tests {
                 "{row}"
             );
         }
+    }
+
+    /// Phobos `TechnoExt::UpdateRecountBurst`
+    /// (`Ext/Techno/Body.Update.cpp:544-566`): with `RecountBurst` on, a
+    /// stale retained index with no target resets and a positive remaining
+    /// ROF re-arms the shot.
+    #[cfg(feature = "phobos")]
+    #[test]
+    fn recount_burst_resets_a_stale_index_and_rearms_the_shot() {
+        use crate::rules::ini_parser::IniFile;
+        use crate::sim::world::Simulation;
+        let rules = |type_keys: &str, global: &str| {
+            RuleSet::from_ini(&IniFile::from_str(&format!(
+                "[General]\n{global}\
+                 [VehicleTypes]\n0=TANK\n[InfantryTypes]\n[AircraftTypes]\n[BuildingTypes]\n\
+                 [TANK]\nStrength=300\nPrimary=Gun\n{type_keys}\
+                 [Gun]\nDamage=10\nROF=60\nBurst=1\nRange=6\nWarhead=WH\n\
+                 [WH]\nVerses=100%,100%,100%,100%,100%,100%,100%,100%,100%,100%,100%\n"
+            )))
+            .unwrap()
+        };
+        let recount = |rules: &RuleSet| {
+            let mut entity = GameEntity::test_default(1, "TANK", "Americans", 5, 5);
+            entity.weapon_burst.set_index(2);
+            entity.last_fire_frame.set_for_test(-100);
+            let mut sim = Simulation::new();
+            sim.interner = crate::sim::intern::test_interner();
+            entity.phobos_last_weapon_type = Some(sim.interner.intern("Gun"));
+            sim.substrate.entities.insert(entity);
+            super::update_phobos_recount_burst(&mut sim, 1, rules);
+            let entity = sim.substrate.entities.get(1).unwrap();
+            (entity.weapon_burst.index(), entity.rearm_timer.remaining(0))
+        };
+        // `Burst=1` with a retained index of 2: ratio 2 x ROF 60 - 60 = 60.
+        assert_eq!(recount(&rules("RecountBurst=yes\n", "")), (0, 60));
+        assert_eq!(recount(&rules("", "")), (2, 0), "default off");
+        assert_eq!(
+            recount(&rules("", "RecountBurst=yes\n")),
+            (0, 60),
+            "the global enables it"
+        );
+        assert_eq!(
+            recount(&rules("RecountBurst=no\n", "RecountBurst=yes\n")),
+            (2, 0),
+            "the type key overrides the global"
+        );
     }
 }

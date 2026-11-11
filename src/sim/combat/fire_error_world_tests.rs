@@ -362,3 +362,74 @@ fn an_iron_curtained_target_reads_the_weapon_and_owner_globals() {
     // slot answers Cant rather than Illegal.
     assert_eq!(error("", None, None, false, 1), FireError::Cant);
 }
+
+/// Phobos `TechnoClass_CanFire`'s berzerk arm
+/// (`Ext/Techno/Hooks.Firing.cpp:370-371`): `[CombatDamage] BerzerkTargeting=`
+/// (default `all`) limits the houses a berzerk firer may target; a
+/// non-berzerk firer is unaffected.
+#[cfg(feature = "phobos")]
+#[test]
+fn berzerk_firers_respect_berzerk_targeting() {
+    use crate::sim::combat::fire_error::FireError;
+    let error = |combat: &str, berserk: bool| {
+        let rules = RuleSet::from_ini(&IniFile::from_str(&format!(
+            "[VehicleTypes]\n0=TANK\n[InfantryTypes]\n[BuildingTypes]\n[AircraftTypes]\n\
+             [TANK]\nStrength=300\nArmor=heavy\nPrimary=Gun\n\
+             [Gun]\nDamage=50\nROF=30\nRange=6\nWarhead=AP\nOmniFire=yes\n\
+             [AP]\nVerses=100%,100%,100%,100%,100%,100%,100%,100%,100%,100%,100%\n\
+             [CombatDamage]\n{combat}"
+        )))
+        .expect("berzerk fire fixture rules");
+        let mut sim = crate::sim::world::Simulation::new();
+        spawn(
+            &mut sim.substrate.entities,
+            1,
+            "TANK",
+            EntityCategory::Unit,
+            "Soviet",
+            (5, 5),
+        );
+        spawn(
+            &mut sim.substrate.entities,
+            2,
+            "TANK",
+            EntityCategory::Unit,
+            "Soviet",
+            (7, 5),
+        );
+        sim.interner = test_interner();
+        sim.substrate
+            .entities
+            .get_mut(1)
+            .unwrap()
+            .berserk
+            .set_active_for_test(berserk);
+        crate::sim::combat::fire_error_world::FireSubject {
+            world: &sim,
+            rules: &rules,
+            overlay_registry: None,
+            fog: None,
+            firer: sim.substrate.entities.get(1).unwrap(),
+            obj: rules.object("TANK").unwrap(),
+            target: Some(crate::sim::combat::TargetKind::Entity(2)),
+            weapon_index: 0,
+        }
+        .fire_error(true)
+    };
+    assert_ne!(error("", false), FireError::Illegal, "not berzerk");
+    assert_ne!(
+        error("BerzerkTargeting=enemies\n", false),
+        FireError::Illegal,
+        "not berzerk, restricted global"
+    );
+    assert_ne!(
+        error("", true),
+        FireError::Illegal,
+        "the default `all` admits the firer's own house"
+    );
+    assert_eq!(
+        error("BerzerkTargeting=enemies\n", true),
+        FireError::Illegal,
+        "`enemies` refuses the firer's own house"
+    );
+}

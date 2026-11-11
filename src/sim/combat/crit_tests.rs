@@ -631,6 +631,189 @@ fn return_warhead_strikes_the_firer_back() {
     );
 }
 
+/// Phobos `WarheadTypeExt::Detonate`'s Reveal block
+/// (`Ext/WarheadType/Detonate.cpp:82-100`): a negative value reveals the
+/// whole map for the firing house; the default 0 does nothing.
+#[cfg(feature = "phobos")]
+#[test]
+fn reveal_warhead_reveals_the_map_for_its_owner() {
+    let revealed = |wh_ini: &str| {
+        let (mut sim, rules, firer, target) = scene("", wh_ini, "", "", "Russians");
+        let house = sim.interner.intern("Americans");
+        sim.reset_shroud_for_owner(house, &rules);
+        assert!(
+            !sim.fog.is_cell_revealed(house, 0, 0),
+            "the shroud starts closed"
+        );
+        detonate_once(&mut sim, &rules, firer, target, Some(target));
+        sim.fog.is_cell_revealed(house, 0, 0)
+    };
+    assert!(!revealed(""), "Reveal defaults to 0");
+    assert!(
+        revealed("Reveal=-1\n"),
+        "a negative value reveals the whole map for the firing house"
+    );
+}
+
+/// Phobos `WarheadTypeExt::Detonate`'s CreateGap block
+/// (`Ext/WarheadType/Detonate.cpp:51-80`): a negative value reshrouds the
+/// whole map for every non-allied house while the firing house keeps its
+/// map; the default 0 does nothing.
+#[cfg(feature = "phobos")]
+#[test]
+fn create_gap_reshrouds_the_map_for_non_allies() {
+    let maps = |wh_ini: &str| {
+        let (mut sim, rules, firer, target) = scene("", wh_ini, "", "", "Russians");
+        let americans = sim.interner.intern("Americans");
+        let russians = sim.interner.intern("Russians");
+        sim.reveal_map_for_owner(americans, &rules);
+        sim.reveal_map_for_owner(russians, &rules);
+        assert!(sim.fog.is_cell_revealed(russians, 0, 0));
+        detonate_once(&mut sim, &rules, firer, target, Some(target));
+        (
+            sim.fog.is_cell_revealed(americans, 0, 0),
+            sim.fog.is_cell_revealed(russians, 0, 0),
+        )
+    };
+    assert_eq!(maps(""), (true, true), "CreateGap defaults to 0");
+    assert_eq!(
+        maps("CreateGap=-1\n"),
+        (true, false),
+        "the non-allied house is reshrouded, the owner keeps its map"
+    );
+}
+
+/// Phobos `DetonateOnOneUnit`'s `ApplyReverseEngineer`
+/// (`Ext/WarheadType/Detonate.cpp:227-228,260-264`): with Ares present, the
+/// firing house records each hit victim's type; the default skips.
+#[cfg(all(feature = "phobos", feature = "ares"))]
+#[test]
+fn reverse_engineer_warhead_records_the_victim_type() {
+    let recorded = |wh_ini: &str| {
+        let (mut sim, rules, firer, target) = scene("", wh_ini, "", "", "Russians");
+        let owner = sim.entities().get(firer).expect("firer").owner();
+        detonate_once(&mut sim, &rules, firer, target, Some(target));
+        sim.houses.get(&owner).is_some_and(|house| {
+            house.has_ares_reverse_engineered(
+                crate::rules::object_type::ObjectCategory::Vehicle,
+                "TARGET",
+            )
+        })
+    };
+    assert!(!recorded(""), "ReverseEngineer defaults to no");
+    assert!(
+        recorded("ReverseEngineer=yes\n"),
+        "the victim type is recorded for the firing house"
+    );
+}
+
+/// Phobos `DetonateOnOneUnit`'s Taunt arm
+/// (`Ext/WarheadType/Detonate.cpp:236-237`): every hit target is forced onto
+/// `Mission::Attack` against the firing techno; the default is off.
+#[cfg(feature = "phobos")]
+#[test]
+fn taunt_forces_the_hit_targets_mission_onto_the_firer() {
+    use crate::sim::mission::{MissionId, MissionType};
+    let mission = |wh_ini: &str| {
+        let (mut sim, rules, firer, target) = scene("", wh_ini, "", "", "Russians");
+        detonate_once(&mut sim, &rules, firer, target, Some(target));
+        sim.substrate
+            .entities
+            .get(target)
+            .unwrap()
+            .mission
+            .current()
+    };
+    assert_eq!(
+        mission("Taunt=yes\n"),
+        MissionId::from_known(MissionType::Attack),
+        "Taunt overrides the target's mission"
+    );
+    assert_ne!(
+        mission(""),
+        MissionId::from_known(MissionType::Attack),
+        "Taunt defaults to no"
+    );
+}
+
+/// Phobos `WarheadTypeExt::ApplyAmmoModifier`
+/// (`Ext/WarheadType/Detonate.cpp:221-222,923-932`): `Ammo` adds to the
+/// target and clamps into `0..type->Ammo`; the default 0 leaves it alone.
+#[cfg(feature = "phobos")]
+#[test]
+fn warhead_ammo_modifies_the_target_ammo_with_the_native_clamp() {
+    let after = |wh_ini: &str| {
+        let (mut sim, rules, firer, target) = scene("", wh_ini, "Ammo=5\n", "", "Russians");
+        sim.substrate
+            .entities
+            .get_mut(target)
+            .unwrap()
+            .ammo_mut()
+            .unwrap()
+            .set_current_for_test(2);
+        detonate_once(&mut sim, &rules, firer, target, Some(target));
+        sim.substrate
+            .entities
+            .get(target)
+            .unwrap()
+            .ammo()
+            .unwrap()
+            .current()
+    };
+    assert_eq!(after("Ammo=2\n"), 4);
+    assert_eq!(after("Ammo=-1\n"), 1);
+    assert_eq!(after("Ammo=-9\n"), 0, "negative clamps to zero");
+    assert_eq!(after("Ammo=9\n"), 5, "clamped to the type's Ammo");
+    assert_eq!(after(""), 2, "the default 0 is a no-op");
+}
+
+/// Phobos `WarheadTypeExt::ApplyRemoveDisguise`
+/// (`Ext/WarheadType/Detonate.cpp:224-225,466-475`): the per-target pass
+/// strips a Unit's disguise even when the shot deals no damage; a Unit also
+/// clears its recorded identity, and the flag defaults to off.
+#[cfg(feature = "phobos")]
+#[test]
+fn remove_disguise_strips_a_target_on_impact() {
+    let setup = |wh_ini: &str| {
+        let (mut sim, rules, firer, target) = scene("", wh_ini, "", "", "Russians");
+        let type_id = sim.interner.intern("TARGET");
+        let house = sim.interner.intern("Russians");
+        sim.substrate
+            .entities
+            .get_mut(target)
+            .unwrap()
+            .disguise
+            .get_or_insert_with(Default::default)
+            .acquire(0, Some(type_id), Some(house));
+        detonate_once(&mut sim, &rules, firer, target, Some(target));
+        (sim, target)
+    };
+    let (sim, target) = setup("RemoveDisguise=yes\n");
+    let disguise = sim
+        .substrate
+        .entities
+        .get(target)
+        .unwrap()
+        .disguise
+        .as_ref()
+        .unwrap();
+    assert!(!disguise.is_disguised(), "the warhead strips the disguise");
+    assert_eq!(disguise.type_id(), None, "a Unit clears identity too");
+    assert_eq!(disguise.house(), None);
+    let (sim, target) = setup("");
+    assert!(
+        sim.substrate
+            .entities
+            .get(target)
+            .unwrap()
+            .disguise
+            .as_ref()
+            .unwrap()
+            .is_disguised(),
+        "RemoveDisguise defaults to no"
+    );
+}
+
 /// Phobos `TechnoClass_ReceiveDamage_Shield @ 0x701900`'s first block
 /// (`Ext/Techno/Hooks.ReceiveDamage.cpp:26-34`) zeroes the whole packet when
 /// the warhead's own triggers refuse the victim. Under Phobos' default

@@ -2838,6 +2838,34 @@ pub(crate) fn handle_death(
                     run.effects(),
                 );
             }
+            // Phobos `TechnoClass_ReceiveDamage_RevengeWeapon`
+            // (`Ext/Techno/Hooks.ReceiveDamage.cpp:259-280`, hook `0x702672`):
+            // after the kill and revenge weapons, `PreventCrewEscape=yes`
+            // latches the dying techno's crew count to 0 and
+            // `PreventPassengerEscape=yes` kills its passengers.
+            #[cfg(feature = "phobos")]
+            if callbacks_enabled(world)
+                && let Some(event) = damage_events
+                    .iter()
+                    .rfind(|event| event.target_id == dead_id)
+                && let Some(warhead) = rules.warhead(world.interner.resolve(event.warhead_ref))
+            {
+                if warhead.prevent_crew_escape
+                    && let Some(entity) = world.substrate.entities.get_mut(dead_id)
+                {
+                    entity.phobos_prevent_crew_escape = true;
+                }
+                if warhead.prevent_passenger_escape {
+                    let attacker = killing_attacker(world, damage_events, dead_id);
+                    world.kill_passengers(
+                        dead_id,
+                        attacker,
+                        crate::sim::world::UninitContext::with_rules(rules)
+                            .with_registry(overlay_registry)
+                            .with_effects(run.effects()),
+                    );
+                }
+            }
             // `0x0070267F`: after its death weapon, the bomb it carries goes
             // off (`BombClass::Detonate @ 0x00438720`).
             if let Some((effects, pings)) =
@@ -3009,6 +3037,26 @@ fn finish_concrete_death(
     // TechnoClass's synchronous death weapon has returned. Capture the
     // immutable plan now; placement and all RNG stay at that postlude.
     if category == EntityCategory::Structure {
+        // Phobos `BuildingClass_ReceiveDamage_PreventOccupantEscape`
+        // (`Ext/Techno/Hooks.ReceiveDamage.cpp:282-297`, hook `0x442635`): a
+        // killing hit with this warhead kills the occupants where the stock
+        // building would release them (`0x44263B`'s SellBuilding call). The
+        // release in `BeforeBuildingDestruction` then finds none.
+        #[cfg(feature = "phobos")]
+        if callbacks_enabled(world)
+            && damage_events
+                .iter()
+                .rfind(|event| event.target_id == dead_id)
+                .and_then(|event| rules.warhead(world.interner.resolve(event.warhead_ref)))
+                .is_some_and(|warhead| warhead.prevent_occupant_escape)
+        {
+            crate::sim::passenger::garrison_eject::kill_building_occupants(
+                world,
+                dead_id,
+                crate::sim::world::UninitContext::new(rules, overlay_registry)
+                    .with_effects(frame_effects),
+            );
+        }
         // Building442625..44264C follows the completed Techno death arm
         // and NowDead contact callbacks, before DestructionEffects442665.
         if callbacks_enabled(world) {

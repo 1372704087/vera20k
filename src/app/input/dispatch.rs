@@ -4054,7 +4054,22 @@ fn queue_deploy_undeploy_for_selected(state: &mut AppState) {
         return;
     };
     let local_owner = sim.interner().get(&owner);
-    let commands = deploy_key_commands(sim, state.rules(), &selected_ids, local_owner);
+    // Phobos `[Phobos] PriorityDeployFiltering=`: the client switch for the
+    // `LowDeployPriority` hook `0x730D0F`.
+    #[cfg(feature = "phobos")]
+    let priority_deploy_filtering = state
+        .match_state
+        .match_presentation
+        .priority_deploy_filtering;
+    #[cfg(not(feature = "phobos"))]
+    let priority_deploy_filtering = false;
+    let commands = deploy_key_commands_filtered(
+        sim,
+        state.rules(),
+        &selected_ids,
+        local_owner,
+        priority_deploy_filtering,
+    );
     // Selection730AF0 sends DEPLOY9 through Techno6FFE00. During
     // Planning Mode that reaches639FD0 and the NoDeploy refusal at638238,
     // rather than executing an immediate deployment or adding a mission.
@@ -4085,6 +4100,18 @@ fn queue_deploy_undeploy_for_selected(state: &mut AppState) {
     }
 }
 
+/// The deploy key over the selection without the Phobos priority filter
+/// ([`deploy_key_commands_filtered`]); test entry point only.
+#[cfg(test)]
+fn deploy_key_commands(
+    sim: &crate::sim::world::Simulation,
+    rules: Option<&crate::rules::ruleset::RuleSet>,
+    selection: &[u64],
+    local_owner: Option<crate::sim::intern::InternedId>,
+) -> Vec<Command> {
+    deploy_key_commands_filtered(sim, rules, selection, local_owner, false)
+}
+
 /// `Selection::IssueDeployCommand @ 0x00730AF0`, over the local player's
 /// selection in order.
 /// - A first selected building with occupants (`vt+0x408`, `0x004581F0`)
@@ -4102,11 +4129,17 @@ fn queue_deploy_undeploy_for_selected(state: &mut AppState) {
 ///
 /// Its closing sound reads `Rules+0x72C`, which no INI key sets: the
 /// constructor's -1 (`0x0066606A`) plays nothing.
-fn deploy_key_commands(
+///
+/// Phobos `[Phobos] PriorityDeployFiltering=yes` adds the
+/// `LowDeployPriority` filter: a low-priority object is dropped from a
+/// multi-object deploy when the selection also holds one that is not low
+/// priority (`Ext/Techno/Hooks.Misc.cpp:931-956`, hook `0x730D0F`).
+fn deploy_key_commands_filtered(
     sim: &crate::sim::world::Simulation,
     rules: Option<&crate::rules::ruleset::RuleSet>,
     selection: &[u64],
     local_owner: Option<crate::sim::intern::InternedId>,
+    priority_deploy_filtering: bool,
 ) -> Vec<Command> {
     let first = selection.first().and_then(|&id| sim.entities().get(id));
     if let Some(building) = first.filter(|entity| {
@@ -4131,6 +4164,13 @@ fn deploy_key_commands(
         }
     }
     let mixed = found_deployed && found_undeployed;
+    // Phobos `LowDeployPriority`: only a multi-object selection is filtered,
+    // and only when some selected object is not low priority.
+    let mixed_priority = priority_deploy_filtering
+        && selection.len() > 1
+        && selection
+            .iter()
+            .any(|&id| low_deploy_priority(sim, rules, id) == Some(false));
     selection
         .iter()
         .copied()
@@ -4143,9 +4183,35 @@ fn deploy_key_commands(
                 .get(id)
                 .is_some_and(|entity| !entity.berserk.is_active())
                 && !(mixed && deployed(id) == Some(true))
+                && !(mixed_priority && low_deploy_priority(sim, rules, id) == Some(true))
         })
         .filter_map(|id| deploy_key_command(sim, rules, id, local_owner))
         .collect()
+}
+
+/// Phobos `LowDeployPriority=` (`Ext/TechnoType/Body.cpp:767`): whether the
+/// type asks the deploy key to skip it among higher-priority objects. Unknown
+/// types do not participate.
+#[cfg(feature = "phobos")]
+fn low_deploy_priority(
+    sim: &crate::sim::world::Simulation,
+    rules: Option<&crate::rules::ruleset::RuleSet>,
+    id: u64,
+) -> Option<bool> {
+    let entity = sim.entities().get(id)?;
+    let object = sim.interner().object_type(entity.type_ref(), rules?)?;
+    Some(object.phobos_low_deploy_priority)
+}
+
+/// Without the `phobos` feature the type key is not read; no object is low
+/// priority.
+#[cfg(not(feature = "phobos"))]
+fn low_deploy_priority(
+    _sim: &crate::sim::world::Simulation,
+    _rules: Option<&crate::rules::ruleset::RuleSet>,
+    _id: u64,
+) -> Option<bool> {
+    None
 }
 
 /// The deploy walk's deployer state: a `Deployer=` infantryman
@@ -4616,6 +4682,8 @@ fn jump_camera_to_base(state: &mut AppState) {
 
 #[cfg(test)]
 mod deploy_key_tests {
+    #[cfg(feature = "phobos")]
+    use super::deploy_key_commands_filtered;
     use super::{deploy_key_command, deploy_key_commands};
     use crate::rules::ini_parser::IniFile;
     use crate::rules::ruleset::RuleSet;
@@ -4952,6 +5020,61 @@ mod deploy_key_tests {
         assert!(
             deploy_key_commands(&sim, Some(&rules), &[heli], sim.session().current_house())
                 .is_empty()
+        );
+    }
+
+    /// Phobos `LowDeployPriority=` behind `[Phobos] PriorityDeployFiltering=`
+    /// (hook `0x730D0F`): a low-priority techno is dropped from a
+    /// multi-object deploy when the selection also holds one that is not low
+    /// priority; turning the client switch off orders both.
+    #[cfg(feature = "phobos")]
+    #[test]
+    fn the_deploy_key_drops_a_low_priority_techno_beside_a_higher_one() {
+        let rules = RuleSet::from_ini(&IniFile::from_str(
+            "[VehicleTypes]\n0=LOWPRI\n1=HIGHPRI\n\
+             [LOWPRI]\nIsSimpleDeployer=yes\nLowDeployPriority=yes\n\
+             [HIGHPRI]\nIsSimpleDeployer=yes\n",
+        ))
+        .expect("deploy key rules");
+        let mut sim = player_sim();
+        let mut spawn = |type_id: &str, rx: u16| {
+            sim.spawn_object_limbo_at_height(type_id, "Americans", rx, 10, 0, 0, &rules)
+                .expect("the deploy key fixture builds")
+        };
+        let (low, high, other_low) = (
+            spawn("LOWPRI", 10),
+            spawn("HIGHPRI", 11),
+            spawn("LOWPRI", 12),
+        );
+        let filtered = |selection: &[u64], on: bool| {
+            deploy_key_commands_filtered(
+                &sim,
+                Some(&rules),
+                selection,
+                sim.session().current_house(),
+                on,
+            )
+        };
+        assert_eq!(
+            filtered(&[low, high], true),
+            [Command::DeployMcv { entity_id: high }]
+        );
+        assert_eq!(
+            filtered(&[low, high], false),
+            [
+                Command::DeployMcv { entity_id: low },
+                Command::DeployMcv { entity_id: high },
+            ]
+        );
+        // A selection of low-priority objects alone is not filtered.
+        assert_eq!(
+            filtered(&[low, other_low], true),
+            [
+                Command::DeployMcv { entity_id: low },
+                Command::DeployMcv {
+                    entity_id: other_low
+                },
+            ]
         );
     }
 

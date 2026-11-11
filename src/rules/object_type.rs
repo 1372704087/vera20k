@@ -1082,6 +1082,57 @@ pub struct ObjectType {
     /// for a UnitType.
     #[cfg(feature = "phobos")]
     pub phobos_no_turret_track_target: Option<bool>,
+    /// Phobos `TurretResponse=` (`Ext/UnitType/Body.cpp:83`,
+    /// `Nullable<bool>`, constructor `Body.h:68`): unset falls back to
+    /// `UnitExt::CannotMove`; `yes` returns the idle turret even for a unit
+    /// that cannot move, `no` never does (`Ext/Unit/Hooks.DisallowMoving.cpp:69-75`).
+    /// Read only for a UnitType.
+    #[cfg(feature = "phobos")]
+    pub phobos_turret_response: Option<bool>,
+    /// Phobos `RecountBurst=` (`Ext/TechnoType/Body.cpp:1031`,
+    /// `Nullable<bool>`): unset falls back to `[General] RecountBurst=`. A
+    /// weapon change or idle timeout recounts the burst index and re-arms the
+    /// shot (`Ext/Techno/Body.Update.cpp:544-566`,
+    /// `Ext/Techno/Hooks.Firing.cpp:609-633`).
+    #[cfg(feature = "phobos")]
+    pub phobos_recount_burst: Option<bool>,
+    /// Phobos `RevealHouses=` (`Ext/TechnoType/Body.cpp:1207`,
+    /// `Nullable<AffectedHouse>`): which players this techno's sight reveals
+    /// to; unset inherits the country, then `[AudioVisual]`
+    /// (`Ext/Techno/Hooks.cpp:2578`).
+    #[cfg(feature = "phobos")]
+    pub phobos_reveal_houses: Option<crate::rules::phobos_shields::AffectedHouse>,
+    /// Phobos `LowDeployPriority=` (`Ext/TechnoType/Body.cpp:767`,
+    /// `Valueable<bool>` field `Body.h:42`, default `false`): when
+    /// `[Phobos] PriorityDeployFiltering=yes` and more than one object is
+    /// selected, the deploy key drops this techno if the selection also holds
+    /// one that is not low priority
+    /// (`Ext/Techno/Hooks.Misc.cpp:931-956`, hook `0x730D0F`).
+    #[cfg(feature = "phobos")]
+    pub phobos_low_deploy_priority: bool,
+    /// Phobos `IsDestroyableObstacle=` (`Ext/BuildingType/Body.cpp:221`,
+    /// `Valueable<bool>` field `Body.h:66`, default `false`): a marked
+    /// building's foundation cells answer the Destroyable cell class (`2`) in
+    /// `CellClass::RecalcZoneType`, and their zones are recomputed on
+    /// unlimbo/limbo (`Ext/Building/Hooks.cpp:568-576`: hooks `0x483D8E` ->
+    /// `0x483CD4`, `0x440D01` and `0x445D87`). Read only for a BuildingType.
+    #[cfg(feature = "phobos")]
+    pub phobos_destroyable_obstacle: bool,
+    /// Phobos `AmphibiousEnter=` (`Ext/TechnoType/Body.cpp:1107`,
+    /// `Nullable<bool>` field `Body.h:342`): unset falls back to
+    /// `[General] AmphibiousEnter`. `yes` admits boarding a transport that sits
+    /// on water (`Ext/Techno/Hooks.Transport.cpp:252`, hook `0x73796B`).
+    #[cfg(feature = "phobos")]
+    pub phobos_amphibious_enter: Option<bool>,
+    /// Phobos `AmphibiousUnload=` (`Ext/TechnoType/Body.cpp:1108`,
+    /// `Nullable<bool>` field `Body.h:343`): unset falls back to
+    /// `[General] AmphibiousUnload`. `yes` lets the transport unload on water
+    /// when the passenger's own land row allows it, and uses that passenger's
+    /// SpeedType/MovementZone in the unload searches
+    /// (`Ext/Techno/Hooks.Transport.cpp:384-393`, hooks `0x7400B5`,
+    /// `0x70107A`, `0x73D769`, `0x73D7AB`, `0x740C9C`, `0x73DAD8`).
+    #[cfg(feature = "phobos")]
+    pub phobos_amphibious_unload: Option<bool>,
     /// Phobos `InitialStrength.Cloning=` (`Ext/BuildingType/Body.cpp:196`,
     /// `Valueable<PartialVector2D<double>>` field `Body.h:33`, constructor
     /// `{ { 1.0 } }` at `Body.h:169`): the percentage, or `min,max` range,
@@ -1834,6 +1885,11 @@ pub struct ObjectType {
     pub spawns: Option<String>,
     /// Spawn pool capacity (`SpawnsNumber=`). Default 0.
     pub spawns_number: i32,
+    /// Phobos `InitialSpawnsNumber=` (`Ext/TechnoType/Body.cpp:1117`,
+    /// `Nullable<int>`): how many nodes start live, else `SpawnsNumber=`. The
+    /// rest start dead and regenerate (`Ext/Techno/Hooks.Misc.cpp:162-178`).
+    #[cfg(feature = "phobos")]
+    pub initial_spawns_number: Option<i32>,
     /// Frames before a destroyed spawn child is rebuilt (`SpawnRegenRate=`).
     pub spawn_regen_rate: u32,
     /// Frames a docked child spends reloading after landing (`SpawnReloadRate=`).
@@ -5314,6 +5370,27 @@ impl ObjectType {
                 .then(|| section.read_phobos_nullable_bool("NoTurret.TrackTarget", None))
                 .flatten(),
             #[cfg(feature = "phobos")]
+            phobos_turret_response: (category == ObjectCategory::Vehicle)
+                .then(|| section.read_phobos_nullable_bool("TurretResponse", None))
+                .flatten(),
+            #[cfg(feature = "phobos")]
+            phobos_recount_burst: section.read_phobos_nullable_bool("RecountBurst", None),
+            #[cfg(feature = "phobos")]
+            phobos_reveal_houses: section.read_phobos_nullable_with(
+                "RevealHouses",
+                None,
+                crate::rules::phobos_shields::AffectedHouse::parse,
+            ),
+            #[cfg(feature = "phobos")]
+            phobos_low_deploy_priority: section.read_bool("LowDeployPriority", false),
+            #[cfg(feature = "phobos")]
+            phobos_destroyable_obstacle: category == ObjectCategory::Building
+                && section.read_bool("IsDestroyableObstacle", false),
+            #[cfg(feature = "phobos")]
+            phobos_amphibious_enter: section.read_phobos_nullable_bool("AmphibiousEnter", None),
+            #[cfg(feature = "phobos")]
+            phobos_amphibious_unload: section.read_phobos_nullable_bool("AmphibiousUnload", None),
+            #[cfg(feature = "phobos")]
             phobos_initial_cloning: section.read_ares_partial_double_pair(
                 "InitialStrength.Cloning",
                 crate::rules::ini_value::PartialDoublePair::single(1.0),
@@ -5931,6 +6008,8 @@ impl ObjectType {
             // owner reads `Spawns=`.
             spawns: None,
             spawns_number: section.read_int("SpawnsNumber", 0),
+            #[cfg(feature = "phobos")]
+            initial_spawns_number: section.read_phobos_nullable_int("InitialSpawnsNumber", None),
             spawn_regen_rate: section.read_int("SpawnRegenRate", 0).max(0) as u32,
             spawn_reload_rate: section.read_int("SpawnReloadRate", 0).max(0) as u32,
             missile_spawn: section.read_bool("MissileSpawn", false),

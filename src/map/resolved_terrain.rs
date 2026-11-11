@@ -330,6 +330,10 @@ pub struct ResolvedTerrainCell {
     /// Dynamic building footprints are never inferred from `PathGrid` here or
     /// during zone construction. Their object-loop class writer belongs to the
     /// occupancy lifecycle and must update this byte before connectivity repair.
+    /// The one writer is the Phobos `IsDestroyableObstacle` mark, which answers
+    /// class `2` for that building's foundation (`0x483CD4` from hook
+    /// `0x483D8E`) through
+    /// [`ResolvedTerrainGrid::reconcile_destroyable_obstacle_cells`].
     /// Overlay mutation updates it through `recalc_overlay_passability`.
     pub zone_type: u8,
     /// Terrain-only walk block flag — true when the base terrain (rock, cliff) is

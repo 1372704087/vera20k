@@ -37,6 +37,11 @@ pub(crate) struct PhobosClientSettings {
     /// with `true`; the `false` static initializer at `:71` is overwritten):
     /// the client half of the weeds counter.
     pub(crate) show_weeds_counter: bool,
+    /// `[Phobos] PriorityDeployFiltering=`, default `yes`
+    /// (`Phobos.INI.cpp:46` static, read `:94`): drops a
+    /// `LowDeployPriority=yes` techno from a multi-object deploy when the
+    /// selection also holds one that is not low priority.
+    pub(crate) priority_deploy_filtering: bool,
 }
 
 impl Default for PhobosClientSettings {
@@ -52,6 +57,7 @@ impl Default for PhobosClientSettings {
             show_power_delta: true,
             show_harvester_counter: true,
             show_weeds_counter: true,
+            priority_deploy_filtering: true,
         }
     }
 }
@@ -89,6 +95,10 @@ pub(crate) fn read(settings_dir: &Path) -> PhobosClientSettings {
         show_harvester_counter: section
             .read_bool("ShowHarvesterCounter", defaults.show_harvester_counter),
         show_weeds_counter: section.read_bool("ShowWeedsCounter", defaults.show_weeds_counter),
+        priority_deploy_filtering: section.read_bool(
+            "PriorityDeployFiltering",
+            defaults.priority_deploy_filtering,
+        ),
     }
 }
 
@@ -124,7 +134,7 @@ mod tests {
             "[Phobos]\nShowPlacementPreview=no\nDigitalDisplay.Enable=yes\n\
              SuperWeaponSidebar.RequiredSignificance=2\nShowFlashOnSelecting=yes\n\
              ShowPowerPlantEnhancerRange=yes\nShowPowerDelta=no\nShowHarvesterCounter=no\n\
-             ShowWeedsCounter=no\n",
+             ShowWeedsCounter=no\nPriorityDeployFiltering=no\n",
         );
         assert_eq!(
             read(&dir),
@@ -137,6 +147,7 @@ mod tests {
                 show_power_delta: false,
                 show_harvester_counter: false,
                 show_weeds_counter: false,
+                priority_deploy_filtering: false,
             }
         );
         std::fs::remove_dir_all(dir).unwrap();

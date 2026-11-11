@@ -130,6 +130,63 @@ pub(crate) fn detonate(
             .get(source_id)
             .map(|source| source.owner())
     });
+    // `WarheadTypeExt::Detonate`'s CreateGap block (`Detonate.cpp:51-80`):
+    // before Reveal, a positive radius conceals for enemies of the firing
+    // house; a negative value reshrouds every non-allied house.
+    #[cfg(feature = "phobos")]
+    if warhead.create_gap != 0
+        && let Some(owner) = house
+    {
+        let context = crate::sim::world::UninitContext::new(rules, overlay_registry);
+        let _ = world.apply_warhead_create_gap(
+            owner,
+            [impact.x, impact.y, impact.z],
+            warhead.create_gap,
+            rules,
+            context,
+        );
+    }
+    // `WarheadTypeExt::Detonate`'s Reveal block (`Detonate.cpp:82-100`): a
+    // positive radius reveals for the firing house on the client maps its
+    // RevealArea gate admits; a negative value reveals the whole map for that
+    // house. It runs before TransactMoney.
+    #[cfg(feature = "phobos")]
+    if warhead.reveal != 0
+        && let Some(owner) = house
+    {
+        if warhead.reveal < 0 {
+            world.reveal_map_for_owner(owner, rules);
+        } else {
+            let config = world.sight_reveal_config(rules);
+            let viewers = crate::sim::vision::direct_reveal_viewers(
+                world.house_alliances.as_map(),
+                owner,
+                &config,
+                &world.interner,
+                &world.fog_viewers(),
+            );
+            if !viewers.is_empty() {
+                let radius = warhead.reveal.clamp(0, i32::from(u16::MAX)) as u16;
+                let cell = ((impact.x / 256) as u16, (impact.y / 256) as u16);
+                let context = crate::sim::world::UninitContext::new(rules, overlay_registry);
+                let notification = world.session.current_house();
+                for final_pass in [false, true] {
+                    let _ = world.reveal_area(
+                        &viewers,
+                        cell,
+                        impact.z,
+                        radius,
+                        None,
+                        final_pass,
+                        &config,
+                        context,
+                        crate::sim::vision::MapRevealProjection::Transient,
+                        notification,
+                    );
+                }
+            }
+        }
+    }
     // `WarheadTypeExt::Detonate`'s `TransactMoney` block runs before the crit
     // prefix and regardless of whether this warhead can crit
     // (`Ext/WarheadType/Detonate.cpp:102-111`).
@@ -316,6 +373,68 @@ pub(crate) fn detonate(
                 run.effects(),
             );
         }
+        // `DetonateOnOneUnit`'s `ApplyAmmoModifier(pTarget)`
+        // (`Detonate.cpp:221-222,923-932`): before RemoveDisguise, the delta
+        // clamps into `0..type->Ammo`.
+        #[cfg(feature = "phobos")]
+        if warhead.ammo != 0 {
+            let max_ammo = world
+                .substrate
+                .entities
+                .get(target_id)
+                .and_then(|target| world.interner.object_type(target.type_ref(), rules))
+                .map_or(0, |object| object.ammo);
+            if let Some(ammo) = world
+                .substrate
+                .entities
+                .get_mut(target_id)
+                .and_then(|target| target.ammo_mut())
+            {
+                ammo.apply_warhead_delta(warhead.ammo, max_ammo);
+            }
+        }
+        // `DetonateOnOneUnit`'s `ApplyRemoveDisguise(pTarget)`
+        // (`Detonate.cpp:224-225,466-475`): after the one-time Ammo arm and
+        // before ReverseEngineer/ReturnWarhead. Infantry clears the `Disguised`
+        // flag only; a Unit also clears the recorded identity.
+        #[cfg(feature = "phobos")]
+        if warhead.remove_disguise {
+            let frame = world.session.binary_frame() as u32;
+            if let Some(target) = world.substrate.entities.get_mut(target_id)
+                && target
+                    .disguise
+                    .as_ref()
+                    .is_some_and(|disguise| disguise.is_disguised())
+            {
+                if target.category() == EntityCategory::Unit {
+                    target.disguise_mut(frame).clear_unit();
+                } else {
+                    target.disguise_mut(frame).clear_flag();
+                }
+            }
+        }
+        // `DetonateOnOneUnit`'s `ApplyReverseEngineer(pHouse, pTarget)`
+        // (`Detonate.cpp:227-228,260-264`): after the one-time Ammo and
+        // RemoveDisguise arms and before ReturnWarhead. A firing house that is
+        // not `MultiplayPassive` records the victim's type through Ares'
+        // HouseExt::ExtData::ReverseEngineer (10022360), which only exists
+        // with Ares.
+        #[cfg(all(feature = "phobos", feature = "ares"))]
+        if warhead.reverse_engineer
+            && let Some(owner) = house
+            && !world
+                .houses
+                .get(&owner)
+                .is_some_and(|house| house.multiplay_passive())
+            && let Some(type_ref) = world
+                .substrate
+                .entities
+                .get(target_id)
+                .map(|target| target.type_ref())
+            && let Some(victim_type) = world.object_type(type_ref, rules)
+        {
+            world.ares_reverse_engineer_house(owner, victim_type, rules);
+        }
         // `DetonateOnOneUnit`'s `ApplyReturnWarhead(pHouse, pTarget, pOwner)`
         // (`Detonate.cpp:229-231`): after the displacement arms and before
         // `PenetratesTransport`.
@@ -350,6 +469,19 @@ pub(crate) fn detonate(
             impact,
             effects,
         );
+        // `DetonateOnOneUnit`'s Taunt arm (`Detonate.cpp:236-237`): after the
+        // penetrate/displacement effects and before the shield modifiers, a
+        // hit target is ordered to `Mission::Attack` the firing techno.
+        #[cfg(feature = "phobos")]
+        if warhead.taunt && source_id != 0 {
+            let _ = world.override_mission_on_damage_response(
+                target_id,
+                source_id,
+                rules,
+                overlay_registry,
+                run.effects(),
+            );
+        }
         // `DetonateOnOneUnit`'s `ApplyShieldModifiers(pTarget)`
         // (`Detonate.cpp:240`): after the PenetratesTransport arm and before
         // the attach-effect and crit blocks, so the receiver's damage hits

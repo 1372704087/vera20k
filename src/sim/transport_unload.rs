@@ -60,6 +60,40 @@ const fn opposite_octant(octant: usize) -> usize {
     (octant + 4) & 7
 }
 
+/// Phobos `AmphibiousUnload=` (`Ext/TechnoType/Body.cpp:1108`,
+/// `Nullable<bool>` field `Body.h:343`): the transport type's key, else
+/// `[General] AmphibiousUnload` (`Ext/Rules/Body.cpp:198`).
+#[cfg(feature = "phobos")]
+fn transport_amphibious_unload(sim: &Simulation, rules: &RuleSet, transport: &GameEntity) -> bool {
+    sim.object_type(transport.type_ref(), rules)
+        .and_then(|object| object.phobos_amphibious_unload)
+        .unwrap_or(rules.phobos_globals.amphibious_unload)
+}
+
+/// Without the `phobos` feature the key is not read.
+#[cfg(not(feature = "phobos"))]
+fn transport_amphibious_unload(
+    _sim: &Simulation,
+    _rules: &RuleSet,
+    _transport: &GameEntity,
+) -> bool {
+    false
+}
+
+/// The head passenger's type, as `CargoClass::GetFirstPassenger` resolves it.
+fn first_passenger_type<'a>(
+    sim: &'a Simulation,
+    rules: &'a RuleSet,
+    transport: &GameEntity,
+) -> Option<&'a crate::rules::object_type::ObjectType> {
+    transport
+        .passenger_role
+        .cargo()
+        .and_then(|cargo| cargo.passengers().first())
+        .and_then(|&id| sim.substrate.entities.get(id))
+        .and_then(|passenger| sim.object_type(passenger.type_ref(), rules))
+}
+
 /// Handler states on `unit+0xBC` (`MissionCom::handler_state`).
 const STATE_PICK_EXIT: u32 = 0;
 const STATE_TURNING: u32 = 1;
@@ -155,6 +189,7 @@ fn octant_cell_open(
     sim: &Simulation,
     cell: (u16, u16),
     transport_owner: crate::sim::intern::InternedId,
+    speed_type: SpeedType,
 ) -> bool {
     let Some(terrain) = sim.resolved_terrain.as_ref() else {
         return false;
@@ -163,7 +198,7 @@ fn octant_cell_open(
     let native = cells.lookup((cell.0 as i16, cell.1 as i16));
     if terrain
         .land_speed_costs(cells.land_type(native))
-        .cost_for_speed_type(SpeedType::Foot)
+        .cost_for_speed_type(speed_type)
         .is_some_and(|cost| cost.is_zero())
     {
         return false;
@@ -200,8 +235,20 @@ fn octant_cell_open(
 /// The `UnitType+0xC94` (`IsTrain=`) override that returns the current facing
 /// octant instead (`0x00740DC5`) is not represented: no stock YR unit sets
 /// the key and it is not parsed.
-fn pick_exit_octant(sim: &Simulation, entity: &GameEntity) -> Option<((u16, u16), usize)> {
+fn pick_exit_octant(
+    sim: &Simulation,
+    rules: &RuleSet,
+    entity: &GameEntity,
+) -> Option<((u16, u16), usize)> {
     let owner = entity.owner();
+    // Phobos `AmphibiousUnload` (hook `0x740C9C`,
+    // `Ext/Techno/Hooks.Transport.cpp:700-714`): the exit scan's hard-coded
+    // Foot speed becomes the head passenger's own SpeedType.
+    let speed_type = if transport_amphibious_unload(sim, rules, entity) {
+        first_passenger_type(sim, rules, entity).map_or(SpeedType::Foot, |object| object.speed_type)
+    } else {
+        SpeedType::Foot
+    };
     let base = (entity.position.rx(), entity.position.ry());
     // `0x00740B9F..BAD`: the body's `Current()` (`+0x388`), full 16 bits.
     let facing16 = entity.body_facing_current(sim.session.binary_frame());
@@ -211,7 +258,8 @@ fn pick_exit_octant(sim: &Simulation, entity: &GameEntity) -> Option<((u16, u16)
     let mut best_score: i32 = -1;
     let mut best_octant: usize = 0;
     for (octant, &delta) in DIRECTION_DELTAS.iter().enumerate() {
-        let open = cell_from(base, delta).is_some_and(|cell| octant_cell_open(sim, cell, owner));
+        let open = cell_from(base, delta)
+            .is_some_and(|cell| octant_cell_open(sim, cell, owner, speed_type));
         let mut score: i32 = if open { 0x80 } else { -0x80 };
         let dir8 = i32::from(((octant as u32) << 5) as u8 as i8);
         score -= (dir8 - rear8).abs();
@@ -331,6 +379,14 @@ fn eject_head_passenger(
         DepartureRoute::Vehicle,
         |sim, pax_id| {
             let now = sim.session.binary_frame();
+            // Phobos `AmphibiousUnload` (hook `0x73DAD8`,
+            // `Ext/Techno/Hooks.Transport.cpp:716-728`): the placement search's
+            // hard-coded MovementZone Normal becomes the head passenger's.
+            let amphibious_unload = sim
+                .substrate
+                .entities
+                .get(transport_id)
+                .is_some_and(|transport| transport_amphibious_unload(sim, rules, transport));
             let (base, facing16, transport_z, height, leave_sound) = {
                 let transport = sim
                     .substrate
@@ -447,7 +503,11 @@ fn eject_head_passenger(
                                 PassabilityArgs {
                                     speed_type: object.speed_type,
                                     required_zone_id: None,
-                                    movement_zone: MovementZone::Normal,
+                                    movement_zone: if amphibious_unload {
+                                        object.movement_zone
+                                    } else {
+                                        MovementZone::Normal
+                                    },
                                     bridge_aware_zone: false,
                                 },
                                 NearbyFootprint::SINGLE,
@@ -1036,13 +1096,33 @@ pub(crate) fn unit_mission_unload(
             }
             // No NavCom and the current cell's LandType is Water (`+0xEC == 2`,
             // `0x0073D769`): drive to the nearest passable cell first and
-            // `return 10` — a hover transport unloads on land.
-            let on_water = sim
+            // `return 10` — a hover transport unloads on land. Phobos
+            // `AmphibiousUnload` (`Ext/Techno/Hooks.Transport.cpp:382-388`,
+            // hook `0x73D769`) replaces the water test with the head
+            // passenger's own land row when the key is set.
+            let amphibious_unload = transport_amphibious_unload(sim, rules, entity);
+            let transport_land = sim
                 .resolved_terrain
                 .as_ref()
                 .and_then(|terrain| terrain.cell(entity.position.rx(), entity.position.ry()))
-                .is_some_and(|cell| cell.land_type == LandType::Water.as_index());
-            if entity.navigation.nav_com().is_none() && on_water {
+                .map(|cell| i32::from(cell.land_type));
+            let on_water = transport_land == Some(i32::from(LandType::Water.as_index()));
+            let can_unload_here = if amphibious_unload {
+                first_passenger_type(sim, rules, entity).is_none_or(|passenger| {
+                    let (Some(terrain), Some(land)) =
+                        (sim.resolved_terrain.as_ref(), transport_land)
+                    else {
+                        return true;
+                    };
+                    terrain
+                        .land_speed_costs(land)
+                        .cost_for_speed_type(passenger.speed_type)
+                        .is_some_and(|cost| !cost.is_zero())
+                })
+            } else {
+                !on_water
+            };
+            if entity.navigation.nav_com().is_none() && !can_unload_here {
                 // `PUSH 0x2` at `0x0073D790`: the search runs for speed-type
                 // index 2 — Wheel in the native `SpeedType` order (Foot 0,
                 // Track 1, Wheel 2, Hover 3, ...), a land-only type — not for
@@ -1052,22 +1132,43 @@ pub(crate) fn unit_mission_unload(
                 // cell (`0x0073D772..0x0073D7B0`). A failed search still
                 // returns packed CellStruct::Empty (0,0), which the caller
                 // looks up and passes to Set_Destination73D7B5..73D7D1.
+                // Phobos hook `0x73D7AB`
+                // (`Ext/Techno/Hooks.Transport.cpp:671-689`) replaces Wheel
+                // and Normal with the head passenger's own SpeedType and
+                // MovementZone when `AmphibiousUnload` is set.
                 let seed = (
                     i32::from(entity.position.rx()),
                     i32::from(entity.position.ry()),
                 );
+                let (speed_type, movement_zone) = if amphibious_unload {
+                    first_passenger_type(sim, rules, entity)
+                        .map_or((SpeedType::Wheel, MovementZone::Normal), |passenger| {
+                            (passenger.speed_type, passenger.movement_zone)
+                        })
+                } else {
+                    (SpeedType::Wheel, MovementZone::Normal)
+                };
                 let wheel_land = PassabilityArgs {
-                    speed_type: SpeedType::Wheel,
+                    speed_type,
                     required_zone_id: None,
-                    movement_zone: MovementZone::Normal,
+                    movement_zone,
                     bridge_aware_zone: false,
                 };
-                let cell = sim
-                    .nearby_passable_cell(
-                        seed,
-                        NearbyArgs::plain(wheel_land, NearbyFootprint::SINGLE),
-                    )
-                    .unwrap_or((0, 0));
+                let nearby = sim.nearby_passable_cell(
+                    seed,
+                    NearbyArgs::plain(wheel_land, NearbyFootprint::SINGLE),
+                );
+                // `0x73D7B7`: a failed search leaves packed CellStruct::Empty,
+                // and Phobos returns the CannotUnload arm (`0x73D87F`,
+                // `Ext/Techno/Hooks.Transport.cpp:691-698`) instead of
+                // setting (0,0) as the next destination.
+                #[cfg(feature = "phobos")]
+                let Some(cell) = nearby else {
+                    queue_guard(sim, id, rules);
+                    return unload_epilogue(&mut sim.scenario_rng, &sim.substrate, rules, id);
+                };
+                #[cfg(not(feature = "phobos"))]
+                let cell = nearby.unwrap_or((0, 0));
                 if let Some(terrain) = sim.resolved_terrain.as_ref() {
                     // This fresh lookup precedes the Unit setter. Retain its
                     // identity even if a later setter lookup restamps Dummy.
@@ -1086,7 +1187,7 @@ pub(crate) fn unit_mission_unload(
                 return WAIT_MOVING_FRAMES;
             }
             let cargo = entity.passenger_role.passenger_count();
-            let pick = pick_exit_octant(sim, entity);
+            let pick = pick_exit_octant(sim, rules, entity);
             if let (true, Some((_exit_cell, face_octant))) = (cargo != 0, pick) {
                 // `FUN_0070DC60` → `Type+0x808 TurretCount > 0` (`0x00717880`):
                 // a turreted transport (the IFV) keeps its last passenger —

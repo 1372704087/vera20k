@@ -504,14 +504,33 @@ pub fn init_spawn_manager(
     let kamikaze_wait_frames = rules.spawn_missile_wait_frames(spawn_type_name);
     let is_missile_spawn = kamikaze_wait_frames.is_some();
     let frame = frame as i32;
+    // Phobos `SpawnManagerClass_Init_Spawns` (`0x6B6D44`,
+    // `Ext/Techno/Hooks.Misc.cpp:162-178`): nodes at or past
+    // `InitialSpawnsNumber` start Dead with `SpawnTimer.Start(RegenRate)`;
+    // the rest are live. An unset key uses `SpawnsNumber`.
+    #[cfg(feature = "phobos")]
+    let initial_spawns = obj
+        .initial_spawns_number
+        .unwrap_or(obj.spawns_number)
+        .clamp(0, obj.spawns_number);
+    #[cfg(not(feature = "phobos"))]
+    let initial_spawns = obj.spawns_number;
     let slots = (0..obj.spawns_number.max(0) as usize)
-        .map(|_| SpawnSlot {
+        .map(|index| SpawnSlot {
             spawn: None,
             // Slots enter Regenerating so the world-owned constructor
             // transaction can fill them (`commit_spawn_manager_pool`). Native
-            // fills them in the manager constructor.
+            // fills them in the manager constructor. A dead node's timer holds
+            // it back until `SpawnRegenRate` frames have passed.
             state: SpawnSlotState::Regenerating,
-            timer: CdTimer::started(frame, 0),
+            timer: CdTimer::started(
+                frame,
+                if (index as i32) < initial_spawns {
+                    0
+                } else {
+                    obj.spawn_regen_rate as i32
+                },
+            ),
             is_missile_spawn,
         })
         .collect();
@@ -1322,6 +1341,7 @@ pub(crate) fn commit_spawn_manager_pool(
     rules: &RuleSet,
     frame_effects: FrameEffects<'_>,
 ) {
+    let frame = sim.session.binary_frame() as i32;
     let Some(mut host) = WorldSpawn::new(
         sim,
         owner_id,
@@ -1330,7 +1350,10 @@ pub(crate) fn commit_spawn_manager_pool(
         return;
     };
     for index in 0..host.manager_ref().slots.len() {
-        if host.manager_ref().slots[index].spawn.is_none() {
+        let slot = &host.manager_ref().slots[index];
+        // `InitialSpawnsNumber` leaves the tail Dead with a started
+        // `SpawnTimer`; only a slot whose timer already ran out materialises.
+        if slot.spawn.is_none() && slot.timer.expired(frame) {
             fill_slot(&mut host, index);
         }
     }

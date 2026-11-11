@@ -42,6 +42,11 @@ fn true_bool() -> bool {
     true
 }
 
+/// The `Team` constructor default for `[AudioVisual] RevealHouses=`.
+fn reveal_houses_default() -> AffectedHouse {
+    AffectedHouse::TEAM
+}
+
 /// A `Valueable<float>` global constructed 1.0, for serde defaults.
 fn one_f32() -> crate::util::native_x87::NativeF32Bits {
     crate::util::native_x87::NativeF32Bits::ONE
@@ -202,6 +207,19 @@ pub struct PhobosGlobals {
     /// `RearApproach` and `FastScramble` keys
     /// (`rules::phobos_extended_aircraft_missions`).
     pub extended_aircraft_missions: bool,
+    /// `[General] AmphibiousEnter=`, default `no`
+    /// (`Ext/Rules/Body.cpp:197`, constructor `Ext/Rules/Body.h:654`): the
+    /// fallback for a transport type's key; `yes` admits boarding while the
+    /// transport sits on water (`Ext/Techno/Hooks.Transport.cpp:252`,
+    /// `0x73796B`).
+    pub amphibious_enter: bool,
+    /// `[General] AmphibiousUnload=`, default `no`
+    /// (`Ext/Rules/Body.cpp:198`, constructor `Ext/Rules/Body.h:655`): the
+    /// fallback for a transport type's key; water unload then asks the
+    /// passenger's own land row instead of refusing (`CanUnloadNow`,
+    /// `Ext/Techno/Hooks.Transport.cpp:384`, hooks `0x7400B5`, `0x70107A`,
+    /// `0x73D769`, `0x73D7AB`, `0x740C9C`, `0x73DAD8`).
+    pub amphibious_unload: bool,
     /// `[General] ExtendedAircraftMissions.UnlandDamage=`, default `0`
     /// (`Ext/Rules/Body.cpp:192`, `Ext/Rules/Body.h:98`): the damage an
     /// aircraft that cannot land takes, or the kill threshold when negative.
@@ -470,6 +488,31 @@ pub struct PhobosGlobals {
     /// (`Ext/Techno/Hooks.Firing.cpp:1265-1274`).
     #[serde(default)]
     pub cylinder_rangefinding: bool,
+    /// `[General] RecountBurst=`, default `no` (`Ext/Rules/Body.cpp:382`,
+    /// constructor `Ext/Rules/Body.h:803`): a weapon change or an idle timeout
+    /// recounts the retained burst index and re-arms the shot
+    /// (`Ext/Techno/Body.Update.cpp:544-566`,
+    /// `Ext/Techno/Hooks.Firing.cpp:609-633`).
+    #[serde(default)]
+    pub recount_burst: bool,
+    /// `[General] AISuperWeaponDelay=` (`Nullable<int>`, game frames,
+    /// `Ext/Rules/Body.cpp:127`, decl `Ext/Rules/Body.h:45`): when set, the
+    /// strategy-side `AI_TryFireSW` call is skipped and a per-house timer
+    /// gates the per-frame call; `<= 0` tries every frame
+    /// (`Ext/House/Hooks.cpp:508-541`). Unset keeps the stock cadence.
+    #[serde(default)]
+    pub ai_superweapon_delay: Option<i32>,
+    /// `[AudioVisual] RevealHouses=` (`Valueable<AffectedHouse>`, default
+    /// `Team`, `Ext/Rules/Body.cpp:711`, constructor `Body.h:1063`): which
+    /// players a techno's sight reveals to when neither its type nor its
+    /// country overrides (`Ext/Techno/Hooks.cpp:2562-2596`).
+    #[serde(default = "reveal_houses_default")]
+    pub reveal_houses: AffectedHouse,
+    /// `[CombatDamage] BerzerkTargeting=`, default `all` (`:420`, constructor
+    /// `Body.h:846`, `Valueable<AffectedHouse>`): the houses a berzerk firer
+    /// may target (`Ext/Techno/Hooks.Firing.cpp:370`).
+    #[serde(default)]
+    pub berzerk_targeting: AffectedHouse,
     /// `[General] Strafing.SimulateBurst=`, default `no`
     /// (`Ext/Rules/Body.cpp:264`, constructor `Ext/Rules/Body.h:706`): the
     /// fallback for an unset weapon `Strafing.SimulateBurst`; `yes` alternates
@@ -776,6 +819,8 @@ impl Default for PhobosGlobals {
             display_income_houses: AffectedHouse::ALL,
             extended_aircraft_missions: false,
             extended_aircraft_missions_unland_damage: 0,
+            amphibious_enter: false,
+            amphibious_unload: false,
             ambient_damage_ignore_target: false,
             force_weapon_in_range_techno_only: true,
             force_weapon_in_range_apply_range_modifiers: false,
@@ -823,6 +868,10 @@ impl Default for PhobosGlobals {
             can_target_ai_iron_curtained: false,
             auto_target_iron_curtained: true,
             cylinder_rangefinding: false,
+            recount_burst: false,
+            ai_superweapon_delay: None,
+            reveal_houses: AffectedHouse::TEAM,
+            berzerk_targeting: AffectedHouse::ALL,
             strafing_simulate_burst: false,
             strafing_use_ammo_per_shot: false,
             strafing_target_cell: false,
@@ -901,6 +950,11 @@ impl PhobosGlobals {
             audio_visual,
             "DisplayIncome.Houses",
             globals.display_income_houses,
+        );
+        globals.reveal_houses = crate::rules::phobos_shields::read_affected_house(
+            audio_visual,
+            "RevealHouses",
+            globals.reveal_houses,
         );
         // `[AudioVisual] Promote.VeteranAnimation=` / `.EliteAnimation=`
         // (`Ext/Rules/Body.cpp:316-317`): `ValueableVector<AnimTypeClass*>`
@@ -1164,6 +1218,17 @@ impl PhobosGlobals {
         // `Valueable<bool>` (`Ext/Rules/Body.cpp:393`): no unset state.
         globals.no_turret_track_target =
             general.read_bool("NoTurret.TrackTarget", globals.no_turret_track_target);
+        globals.auto_target_no_threat_buildings = general.read_bool(
+            "AutoTarget.NoThreatBuildings",
+            globals.auto_target_no_threat_buildings,
+        );
+        globals.auto_target_ai_no_threat_buildings = general.read_bool(
+            "AutoTargetAI.NoThreatBuildings",
+            globals.auto_target_ai_no_threat_buildings,
+        );
+        globals.recount_burst = general.read_bool("RecountBurst", globals.recount_burst);
+        globals.ai_superweapon_delay =
+            general.read_phobos_nullable_int("AISuperWeaponDelay", globals.ai_superweapon_delay);
         // The StartFacing pair (`Ext/Rules/Body.cpp:626-627`): a Valueable<int>
         // and a Valueable<bool>, both read with their constructor value.
         globals.building_start_facing =
@@ -1204,6 +1269,11 @@ impl PhobosGlobals {
             "ExtendedAircraftMissions.UnlandDamage",
             globals.extended_aircraft_missions_unland_damage,
         );
+        // The two `Amphibious*` `Valueable<bool>` globals
+        // (`Ext/Rules/Body.cpp:197-198`, constructor `Body.h:654-655`).
+        globals.amphibious_enter = general.read_bool("AmphibiousEnter", globals.amphibious_enter);
+        globals.amphibious_unload =
+            general.read_bool("AmphibiousUnload", globals.amphibious_unload);
         // The three `[General] Strafing.*` `Valueable<bool>` fallbacks
         // (`Ext/Rules/Body.cpp:264-266`, constructor `Body.h:706-708`).
         globals.strafing_simulate_burst =
@@ -1376,6 +1446,11 @@ fn section_settings(section: &crate::rules::ini_parser::IniSection) -> PhobosGlo
         ),
         cylinder_rangefinding: section
             .read_bool("CylinderRangefinding", defaults.cylinder_rangefinding),
+        berzerk_targeting: crate::rules::phobos_shields::read_affected_house(
+            section,
+            "BerzerkTargeting",
+            defaults.berzerk_targeting,
+        ),
         overload_particle_sys_count: section.read_int(
             "Overload.ParticleSysCount",
             defaults.overload_particle_sys_count,

@@ -2201,3 +2201,75 @@ fn a_computer_houses_sight_opens_no_map_of_its_own() {
     assert!(!world.fog.is_cell_revealed(americans, 20, 20));
     assert!(!world.fog.by_owner().contains_key(&soviet));
 }
+
+/// Phobos `TechnoClass_RevealHouses` (`0x70AF22`/`0x70B15A`/`0x70B1F2`,
+/// `Ext/Techno/Hooks.cpp:2562-2596`): a techno's sight only reaches the
+/// players its resolved `RevealHouses` admits; type overrides country
+/// overrides `[AudioVisual]`.
+#[cfg(feature = "phobos")]
+#[test]
+fn reveal_houses_filters_the_viewer_maps_a_sight_reaches() {
+    use crate::rules::ini_parser::IniFile;
+    let rules = |country_keys: &str, type_keys: &str| {
+        RuleSet::from_ini(&IniFile::from_str(&format!(
+            "[Countries]\n0=Americans\n[Americans]\n{country_keys}\
+             [InfantryTypes]\n0=E1\n[E1]\nSight=4\n{type_keys}"
+        )))
+        .unwrap()
+    };
+    let revealed = |country_keys: &str, type_keys: &str| {
+        let mut store = EntityStore::new();
+        spawn_with_vision(&mut store, 1, "Americans", 10, 10, 4);
+        let americans = intern::test_intern("Americans");
+        let soviet = intern::test_intern("Soviet");
+        let mut world = crate::sim::world::Simulation::default();
+        world.fog = FogState::new(32, 32);
+        world.substrate.entities = store;
+        world.interner = ti();
+        seat_fixture_clients(&mut world, &HouseAllianceMap::new(), &[]);
+        world.house_alliances = HouseAlliances::new(HouseAllianceMap::from([(
+            "AMERICANS".to_string(),
+            ["SOVIET".to_string()].into(),
+        )]));
+        let rules = rules(country_keys, type_keys);
+        let country = world.interner.intern("Americans");
+        world
+            .houses
+            .get_mut(&americans)
+            .unwrap()
+            .set_country_for_test(Some(country));
+        let config = world.sight_reveal_config(&rules);
+        world.update_object_sight_in_view(
+            1,
+            0,
+            None,
+            &config,
+            None,
+            crate::sim::world::UninitContext::with_rules(&rules),
+        );
+        (
+            world.fog.is_cell_revealed(americans, 10, 10),
+            world.fog.is_cell_revealed(soviet, 10, 10),
+        )
+    };
+    assert_eq!(
+        revealed("", ""),
+        (true, true),
+        "the default Team admits the ally"
+    );
+    assert_eq!(
+        revealed("", "RevealHouses=owner\n"),
+        (true, false),
+        "the type key filters the ally"
+    );
+    assert_eq!(
+        revealed("RevealHouses=owner\n", ""),
+        (true, false),
+        "the country key filters the ally"
+    );
+    assert_eq!(
+        revealed("RevealHouses=owner\n", "RevealHouses=all\n"),
+        (true, true),
+        "the type key overrides the country"
+    );
+}

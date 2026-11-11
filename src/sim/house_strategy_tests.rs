@@ -969,3 +969,62 @@ fn non_bincode_missing_house_field_uses_native_constructor_defaults() {
         crate::sim::house_state::strategy_timer_at_construction()
     );
 }
+
+/// Phobos `[General] AISuperWeaponDelay=` (`Ext/Rules/Body.cpp:127`,
+/// `Ext/House/Hooks.cpp:518-541`): with the key set, a per-house timer gates
+/// the per-frame `AI_TryFireSW`; `<= 0` tries every frame; unset adds no
+/// per-frame call.
+#[cfg(feature = "phobos")]
+#[test]
+fn ai_superweapon_delay_gates_the_per_frame_try() {
+    use crate::sim::superweapon::ai_fire::{AI_FIRE_LOG, AiFireEvent};
+    let local_rules = |global: &str| {
+        RuleSet::from_ini(&IniFile::from_str(&format!(
+            "[General]\n{global}\
+             [InfantryTypes]\n0=FOOT\n[VehicleTypes]\n0=WHEELS\n\
+             [AircraftTypes]\n0=WINGS\n[BuildingTypes]\n0=PLAIN\n\
+             [PLAIN]\n[FOOT]\n[WHEELS]\n[WINGS]\n"
+        )))
+        .unwrap()
+    };
+    let tries = |global: &str, frames: &[u32]| -> Vec<usize> {
+        let rules = local_rules(global);
+        let (mut sim, names) = houses(true, 1);
+        let owner = names[0];
+        let mut counts = Vec::new();
+        for &frame in frames {
+            sim.session.set_binary_frame_for_test(frame);
+            AI_FIRE_LOG.with(|log| *log.borrow_mut() = Some(Vec::new()));
+            crate::sim::house_strategy::update_ai_superweapon_delay(
+                &mut sim,
+                &rules,
+                owner,
+                None,
+                crate::sim::world::FrameEffects::default(),
+            );
+            counts.push(AI_FIRE_LOG.with(|log| {
+                let events = log.borrow_mut().take().unwrap_or_default();
+                events
+                    .iter()
+                    .filter(|event| **event == AiFireEvent::TryFire)
+                    .count()
+            }));
+        }
+        counts
+    };
+    assert_eq!(
+        tries("AISuperWeaponDelay=3\n", &[0, 1, 2, 3]),
+        vec![1, 0, 0, 1],
+        "the per-house timer spaces the tries"
+    );
+    assert_eq!(
+        tries("AISuperWeaponDelay=0\n", &[0, 1]),
+        vec![1, 1],
+        "a non-positive delay tries every frame"
+    );
+    assert_eq!(
+        tries("", &[0, 1]),
+        vec![0, 0],
+        "unset adds no per-frame call"
+    );
+}

@@ -446,6 +446,57 @@ pub struct WarheadType {
     /// `Nullable<bool>`); `None` inherits `[CombatDamage]`.
     #[cfg(feature = "phobos")]
     pub apply_per_target_effects_on_detonate: Option<bool>,
+    /// Phobos `CreateGap=` (`Body.cpp:158`, default 0, cells): a positive
+    /// value shrouds that radius for enemies of the firing house; negative
+    /// reshrouds the whole map for every non-allied house
+    /// (`Ext/WarheadType/Detonate.cpp:51-80`).
+    #[cfg(feature = "phobos")]
+    pub create_gap: i32,
+    /// Phobos `Reveal=` (`Body.cpp:157`, default 0, cells): a positive value
+    /// reveals that radius to the firing house; negative reveals the whole
+    /// map for it (`Ext/WarheadType/Detonate.cpp:82-100`).
+    #[cfg(feature = "phobos")]
+    pub reveal: i32,
+    /// Phobos `CanKill=` (`Body.cpp:369`, default **true**): when false, a
+    /// lethal hit leaves `Health`/`EstimatedHealth` at 1
+    /// (`Ext/Techno/Hooks.ReceiveDamage.cpp:178-188`).
+    #[cfg(feature = "phobos")]
+    pub can_kill: bool,
+    /// Phobos `Taunt=` (`Body.cpp:444`, default false): each hit target is
+    /// forced into `Mission::Attack` against the detonation's owner
+    /// (`Ext/WarheadType/Detonate.cpp:236-237`).
+    #[cfg(feature = "phobos")]
+    pub taunt: bool,
+    /// Phobos `Ammo=` (`Body.cpp:452`, default 0): the per-target ammo delta,
+    /// clamped to `0..type->Ammo` (`Ext/WarheadType/Detonate.cpp:221-222,
+    /// 923-932`).
+    #[cfg(feature = "phobos")]
+    pub ammo: i32,
+    /// Phobos `RemoveDisguise=` (`Body.cpp:177`, default false): a disguised
+    /// target loses its disguise on impact
+    /// (`Ext/WarheadType/Detonate.cpp:224-225,466-475`).
+    #[cfg(feature = "phobos")]
+    pub remove_disguise: bool,
+    /// Phobos `ReverseEngineer=` (`Body.cpp:418`, default false): each hit
+    /// target's type is recorded for the firing house through Ares'
+    /// `ReverseEngineer` (`Ext/WarheadType/Detonate.cpp:227-228,260-264`).
+    #[cfg(feature = "phobos")]
+    pub reverse_engineer: bool,
+    /// Phobos `PreventCrewEscape=` (`Body.cpp:448`, default false): a killing
+    /// hit latches the victim's crew count to 0
+    /// (`Ext/Techno/Hooks.ReceiveDamage.cpp:259-280`).
+    #[cfg(feature = "phobos")]
+    pub prevent_crew_escape: bool,
+    /// Phobos `PreventPassengerEscape=` (`Body.cpp:449`, default false): a
+    /// killing hit kills the victim's passengers
+    /// (`Ext/Techno/Hooks.ReceiveDamage.cpp:276-277`).
+    #[cfg(feature = "phobos")]
+    pub prevent_passenger_escape: bool,
+    /// Phobos `PreventOccupantEscape=` (`Body.cpp:450`, default false): a
+    /// killing hit kills a building's occupants instead of releasing them
+    /// (`Ext/Techno/Hooks.ReceiveDamage.cpp:282-297`).
+    #[cfg(feature = "phobos")]
+    pub prevent_occupant_escape: bool,
     /// Phobos animation-list enhancement settings (`AnimList.*`,
     /// `SplashList.*`, `CreateAnimsOnZeroDamage`, `Conventional.IgnoreUnits`).
     #[cfg(feature = "phobos")]
@@ -926,6 +977,26 @@ impl WarheadType {
             #[cfg(feature = "phobos")]
             apply_per_target_effects_on_detonate: section
                 .read_phobos_nullable_bool("ApplyPerTargetEffectsOnDetonate", None),
+            #[cfg(feature = "phobos")]
+            create_gap: section.read_int("CreateGap", 0),
+            #[cfg(feature = "phobos")]
+            reveal: section.read_int("Reveal", 0),
+            #[cfg(feature = "phobos")]
+            can_kill: section.read_bool("CanKill", true),
+            #[cfg(feature = "phobos")]
+            taunt: section.read_bool("Taunt", false),
+            #[cfg(feature = "phobos")]
+            ammo: section.read_int("Ammo", 0),
+            #[cfg(feature = "phobos")]
+            remove_disguise: section.read_bool("RemoveDisguise", false),
+            #[cfg(feature = "phobos")]
+            reverse_engineer: section.read_bool("ReverseEngineer", false),
+            #[cfg(feature = "phobos")]
+            prevent_crew_escape: section.read_bool("PreventCrewEscape", false),
+            #[cfg(feature = "phobos")]
+            prevent_passenger_escape: section.read_bool("PreventPassengerEscape", false),
+            #[cfg(feature = "phobos")]
+            prevent_occupant_escape: section.read_bool("PreventOccupantEscape", false),
             #[cfg(feature = "phobos")]
             phobos_anim: crate::rules::phobos_warhead_anim::PhobosWarheadAnimRules::from_section(
                 section,

@@ -861,6 +861,42 @@ fn hover_transport_on_water_moves_to_shore_before_unloading() {
     }
 }
 
+/// Phobos `0x73D7B7` (`Ext/Techno/Hooks.Transport.cpp:691-698`): a failed
+/// water-to-land search answers the CannotUnload arm instead of setting cell
+/// `(0,0)` as the next destination.
+#[cfg(feature = "phobos")]
+#[test]
+fn amphibious_unload_with_no_land_cell_takes_the_cannot_unload_tail() {
+    let mut fx = Fixture::new(|_, _| true);
+    fx.rules = rules_with_patch("[General]\nAmphibiousUnload=yes\n");
+    let lcrf = fx.spawn("LCRF", 20, 20, 0x40);
+    fx.board(lcrf, 2);
+    assert!(fx.apply(Command::UnloadPassengers { transport_id: lcrf }));
+    for _ in 0..10 {
+        fx.tick();
+    }
+    assert_eq!(
+        fx.cargo_ids(lcrf).len(),
+        2,
+        "nobody is dropped into the water"
+    );
+    let nav = fx
+        .sim
+        .substrate
+        .entities
+        .get(lcrf)
+        .unwrap()
+        .navigation
+        .nav_com();
+    assert!(
+        !matches!(
+            nav,
+            Some(crate::sim::components::NavTargetRef::Cell { rx: 0, ry: 0 })
+        ),
+        "a failed search must not set (0,0): {nav:?}"
+    );
+}
+
 /// The water-to-land pre-move pushes no height gate (`0x0073D782`): a bank
 /// two levels above the water still answers Find_Nearby_Passable_Cell, so the
 /// landing craft is sent to it instead of waiting on the water.

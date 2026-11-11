@@ -944,6 +944,13 @@ impl DisguiseRuntime {
         self.disguise_creation_frame = frame;
     }
 
+    /// `InfantryClass::Disguised = false` on a warhead impact
+    /// (`Ext/WarheadType/Detonate.cpp:470-471`): only the flag is cleared, the
+    /// recorded type and house stay.
+    pub(crate) fn clear_flag(&mut self) {
+        self.disguised = false;
+    }
+
     /// `UnitClass::ClearDisguise` additionally clears type and house.
     pub fn clear_unit(&mut self) {
         self.disguised = false;

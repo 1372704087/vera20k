@@ -78,6 +78,9 @@ pub(crate) struct FirerPart {
     can_target_iron_curtained: bool,
     #[cfg(feature = "phobos")]
     can_target_ai_iron_curtained: bool,
+    /// Phobos `[CombatDamage] BerzerkTargeting=`.
+    #[cfg(feature = "phobos")]
+    berzerk_targeting: crate::rules::phobos_shields::AffectedHouse,
 }
 
 impl FirerPart {
@@ -117,6 +120,8 @@ impl FirerPart {
             can_target_iron_curtained: self.can_target_iron_curtained,
             #[cfg(feature = "phobos")]
             can_target_ai_iron_curtained: self.can_target_ai_iron_curtained,
+            #[cfg(feature = "phobos")]
+            berzerk_targeting: self.berzerk_targeting,
         }
     }
 }
@@ -548,6 +553,8 @@ impl<'a> FireSubject<'a> {
             can_target_iron_curtained: self.rules.phobos_globals.can_target_iron_curtained,
             #[cfg(feature = "phobos")]
             can_target_ai_iron_curtained: self.rules.phobos_globals.can_target_ai_iron_curtained,
+            #[cfg(feature = "phobos")]
+            berzerk_targeting: self.rules.phobos_globals.berzerk_targeting,
         }
     }
 
@@ -1075,6 +1082,28 @@ impl FireQuery for WorldQuery<'_, '_> {
         self.target
             .entity
             .is_some_and(|target| self.house_allied(target.owner(), subject.firer.owner()))
+    }
+
+    /// Phobos `EnumFunctions::CanTargetHouse(BerzerkTargeting, firer, target)`
+    /// (`Ext/Techno/Hooks.Firing.cpp:370`). A non-entity target never reaches
+    /// this arm (the caller asks only for a techno target).
+    #[cfg(feature = "phobos")]
+    fn can_target_berzerk_house(
+        &mut self,
+        flags: crate::rules::phobos_shields::AffectedHouse,
+    ) -> bool {
+        let Some(target) = self.target.entity else {
+            return true;
+        };
+        let subject = self.subject;
+        crate::sim::combat::can_target_house(
+            flags,
+            subject.firer.owner(),
+            target.owner(),
+            &subject.world.houses,
+            &subject.world.house_alliances,
+            &subject.world.interner,
+        )
     }
 
     fn bridge_for_firing(&mut self) -> bool {

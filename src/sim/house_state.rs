@@ -904,6 +904,12 @@ pub struct HouseState {
     /// (`0x004F5B9D..0x004F5BA8`). Persisted and hashed (schema v234).
     #[serde(default = "strategy_timer_at_construction")]
     strategy_timer: CdTimer,
+    /// Phobos `HouseExt::AISuperWeaponDelayTimer` (`Ext/House/Body.h:47`): the
+    /// `[General] AISuperWeaponDelay=` per-house gate around `AI_TryFireSW`
+    /// (`Ext/House/Hooks.cpp:518-541`). Unstarted at construction.
+    #[cfg(feature = "phobos")]
+    #[serde(default)]
+    ai_superweapon_delay_timer: CdTimer,
     /// House+5640/+5648. Post_Map_Init00686A12..00686A2B starts it once;
     /// AI_Building_Strategy004FD50F..004FD538 only reads it. HouseSave504080
     /// preserves it in the raw House payload; snapshots and hashes do too.
@@ -1230,6 +1236,19 @@ impl HouseState {
     /// restarts at this frame with the delay `AI_Building_Strategy` returned.
     pub(crate) fn restart_strategy_timer(&mut self, frame: i32, delay: i32) {
         self.strategy_timer.start(frame, delay);
+    }
+
+    /// Phobos `HouseExt::AISuperWeaponDelayTimer.HasTimeLeft()`: the frames
+    /// left before the next per-frame `AI_TryFireSW`.
+    #[cfg(feature = "phobos")]
+    pub(crate) fn ai_superweapon_delay_remaining(&self, frame: i32) -> i32 {
+        self.ai_superweapon_delay_timer.remaining(frame)
+    }
+
+    /// Phobos `HouseExt::AISuperWeaponDelayTimer.Start(delay)`.
+    #[cfg(feature = "phobos")]
+    pub(crate) fn start_ai_superweapon_delay(&mut self, frame: i32, delay: i32) {
+        self.ai_superweapon_delay_timer.start(frame, delay);
     }
 
     /// ScenarioClass::Post_Map_Init006869EA..00686A2B: only IsHuman and
@@ -3084,6 +3103,8 @@ impl HouseState {
             economy: Economy::new(credits),
             strategy_emergency: HouseStrategyEmergencyState::default(),
             strategy_timer: strategy_timer_at_construction(),
+            #[cfg(feature = "phobos")]
+            ai_superweapon_delay_timer: CdTimer::default(),
             enemy_search_timer: enemy_search_timer_at_construction(),
             team_creation: Default::default(),
             ai_activation: HouseAiActivationLatches::default(),

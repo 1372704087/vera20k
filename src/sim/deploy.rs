@@ -371,11 +371,21 @@ impl Simulation {
                         }))
                         .flatten()
                         .any(|index| cell(index).bridge_facts.has_structural_bridge());
+                    // Phobos `AmphibiousUnload` (hook `0x70107A`,
+                    // `Ext/Techno/Hooks.Transport.cpp:646-657`): on water the
+                    // water refusal yields to the type key or `[General]`.
+                    #[cfg(feature = "phobos")]
+                    let amphibious_unload = object
+                        .phobos_amphibious_unload
+                        .unwrap_or(rules.phobos_globals.amphibious_unload);
+                    #[cfg(not(feature = "phobos"))]
+                    let amphibious_unload = false;
                     if near_deck
-                        || (self
-                            .houses
-                            .get(&entity.owner())
-                            .is_some_and(|house| house.is_human())
+                        || (!amphibious_unload
+                            && self
+                                .houses
+                                .get(&entity.owner())
+                                .is_some_and(|house| house.is_human())
                             && cell(own).land_type == LandType::Water.as_index())
                     {
                         return false;

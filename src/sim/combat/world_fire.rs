@@ -1935,6 +1935,57 @@ pub(super) fn emit_admitted_fire(
     ) {
         return None;
     }
+    // Phobos `TechnoClass_FireAt_UpdateWeaponType @ 0x6FDD7D`
+    // (`Ext/Techno/Hooks.Firing.cpp:609-633`), after the LimboLaunch arm and
+    // before FireAt's InLimbo refusal: with `RecountBurst` on, a weapon change
+    // recounts the retained burst index against the previous weapon; a
+    // positive remaining ROF re-arms the shot and refuses this one, otherwise
+    // the index resets. The weapon is stored on every call.
+    #[cfg(feature = "phobos")]
+    {
+        let weapon_ref = world.interner.intern(selected.weapon_id);
+        let (last_ref, index, ae_mult, last_fire) = world
+            .substrate
+            .entities
+            .get(snap.stable_id)
+            .map_or((None, 0, 1.0, 0), |entity| {
+                (
+                    entity.phobos_last_weapon_type,
+                    entity.weapon_burst.index(),
+                    entity.phobos_rof_multiplier(),
+                    entity.last_fire_frame.frame(),
+                )
+            });
+        let changed = last_ref != Some(weapon_ref);
+        let recount = obj
+            .phobos_recount_burst
+            .unwrap_or(rules.phobos_globals.recount_burst);
+        if recount && index != 0 && changed {
+            if let Some(last) = last_ref
+                .and_then(|last| rules.weapon(world.interner.resolve(last)))
+                .filter(|last| last.burst != 0)
+            {
+                let frame = world.session.binary_frame() as i32;
+                let ratio = f64::from(index) / f64::from(last.burst);
+                let rof = (ratio * f64::from(last.rof) * ae_mult) as i32;
+                let rof = rof.wrapping_sub(frame.wrapping_sub(last_fire as i32));
+                if rof > 0 {
+                    if let Some(entity) = world.substrate.entities.get_mut(snap.stable_id) {
+                        entity.rearm_after_fire(frame, rof);
+                        entity.weapon_burst.reset();
+                        entity.phobos_last_weapon_type = Some(weapon_ref);
+                    }
+                    return None;
+                }
+            }
+            if let Some(entity) = world.substrate.entities.get_mut(snap.stable_id) {
+                entity.weapon_burst.reset();
+            }
+        }
+        if let Some(entity) = world.substrate.entities.get_mut(snap.stable_id) {
+            entity.phobos_last_weapon_type = Some(weapon_ref);
+        }
+    }
     // ObjectCtor5F3B37 sets Abstract flag0x2 (Object, not Foot0x4).
     // FireAt6FDD88..6FDDBE refuses any Object with +81 InLimbo before
     // Suicide or launch work. Cells bypass this gate; missing IDs represent

@@ -880,32 +880,43 @@ impl Simulation {
             return false;
         };
         let terrain = self.resolved_terrain.as_ref();
-        let stranded = terrain
-            .zip(self.object_type(first.type_ref(), rules))
-            .is_some_and(|(terrain, passenger)| {
-                let cells = crate::map::resolved_terrain::NativeCellQuery::canonical(terrain);
-                let coord =
-                    crate::sim::movement::ground_pose::position_world_coord(&entity.position);
-                let land = cells.land_type(cells.lookup_world(coord.x, coord.y));
-                land != i32::from(crate::rules::terrain_rules::LandType::Water.as_index())
-                    && u8::try_from(land)
-                        .ok()
-                        .and_then(|land| rules.terrain_rules.semantics_for_land_type(land))
-                        .is_some_and(|row| {
-                            // UnitWhatAction7400A1..7400BE: first passenger,
-                            // strictly below the native double1% threshold.
-                            row.cost_for_speed_type(passenger.speed_type)
-                                .is_some_and(|cost| {
-                                    matches!(
+        // Phobos `AmphibiousUnload` (hook `0x7400B5`,
+        // `Ext/Techno/Hooks.Transport.cpp:632-644`): the low-cost land refusal
+        // yields to the transport type's key, else `[General]`. Water already
+        // passed through, which the native hook keeps.
+        #[cfg(feature = "phobos")]
+        let amphibious_unload = object
+            .phobos_amphibious_unload
+            .unwrap_or(rules.phobos_globals.amphibious_unload);
+        #[cfg(not(feature = "phobos"))]
+        let amphibious_unload = false;
+        let stranded = !amphibious_unload
+            && terrain
+                .zip(self.object_type(first.type_ref(), rules))
+                .is_some_and(|(terrain, passenger)| {
+                    let cells = crate::map::resolved_terrain::NativeCellQuery::canonical(terrain);
+                    let coord =
+                        crate::sim::movement::ground_pose::position_world_coord(&entity.position);
+                    let land = cells.land_type(cells.lookup_world(coord.x, coord.y));
+                    land != i32::from(crate::rules::terrain_rules::LandType::Water.as_index())
+                        && u8::try_from(land)
+                            .ok()
+                            .and_then(|land| rules.terrain_rules.semantics_for_land_type(land))
+                            .is_some_and(|row| {
+                                // UnitWhatAction7400A1..7400BE: first passenger,
+                                // strictly below the native double1% threshold.
+                                row.cost_for_speed_type(passenger.speed_type)
+                                    .is_some_and(|cost| {
+                                        matches!(
                                         crate::rules::terrain_rules::compare_speed_to_one_percent(
                                             cost
                                         ),
                                         crate::util::native_x87::MaskedX87Ordering::Less
                                             | crate::util::native_x87::MaskedX87Ordering::Unordered
                                     )
-                                })
-                        })
-            });
+                                    })
+                            })
+                });
         stranded
             || (object.speed_type != SpeedType::Hover
                 && crate::sim::movement::air_movement::current_fly_height(entity, terrain) != 0)

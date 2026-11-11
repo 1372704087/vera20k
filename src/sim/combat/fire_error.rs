@@ -672,6 +672,11 @@ pub(crate) struct FireFacts {
     /// Phobos `[CombatDamage] CanTargetAI.IronCurtained=` (computer owners).
     #[cfg(feature = "phobos")]
     pub can_target_ai_iron_curtained: bool,
+    /// Phobos `[CombatDamage] BerzerkTargeting=` (`Ext/Rules/Body.cpp:420`,
+    /// default `all`): the houses a berzerk firer may target
+    /// (`Ext/Techno/Hooks.Firing.cpp:370`).
+    #[cfg(feature = "phobos")]
+    pub berzerk_targeting: crate::rules::phobos_shields::AffectedHouse,
 }
 
 /// The questions GetFireError asks other owners. Each is asked only where,
@@ -735,6 +740,16 @@ pub(crate) trait FireQuery {
     /// (`src/Ext/Techno/Hooks.Firing.cpp:355..383`). The default allows, for
     /// query owners that keep no AttachEffect state.
     fn attach_effect_gate(&mut self, _weapon_index: i32) -> bool {
+        true
+    }
+    /// Phobos `EnumFunctions::CanTargetHouse(BerzerkTargeting, firer, target)`
+    /// (`Ext/Techno/Hooks.Firing.cpp:370`). The default allows, for query
+    /// owners with no House graph.
+    #[cfg(feature = "phobos")]
+    fn can_target_berzerk_house(
+        &mut self,
+        _flags: crate::rules::phobos_shields::AffectedHouse,
+    ) -> bool {
         true
     }
     /// Building vt+0x408, the occupant count (B1).
@@ -1157,6 +1172,15 @@ fn techno(facts: &FireFacts, query: &mut impl FireQuery, check_range: bool) -> F
             } else {
                 facts.can_target_ai_iron_curtained
             })
+    {
+        return Illegal;
+    }
+    // Phobos `TechnoClass_CanFire` (`0x6FC339`) berzerk arm
+    // (`Ext/Techno/Hooks.Firing.cpp:370-371`), right after the iron-curtain
+    // one and only against a techno: a berzerk firer may target only the
+    // houses `[CombatDamage] BerzerkTargeting=` (default all) admits.
+    #[cfg(feature = "phobos")]
+    if kind.is_techno() && firer.berserk && !query.can_target_berzerk_house(facts.berzerk_targeting)
     {
         return Illegal;
     }

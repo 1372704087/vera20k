@@ -590,6 +590,41 @@ impl Simulation {
         #[cfg(feature = "ares")]
         self.ares_unit_tiberium_explosive(unit_id, rules, registry, effects);
         if !object.destroy_anims.is_empty() {
+            // Phobos `UnitClass_Destroy_DestroyAnim` (`0x738807`,
+            // `Ext/Anim/Hooks.AnimCreateUnit.cpp:22-29`) replaces the stock
+            // `Next() % count` pick with `AnimTypeExt::ProcessDestroyAnims`
+            // (`Ext/AnimType/Body.cpp:15-43`).
+            #[cfg(feature = "phobos")]
+            let anim = {
+                let list = object.destroy_anims.as_slice();
+                let random = object
+                    .phobos_destroy_anim_random
+                    .unwrap_or(rules.phobos_globals.destroy_anim_random);
+                if random {
+                    let index = if list.len() == 1 {
+                        0
+                    } else {
+                        self.scenario_rng
+                            .next_range_i32_inclusive(0, list.len() as i32 - 1)
+                            as usize
+                    };
+                    &list[index]
+                } else {
+                    let facing = death_facing.unwrap_or(0);
+                    let index = if list.len() >= 8 {
+                        let last = list.len() - 1;
+                        if list.len() % 2 == 0 {
+                            (f64::from(facing) / 256.0 * last as f64) as usize
+                        } else {
+                            last
+                        }
+                    } else {
+                        0
+                    };
+                    &list[index]
+                }
+            };
+            #[cfg(not(feature = "phobos"))]
             let anim = pick_death_anim(&mut self.scenario_rng, &object.destroy_anims);
             self.emit_death_anim(
                 rules,

@@ -326,7 +326,13 @@ fn a_dying_vehicle_plays_its_explosion_then_its_destroy_anim() {
         let mut recorded = Vec::new();
         sim.unit_death_explosion(&rules, unit, &mut recorded, None, FrameEffects::empty());
         let explosion = pick(&mut replay, &["EXPA", "EXPB", "EXPC"]);
-        let destroy = pick(&mut replay, &["DESTA"]);
+        // Phobos `ProcessDestroyAnims` does not draw for a one-entry list
+        // (`Ext/AnimType/Body.cpp:36-37`); the stock pick does.
+        let destroy = if cfg!(feature = "phobos") {
+            "DESTA".to_string()
+        } else {
+            pick(&mut replay, &["DESTA"])
+        };
         assert_eq!(
             anims(&sim),
             vec![
@@ -2310,5 +2316,119 @@ fn explodes_during_buildup_off_suppresses_the_death_weapon_under_construction() 
             Some(MissionType::Construction)
         ),
         "a vehicle does not read the building key"
+    );
+}
+
+/// Phobos `DestroyAnim.Random=` (`Ext/TechnoType/Body.cpp:875`, `Nullable`)
+/// with the `[General]` fallback (`Ext/Rules/Body.cpp:220`, default yes):
+/// `AnimTypeExt::ProcessDestroyAnims` (`Ext/AnimType/Body.cpp:15-43`) either
+/// takes `RandomRanged(0, count-1)` (no draw for one entry) or, with `no`,
+/// the facing entry — first below eight, last for odd counts, and
+/// `facing/256 * (count-1)` for even counts of at least eight.
+#[cfg(feature = "phobos")]
+fn destroy_anim_pick_rules(global: &str, type_keys: &str) -> RuleSet {
+    let rules_text = RULES
+        .replace("[General]\n", &format!("[General]\n{global}"))
+        .replace(
+            "[VehicleTypes]\n0=PLAIN\n1=APOC\n2=VETBOOM\n3=AMMOBOOM\n4=EMPTYBOOM\n5=SHIP\n6=SKIFF\n7=SUB",
+            "[VehicleTypes]\n0=PLAIN\n1=APOC\n2=VETBOOM\n3=AMMOBOOM\n4=EMPTYBOOM\n5=SHIP\n6=SKIFF\n7=SUB\n\
+             8=SINGLE\n9=PAIR\n10=EVEN\n11=ODD",
+        );
+    let rules_text = format!(
+        "{rules_text}\n\
+         [SINGLE]\nStrength=100\nDestroyAnim=S0\n{type_keys}\n\
+         [PAIR]\nStrength=100\nDestroyAnim=P0,P1\n{type_keys}\n\
+         [EVEN]\nStrength=100\nDestroyAnim=E0,E1,E2,E3,E4,E5,E6,E7\n{type_keys}\n\
+         [ODD]\nStrength=100\nDestroyAnim=O0,O1,O2,O3,O4,O5,O6,O7,O8\n{type_keys}"
+    );
+    let names = [
+        "S0", "P0", "P1", "E0", "E1", "E2", "E3", "E4", "E5", "E6", "E7", "O0", "O1", "O2", "O3",
+        "O4", "O5", "O6", "O7", "O8",
+    ];
+    let mut art_text = String::from(ART);
+    for name in names {
+        art_text.push_str(&format!("[{name}]\nEnd=10\n"));
+    }
+    let art_ini = IniFile::from_str(&art_text);
+    let mut rules =
+        RuleSet::from_ini_with_fixed_art_for_test(&IniFile::from_str(&rules_text), &art_ini)
+            .expect("DestroyAnim.Random rules");
+    let mut art = crate::rules::art_data::ArtRegistry::from_ini(&art_ini);
+    for name in names {
+        art.bind_anim_frame_count_for_test(name, 10);
+    }
+    rules.install_art_fixture(art);
+    rules
+}
+
+#[cfg(feature = "phobos")]
+#[test]
+fn phobos_destroy_anim_random_and_facing_pick_follow_process_destroy_anims() {
+    use crate::sim::movement::FacingClass;
+
+    fn die(rules: &RuleSet, kind: &str, dir: u8) -> (String, bool) {
+        let mut sim = sim(0x0D5A);
+        let unit = spawn(&mut sim, rules, kind, 12, 12);
+        sim.substrate.entities.get_mut(unit).unwrap().body_facing =
+            FacingClass::new(u16::from(dir) * 256, 0);
+        let before = sim.scenario_rng.state();
+        let mut recorded = Vec::new();
+        sim.unit_death_explosion(rules, unit, &mut recorded, None, FrameEffects::empty());
+        (anims(&sim)[0].0.clone(), sim.scenario_rng.state() == before)
+    }
+
+    let no_random = destroy_anim_pick_rules("DestroyAnim.Random=no\n", "");
+    assert_eq!(
+        die(&no_random, "SINGLE", 17),
+        ("S0".to_string(), true),
+        "a one-entry list draws nothing"
+    );
+    assert_eq!(
+        die(&no_random, "PAIR", 200),
+        ("P0".to_string(), true),
+        "below eight entries the first is taken"
+    );
+    assert_eq!(
+        die(&no_random, "ODD", 0),
+        ("O8".to_string(), true),
+        "an odd count of eight or more takes the last entry"
+    );
+    assert_eq!(
+        die(&no_random, "EVEN", 64),
+        ("E1".to_string(), true),
+        "an even count scales the facing into the list"
+    );
+    assert_eq!(
+        die(&no_random, "EVEN", 255),
+        ("E6".to_string(), true),
+        "the even-count scale never reaches the last entry"
+    );
+
+    let type_override = destroy_anim_pick_rules("", "DestroyAnim.Random=no\n");
+    assert_eq!(
+        die(&type_override, "EVEN", 64),
+        ("E1".to_string(), true),
+        "the type key overrides the default-yes global"
+    );
+
+    let override_yes =
+        destroy_anim_pick_rules("DestroyAnim.Random=no\n", "DestroyAnim.Random=yes\n");
+    let mut sim = sim(0x0D5B);
+    let unit = spawn(&mut sim, &override_yes, "EVEN", 12, 12);
+    let mut replay = sim.scenario_rng.clone();
+    let mut recorded = Vec::new();
+    sim.unit_death_explosion(
+        &override_yes,
+        unit,
+        &mut recorded,
+        None,
+        FrameEffects::empty(),
+    );
+    let index = replay.next_range_i32_inclusive(0, 7) as usize;
+    assert_eq!(anims(&sim)[0].0, format!("E{index}"));
+    assert_eq!(
+        sim.scenario_rng.state(),
+        replay.state(),
+        "the random arm draws RandomRanged(0, count-1)"
     );
 }

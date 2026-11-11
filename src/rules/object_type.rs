@@ -504,6 +504,11 @@ pub struct ObjectType {
     /// takes `Random__Next() % count` from it, exactly as it does for
     /// `Explosion=` — one draw each, explosion first.
     pub destroy_anims: Vec<String>,
+    /// Phobos `DestroyAnim.Random=` (`Nullable<bool>`,
+    /// `Ext/TechnoType/Body.cpp:875`): the unit `DestroyAnim` arm's override
+    /// for the `[General]` random pick; unset follows the global.
+    #[cfg(feature = "phobos")]
+    pub phobos_destroy_anim_random: Option<bool>,
     /// `Trainable=` (TechnoType `+0xC8E`) — whether this object can gain
     /// veterancy from its kills.
     ///
@@ -5038,6 +5043,9 @@ impl ObjectType {
             // Type references (`TechnoTypeReferences`).
             explosion_anims: Vec::new(),
             destroy_anims: Vec::new(),
+            #[cfg(feature = "phobos")]
+            phobos_destroy_anim_random: section
+                .read_phobos_nullable_bool("DestroyAnim.Random", None),
             trainable: section.read_bool("Trainable", category != ObjectCategory::Building),
             burst_delays: std::array::from_fn(|index| {
                 if category == ObjectCategory::Vehicle {

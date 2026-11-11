@@ -508,6 +508,12 @@ pub struct PhobosGlobals {
     /// (`Ext/Rules/Body.cpp:364`, constructor `Body.h:792`).
     #[serde(default = "true_bool")]
     pub combat_alert_use_eva: bool,
+    /// `[General] DestroyAnim.Random=`, default **`yes`**
+    /// (`Ext/Rules/Body.cpp:220`, constructor `Body.h:664`): a destroyed
+    /// unit with a `DestroyAnim=` list picks an entry at random, otherwise
+    /// the facing-based entry (`Ext/AnimType/Body.cpp:21-43`).
+    #[serde(default = "true_bool")]
+    pub destroy_anim_random: bool,
 }
 
 /// `CombatAlert.Interval=`'s constructor value (`Ext/Rules/Body.h:787`).
@@ -615,6 +621,7 @@ impl Default for PhobosGlobals {
             combat_alert_use_feedback_voice: true,
             combat_alert_use_attack_voice: true,
             combat_alert_use_eva: true,
+            destroy_anim_random: true,
         }
     }
 }
@@ -731,6 +738,8 @@ impl PhobosGlobals {
             "AlternateFLH.ApplyVehicle",
             globals.alternate_flh_apply_vehicle,
         );
+        globals.destroy_anim_random =
+            general.read_bool("DestroyAnim.Random", globals.destroy_anim_random);
         globals.not_human_random_death_sequence = general.read_bool(
             "NotHuman.RandomDeathSequence",
             globals.not_human_random_death_sequence,

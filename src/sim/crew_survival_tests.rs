@@ -1338,10 +1338,10 @@ fn kill_by(
     attacker: u64,
     flags: ReceiverCallFlags,
 ) {
-    kill_with(sim, rules, id, attacker, flags, "KILLWH");
+    kill_by_with(sim, rules, id, attacker, flags, "KILLWH");
 }
 
-fn kill_with(
+fn kill_by_with(
     sim: &mut Simulation,
     rules: &RuleSet,
     id: u64,
@@ -2755,7 +2755,7 @@ fn prevent_crew_escape_latches_on_the_killing_hit_and_suppresses_crew() {
         sim.building_survivor_count(&rules, plant) > 0,
         "a crewed building owes a survivor"
     );
-    kill_with(&mut sim, &rules, mcv, attacker, ORDINARY, "PWH");
+    kill_by_with(&mut sim, &rules, mcv, attacker, ORDINARY, "PWH");
     assert!(
         sim.substrate
             .entities
@@ -2794,7 +2794,7 @@ fn prevent_passenger_escape_kills_the_dying_transports_cargo() {
     let apc = spawn(&mut sim, &rules, "APC", "Americans", 10, 10);
     let attacker = spawn(&mut sim, &rules, "AMCV", "Russians", 14, 10);
     let passengers = load_passengers(&mut sim, &rules, apc, "Americans", 2);
-    kill_with(&mut sim, &rules, apc, attacker, ORDINARY, "PWH");
+    kill_by_with(&mut sim, &rules, apc, attacker, ORDINARY, "PWH");
     assert_eq!(cargo_len(&sim, apc), 0);
     for id in passengers {
         assert!(
@@ -2841,7 +2841,7 @@ fn prevent_occupant_escape_kills_a_dying_buildings_occupants() {
         .passenger_role
         .occupants_mut()
         .add(occupant);
-    kill_with(&mut sim, &rules, plant, attacker, ORDINARY, "PWH");
+    kill_by_with(&mut sim, &rules, plant, attacker, ORDINARY, "PWH");
     assert!(
         sim.entities().get(plant).is_none_or(|building| building
             .passenger_role

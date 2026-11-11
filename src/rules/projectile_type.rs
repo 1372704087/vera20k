@@ -788,7 +788,7 @@ mod tests {
     #[cfg(feature = "phobos")]
     #[test]
     fn phobos_au_reads_as_a_bool() {
-        let ini = IniFile::from_str("[P]\nAU=yes\n[Q]\nAU=no\n[R]\n");
+        let ini = IniFile::from_str("[P]\nAU=yes\n[Q]\nAU=no\n[R]\nAA=no\n");
         let read = |name: &str| {
             ProjectileType::from_ini_section(name, ini.section(name).unwrap(), None).au
         };

@@ -2210,6 +2210,7 @@ fn a_computer_houses_sight_opens_no_map_of_its_own() {
 #[test]
 fn reveal_houses_filters_the_viewer_maps_a_sight_reaches() {
     use crate::rules::ini_parser::IniFile;
+    use crate::rules::ruleset::RuleSet;
     let rules = |country_keys: &str, type_keys: &str| {
         RuleSet::from_ini(&IniFile::from_str(&format!(
             "[Countries]\n0=Americans\n[Americans]\n{country_keys}\

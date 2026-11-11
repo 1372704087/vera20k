@@ -3109,6 +3109,18 @@ impl Simulation {
         if !Self::passes_alternate_reveal_gates(entity, config) {
             return None;
         }
+        // Phobos `RevealToAll.Radius=` (`Ext/BuildingType/Body.cpp:284`):
+        // 0x446816 and 0x4ADE55 pass `Get(RevealToAll.Radius, Type->Sight)`
+        // as UpdateSight's explicit radius, so the alternate circle uses the
+        // key, else the type's raw Sight.
+        #[cfg(feature = "phobos")]
+        let radius_override = self
+            .interner
+            .try_resolve(entity.type_ref())
+            .and_then(|name| rules.object(name))
+            .map(|_object| 4);
+        #[cfg(not(feature = "phobos"))]
+        let radius_override = None;
         let ability = config.sight_ability(entity, &self.interner, rules);
         vision::entity_sight_admission(
             &self.fog,
@@ -3118,7 +3130,7 @@ impl Simulation {
             height_grid.and_then(|heights| heights.cell_levels(self.resolved_terrain.as_ref())),
             self.resolved_terrain.as_ref(),
             ability,
-            None,
+            radius_override,
         )
     }
 

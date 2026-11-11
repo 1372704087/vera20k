@@ -2902,6 +2902,12 @@ pub struct ObjectType {
     /// (`Simulation::grand_opening`), and releases that sight when it dies or
     /// leaves the map.
     pub reveal_to_all: bool,
+    /// Phobos `RevealToAll.Radius=` (`Ext/BuildingType/Body.cpp:284`,
+    /// `Ext/BuildingType/Body.h:128`, a `Nullable<int>` constructed unset):
+    /// the explicit sight radius a `RevealToAll=` building shows the current
+    /// house; unset keeps the type's raw `Sight` (`0x446816`, `0x4ADE55`).
+    #[cfg(feature = "phobos")]
+    pub reveal_to_all_radius: Option<i32>,
 
     // -- Naval flags --
     /// Building requires water placement (WaterBound=yes in INI).
@@ -6445,6 +6451,8 @@ impl ObjectType {
             silo_damage: false,
             custom_palette: None,
             reveal_to_all: section.read_bool("RevealToAll", false),
+            #[cfg(feature = "phobos")]
+            reveal_to_all_radius: section.read_phobos_nullable_int("RevealToAll.Radius", None),
 
             // Naval flags
             water_bound: {

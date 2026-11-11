@@ -110,6 +110,7 @@ Supported extensions:
 - [Refinery normal active anim](phobos-refinery-use-normal-active-anim.md) (`Refinery.UseNormalActiveAnim` makes a refinery use its normal ActiveAnim slots instead of the storage-fill tier anims; 1 key)
 - [Crater tiberium destroy](phobos-crater-destroy-tiberium.md) (`Crater.DestroyTiberium` / `[General] AnimCraterDestroyTiberium` keep a crater animation from reducing its cell's ore at the middle frame; 2 keys)
 - [AnimType splash animations](phobos-splash-anims.md) (`SplashAnims` replaces the stock water-landing `SplashList`, and `SplashAnims.PickRandom` draws the entry; 2 keys)
+- [RevealToAll radius](phobos-reveal-to-all-radius.md) (`RevealToAll.Radius` sets the sight circle a computer RevealToAll building shows the current house; 1 key)
 - [Projectile gravity](phobos-projectile-gravity.md) (`[Projectile] Gravity=` per projectile type)
 - [Projectile AU](phobos-projectile-au.md) (`[Projectile] AU=yes` admits underground auto-target candidates)
 - [Cylinder rangefinding](phobos-cylinder-rangefinding.md) (`CylinderRangefinding` per weapon and globally: direct range uses `dx²+dy²`)

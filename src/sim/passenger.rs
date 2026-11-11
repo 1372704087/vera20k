@@ -1341,6 +1341,115 @@ pub(crate) fn board_passenger(
     true
 }
 
+/// Phobos `FootClass_Update_AfterLocomotorProcess`
+/// (`Ext/Techno/Hooks.Transport.cpp:324-360`, hook 0x4DA8A0): a Foot whose
+/// current mission is Enter (target = its first radio contact) or that holds
+/// a pending entry (`+0x500`) boards a Unit transport immediately when the
+/// transport's type sets `NoQueueUpToEnter=`, instead of walking into its
+/// cell. The target must be a `Passengers > 0` Unit; a structure is never a
+/// target of this hook (the Phobos `.Buildings` arms are `Ext/Techno/
+/// Hooks.Transport.cpp:727-851`, not ported).
+///
+/// `IsCloseEnoughToEnter` (`:220-228`) is a square test: both X and Y offsets
+/// strictly below `NoQueueUpToEnter.BoardDistance=` (the transport type's
+/// value, else `[General]`, default 384) and the Z offset strictly below
+/// `Unsorted::CellHeight` (256 leptons). `CanEnterNow` (`:230-289`, the
+/// rewrite of `UnitClass::Receive_Radio @ 0x00737430`'s CAN_LOAD) adds the
+/// OnBridge and deactivated/EMP refusals before the ordinary admission;
+/// VERA's `sim::radio::receive::unit_can_enter_radio` is that receiver.
+/// `DoEnterNow` (`:292-326`) raises the transport's Tag event 1 ("entered
+/// by") and then boards through the shared arrival owner.
+#[cfg(feature = "phobos")]
+pub(crate) fn try_fast_enter(
+    sim: &mut Simulation,
+    rules: &RuleSet,
+    id: u64,
+    registry: Option<&crate::rules::overlay_types::OverlayTypeRegistry>,
+    effects: FrameEffects<'_>,
+) -> bool {
+    use crate::sim::mission::MissionType;
+    let Some(pax) = sim.substrate.entities.get(id) else {
+        return false;
+    };
+    let target = if pax.mission.effective()
+        == crate::sim::mission::MissionId::from_known(MissionType::Enter)
+    {
+        pax.radio_contacts.slot(0)
+    } else {
+        pax.pending_entry()
+    };
+    let Some(target) = target else {
+        return false;
+    };
+    let (Some(pax), Some(transport)) = (
+        sim.substrate.entities.get(id),
+        sim.substrate.entities.get(target),
+    ) else {
+        return false;
+    };
+    let pax_category = pax.category();
+    if !matches!(
+        pax_category,
+        EntityCategory::Infantry | EntityCategory::Unit
+    ) || transport.category() != EntityCategory::Unit
+        || !transport.is_object_alive()
+    {
+        return false;
+    }
+    let (Some(transport_type), Some(_passenger_type)) = (
+        sim.object_type(transport.type_ref(), rules),
+        sim.object_type(pax.type_ref(), rules),
+    ) else {
+        return false;
+    };
+    if transport_type.passengers <= 0
+        || !transport_type
+            .phobos_techno_extras
+            .no_queue_up_to_enter(rules.phobos_globals.no_queue_up_to_enter)
+    {
+        return false;
+    }
+    // CanEnterNow's added refusals (`Ext/Techno/Hooks.Transport.cpp:246-248`).
+    if transport.on_bridge() || pax.deactivated.is_offline() {
+        return false;
+    }
+    let board_distance = transport_type
+        .phobos_techno_extras
+        .no_queue_board_distance(rules.phobos_globals.no_queue_up_to_enter_board_distance);
+    let pax_location = crate::sim::movement::ground_pose::position_world_coord(&pax.position);
+    let transport_location =
+        crate::sim::movement::ground_pose::position_world_coord(&transport.position);
+    if (pax_location.x - transport_location.x).abs() >= board_distance
+        || (pax_location.y - transport_location.y).abs() >= board_distance
+        || (pax_location.z - transport_location.z).abs()
+            >= crate::util::lepton::LEPTONS_PER_CELL_I32
+    {
+        return false;
+    }
+    if crate::sim::radio::transmit(
+        sim,
+        id,
+        target,
+        crate::sim::radio::RadioMessage::CanEnter,
+        crate::sim::radio::RadioPayload::default(),
+        rules,
+        effects,
+    ) != crate::sim::radio::RadioResponse::Roger
+    {
+        return false;
+    }
+    // DoEnterNow: the transport's Tag hears event 1 first.
+    let context = UninitContext::new(rules, registry).with_effects(effects);
+    sim.dispatch_object_tag_event(target, 1, Some(id), None, context);
+    let arm = if pax_category == EntityCategory::Infantry {
+        BoardingArm::InfantryTransport
+    } else {
+        BoardingArm::UnitTransport
+    };
+    board_passenger(sim, rules, id, target, arm, registry, effects);
+    true
+}
+
 /// `InfantryClass::AddGarrisonOccupant @ 0x00522910`, the one way into a
 /// garrison: `InfantryClass::PerCellProcess`'s occupier arm
 /// (`sim::movement::per_cell`), shared by player and computer Capture orders. An
@@ -2341,5 +2450,173 @@ ConditionYellow=50%
             }
         }
         assert!(services > 0, "retail has depots and refineries");
+    }
+
+    /// Phobos `NoQueueUpToEnter=` on the transport type, with the per-type
+    /// `NoQueueUpToEnter.BoardDistance=` / `[General]` fallbacks
+    /// (`Ext/Techno/Hooks.Transport.cpp:220-228`, `:332`).
+    #[cfg(feature = "phobos")]
+    fn no_queue_rules(transport_keys: &str, general_keys: &str) -> RuleSet {
+        let ini = IniFile::from_str(&format!(
+            "\
+[InfantryTypes]
+0=E1
+[VehicleTypes]
+0=BFRT
+[AircraftTypes]
+[BuildingTypes]
+
+[E1]
+Strength=125
+Armor=none
+Speed=4
+Size=1
+
+[BFRT]
+Strength=600
+Armor=heavy
+Speed=4
+Passengers=5
+SizeLimit=2
+{transport_keys}
+
+[General]
+FixtureOnly=1
+{general_keys}
+[AudioVisual]
+ConditionRed=25%
+ConditionYellow=50%
+",
+        ));
+        RuleSet::from_ini(&ini).expect("parse no-queue test rules")
+    }
+
+    /// A transport type with `NoQueueUpToEnter=yes` takes an infantryman
+    /// standing one cell away (256 leptons, below the 384 default) as soon as
+    /// its Foot update runs, without the walk into the transport's cell.
+    /// Without the key the stock queue keeps him an outside player.
+    #[cfg(feature = "phobos")]
+    #[test]
+    fn no_queue_up_to_enter_boards_from_the_neighbouring_cell() {
+        let stock = no_queue_rules("", "");
+        let mut sim = Simulation::new();
+        let transport = spawn_transport(&mut sim, &stock, "BFRT", "Americans", 10, 10);
+        let passenger =
+            spawn_entering_infantry(&mut sim, &stock, "E1", "Americans", transport, 11, 10);
+        sim.substrate
+            .entities
+            .get_mut(passenger)
+            .unwrap()
+            .radio_contacts
+            .insert(transport);
+        assert!(
+            !try_fast_enter(
+                &mut sim,
+                &stock,
+                passenger,
+                None,
+                crate::sim::world::FrameEffects::default()
+            ),
+            "an unset key keeps the queued Enter mission"
+        );
+        assert_eq!(
+            sim.substrate
+                .entities
+                .get(passenger)
+                .unwrap()
+                .passenger_role
+                .inside_transport(),
+            None
+        );
+
+        let rules = no_queue_rules("NoQueueUpToEnter=yes", "");
+        let mut sim = Simulation::new();
+        let transport = spawn_transport(&mut sim, &rules, "BFRT", "Americans", 10, 10);
+        let passenger =
+            spawn_entering_infantry(&mut sim, &rules, "E1", "Americans", transport, 11, 10);
+        sim.substrate
+            .entities
+            .get_mut(passenger)
+            .unwrap()
+            .radio_contacts
+            .insert(transport);
+        assert!(try_fast_enter(
+            &mut sim,
+            &rules,
+            passenger,
+            None,
+            crate::sim::world::FrameEffects::default()
+        ));
+        let passenger = sim.substrate.entities.get(passenger).unwrap();
+        assert_eq!(
+            passenger.passenger_role.inside_transport(),
+            Some((transport, false))
+        );
+        assert_eq!(
+            sim.substrate
+                .entities
+                .get(transport)
+                .unwrap()
+                .passenger_role
+                .cargo()
+                .unwrap()
+                .passengers(),
+            &[passenger.stable_id()]
+        );
+    }
+
+    /// The square distance test is strict in every axis
+    /// (`Ext/Techno/Hooks.Transport.cpp:226-228`): at exactly
+    /// `NoQueueUpToEnter.BoardDistance=` the passenger stays outside, and an
+    /// unset per-type distance keeps the `[General]` fallback of 384.
+    #[cfg(feature = "phobos")]
+    #[test]
+    fn the_board_distance_is_strict_and_keeps_the_general_fallback() {
+        let exact = no_queue_rules(
+            "NoQueueUpToEnter=yes\nNoQueueUpToEnter.BoardDistance=256",
+            "",
+        );
+        let mut sim = Simulation::new();
+        let transport = spawn_transport(&mut sim, &exact, "BFRT", "Americans", 10, 10);
+        let passenger =
+            spawn_entering_infantry(&mut sim, &exact, "E1", "Americans", transport, 11, 10);
+        sim.substrate
+            .entities
+            .get_mut(passenger)
+            .unwrap()
+            .radio_contacts
+            .insert(transport);
+        assert!(
+            !try_fast_enter(
+                &mut sim,
+                &exact,
+                passenger,
+                None,
+                crate::sim::world::FrameEffects::default()
+            ),
+            "a 256-lepton offset is not strictly below a 256-lepton distance"
+        );
+
+        let global = no_queue_rules("", "NoQueueUpToEnter=yes");
+        let mut sim = Simulation::new();
+        let transport = spawn_transport(&mut sim, &global, "BFRT", "Americans", 10, 10);
+        let passenger =
+            spawn_entering_infantry(&mut sim, &global, "E1", "Americans", transport, 11, 10);
+        sim.substrate
+            .entities
+            .get_mut(passenger)
+            .unwrap()
+            .radio_contacts
+            .insert(transport);
+        assert!(
+            try_fast_enter(
+                &mut sim,
+                &global,
+                passenger,
+                None,
+                crate::sim::world::FrameEffects::default()
+            ),
+            "the unset type keys read [General] NoQueueUpToEnter= and its 384 default"
+        );
     }
 }

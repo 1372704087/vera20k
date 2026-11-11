@@ -135,6 +135,19 @@ impl PhobosTechnoExtras {
             }),
         }
     }
+
+    /// `NoQueueUpToEnter.Get([General] NoQueueUpToEnter)`
+    /// (`Ext/Techno/Hooks.Transport.cpp:332`, `Ext/TechnoType/Body.cpp:1045`).
+    pub fn no_queue_up_to_enter(&self, global: bool) -> bool {
+        self.no_queue_up_to_enter.unwrap_or(global)
+    }
+
+    /// `NoQueueUpToEnter_BoardDistance.Get([General]
+    /// NoQueueUpToEnter.BoardDistance)` (`Ext/Techno/Hooks.Transport.cpp:223`,
+    /// `Ext/TechnoType/Body.cpp:1046`).
+    pub fn no_queue_board_distance(&self, global: i32) -> i32 {
+        self.no_queue_up_to_enter_board_distance.unwrap_or(global)
+    }
 }
 
 #[cfg(test)]

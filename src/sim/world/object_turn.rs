@@ -1027,6 +1027,22 @@ impl Simulation {
             return Ok(outcome);
         }
 
+        // Foot4DA8A0 `FootClass::Update`: Phobos fast access
+        // (`Ext/Techno/Hooks.Transport.cpp:324-360`) boards a passenger
+        // standing within its transport's `NoQueueUpToEnter.BoardDistance=`
+        // instead of walking into its cell. Boarding limboes the passenger,
+        // so the rest of its Foot update does not run.
+        #[cfg(feature = "phobos")]
+        if crate::sim::passenger::try_fast_enter(
+            sim,
+            rules,
+            stable_id,
+            overlay_registry,
+            object_ctx.effects,
+        ) {
+            return Ok(outcome);
+        }
+
         // FootClass advances its shared body counter immediately after
         // this object's locomotor Process, against the still-current
         // absolute binary frame, inside the Process admission

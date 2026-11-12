@@ -5312,8 +5312,14 @@ impl ObjectType {
         // clears the reader without touching the slots already written.
         #[cfg(feature = "phobos")]
         let aircraft_docking_dirs = {
+            // Authored counts are small (retail docks are 1..4 channels); a
+            // modded or malformed huge `NumberOfDocks` keeps this recovery
+            // bound instead of attempting a multi-gigabyte vector. Keys past
+            // the cap keep the stock landing face.
+            const MAX_AIRCRAFT_DOCKING_DIRS: i32 = 64;
             if category == ObjectCategory::Building && number_of_docks > 0 {
-                let mut dirs = vec![None; number_of_docks as usize];
+                let count = number_of_docks.min(MAX_AIRCRAFT_DOCKING_DIRS) as usize;
+                let mut dirs = vec![None; count];
                 let mut landing_dir = section.read_phobos_nullable_dir("AircraftDockingDir", None);
                 if landing_dir.is_some() {
                     dirs[0] = landing_dir;

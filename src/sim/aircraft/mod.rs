@@ -79,6 +79,13 @@ impl MissionOnly {
     pub fn mark(&mut self) {
         self.0 = true;
     }
+
+    /// Write the native `+0x3D4` byte. Phobos' `IsALoaner` UnLimbo override
+    /// assigns both values (`Ext/Aircraft/Hooks.cpp:1320`).
+    #[cfg(feature = "phobos")]
+    pub(crate) fn set(&mut self, value: bool) {
+        self.0 = value;
+    }
 }
 
 /// Batch driver for fixtures that dispatch every aircraft without the live

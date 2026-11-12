@@ -945,6 +945,13 @@ pub struct ObjectType {
     pub phobos_paradrop_mission: Option<crate::rules::mission_data::MissionType>,
     #[cfg(feature = "phobos")]
     pub phobos_ai_paradrop_mission: Option<crate::rules::mission_data::MissionType>,
+    /// Phobos `IsALoaner` (`Nullable<bool>`, unset; `Ext/AircraftType/
+    /// Body.cpp:40`, `Body.h:31`): writes the native `+0x3D4` byte on the
+    /// aircraft's UnLimbo, replacing the stock
+    /// Selectable/Landable/Camera computation
+    /// (`AircraftClass_UnLimbo_CargoPlane @ 0x4143A8`).
+    #[cfg(feature = "phobos")]
+    pub phobos_is_aloaner: Option<bool>,
     /// Phobos `BunkerROFMultMultiplier` (`Nullable<float>`, unset;
     /// `Ext/BuildingType/Body.cpp:250`, `Body.h:99`): the per-bunker ROF
     /// multiplier (`TechnoClass_RearmDelay_BuildingBunkerROFMult @ 0x6FD1C7`),
@@ -5886,6 +5893,8 @@ impl ObjectType {
                 .read_string_with("AIParadropMission", 2048, None, |current, value| {
                     crate::rules::mission_data::MissionType::from_map_name(value).or(current)
                 }),
+            #[cfg(feature = "phobos")]
+            phobos_is_aloaner: section.read_phobos_nullable_bool("IsALoaner", None),
             #[cfg(feature = "phobos")]
             phobos_bunker_rof_multiplier: section
                 .read_phobos_nullable_double("BunkerROFMultMultiplier", None)

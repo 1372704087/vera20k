@@ -867,6 +867,22 @@ pub struct PhobosGlobals {
     /// (`Ext/Rules/Body.cpp:115`, `Body.h:34,574`).
     #[serde(default)]
     pub gain_self_heal_from_allies: bool,
+    /// `[AudioVisual] AircraftDockingDir.DefaultToPoseDir=`, default `yes`
+    /// (`Ext/Rules/Body.cpp:634`, `Body.h:533,1032`): a docked aircraft's
+    /// landing direction falls through to the type/pose dir instead of the
+    /// building's facing (`AircraftExt::GetLandingDir`).
+    #[serde(default = "true_bool")]
+    pub aircraft_docking_dir_default_to_pose_dir: bool,
+    /// `[AudioVisual] PoseDir.Production=`, `Nullable<int>`
+    /// (`Ext/Rules/Body.cpp:635`, `Body.h:534,1033`): the production
+    /// landing direction; unset keeps `[General] PoseDir=`.
+    #[serde(default)]
+    pub pose_dir_production: Option<i32>,
+    /// `[AudioVisual] PoseDir.Field=`, `Nullable<int>`
+    /// (`Ext/Rules/Body.cpp:636`, `Body.h:535,1034`): a raw field landing
+    /// direction; unset keeps `PoseDir * 32`. Only its low byte is used.
+    #[serde(default)]
+    pub pose_dir_field: Option<i32>,
     /// `[General] VeteranReload=`, default **`1.0`**
     /// (`Ext/Rules/Body.cpp:388`, constructor `Ext/Rules/Body.h:808`).
     #[serde(default = "one_f64")]
@@ -1100,6 +1116,9 @@ impl Default for PhobosGlobals {
             gain_self_heal_allow_multiplay_passive: true,
             gain_self_heal_from_player_control: false,
             gain_self_heal_from_allies: false,
+            aircraft_docking_dir_default_to_pose_dir: true,
+            pose_dir_production: None,
+            pose_dir_field: None,
             veteran_reload: NativeF64Bits::ONE,
             veteran_empty_reload: None,
             is_voice_created_global: false,
@@ -1123,6 +1142,16 @@ impl PhobosGlobals {
             .map(str::to_owned);
         globals.drain_money_display =
             audio_visual.read_bool("DrainMoneyDisplay", globals.drain_money_display);
+        // `Ext/Rules/Body.cpp:634-636`: the aircraft landing-direction
+        // globals, all `[AudioVisual]`.
+        globals.aircraft_docking_dir_default_to_pose_dir = audio_visual.read_bool(
+            "AircraftDockingDir.DefaultToPoseDir",
+            globals.aircraft_docking_dir_default_to_pose_dir,
+        );
+        globals.pose_dir_production = audio_visual
+            .read_phobos_nullable_int("PoseDir.Production", globals.pose_dir_production);
+        globals.pose_dir_field =
+            audio_visual.read_phobos_nullable_int("PoseDir.Field", globals.pose_dir_field);
         globals.drain_money_display_houses = crate::rules::phobos_shields::read_affected_house(
             audio_visual,
             "DrainMoneyDisplay.Houses",

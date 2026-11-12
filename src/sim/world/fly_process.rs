@@ -719,13 +719,41 @@ impl Simulation {
                 }),
                 None => {
                     let direction = if aircraft {
-                        crate::sim::aircraft::landing_base::landing_direction(
+                        // Phobos `FlyLocomotionClass_FlightUpdate_LandingDir`
+                        // (0x4CF31C) replaces the stock IFlyControl query with
+                        // `AircraftExt::GetLandingDir`: its DirType becomes
+                        // `DirStruct(..).Raw` (shift 8), while the stock dir8
+                        // query shifts by 13.
+                        #[cfg(feature = "phobos")]
+                        let direction = match object {
+                            Some(object) => {
+                                crate::sim::aircraft::landing_base::phobos_get_landing_dir(
+                                    entity,
+                                    &self.substrate.entities,
+                                    &self.interner,
+                                    object,
+                                    frame,
+                                    rules,
+                                )
+                                .wrapping_shl(8)
+                            }
+                            None => crate::sim::aircraft::landing_base::landing_direction(
+                                entity,
+                                &self.substrate.entities,
+                                frame,
+                                rules.general.pose_dir,
+                            )
+                            .wrapping_shl(13),
+                        };
+                        #[cfg(not(feature = "phobos"))]
+                        let direction = crate::sim::aircraft::landing_base::landing_direction(
                             entity,
                             &self.substrate.entities,
                             frame,
                             rules.general.pose_dir,
                         )
-                        .wrapping_shl(13)
+                        .wrapping_shl(13);
+                        direction
                     } else {
                         0
                     };
@@ -867,15 +895,18 @@ impl Simulation {
                 return None;
             }
             let entity = self.substrate.entities.get(id)?;
-            let landing = crate::sim::aircraft::landing_base::landing_direction(
+            let landing = crate::sim::aircraft::landing_base::phobos_get_landing_dir(
                 entity,
                 &self.substrate.entities,
+                &self.interner,
+                object,
                 frame,
-                rules.general.pose_dir,
+                rules,
             );
             // `DirStruct(AircraftExt::GetLandingDir(pAircraft))` for the vanilla
             // landing direction (`iFly->Landing_Direction() << 13`).
-            let landing_dir = (landing as u32 as u16).wrapping_shl(13);
+            // `DirStruct(GetLandingDir(...)).Raw`: a DirType shifted by 8.
+            let landing_dir = (landing as u32 as u16).wrapping_shl(8);
             let turning = crate::sim::aircraft::turning_radius(entity, object.speed);
             let cells = (object.slowdown_distance / 256).max(turning / 128);
             let current = crate::util::direction_tables::facing16_between(

@@ -208,6 +208,12 @@ pub struct ArtEntry {
     /// `UseBuffer=`, with ReadBool from the ART INI under the type's own ID.
     /// Projected onto `ObjectType::can_be_hidden`.
     pub can_be_hidden: bool,
+    /// Phobos `AircraftDockingDir.DefaultToPoseDir=` (`Nullable<bool>`,
+    /// `Ext/BuildingType/Body.cpp:307`, `Body.h:72`): a building's own
+    /// override of the landing-direction global; projected onto
+    /// `ObjectType::phobos_aircraft_docking_dir_default_to_pose_dir`.
+    #[cfg(feature = "phobos")]
+    pub aircraft_docking_dir_default_to_pose_dir: Option<bool>,
     /// `QueueingCell=` (BuildingType+0x1618/+0x161C): `ReadMinMax @ 0x00529880`
     /// on the ARTMD section at `0x00461506`, default `(0, 0)`. Mission_Harvest
     /// adds the low words to the dock's NW cell for the waiting miner's staging
@@ -891,8 +897,7 @@ fn parse_anim_runtime_config(section: &IniSection) -> AnimTypeRuntimeConfig {
         #[cfg(feature = "phobos")]
         splash_anims_pick_random: section.read_bool("SplashAnims.PickRandom", false),
         #[cfg(feature = "phobos")]
-        crater_destroy_tiberium: section
-            .read_phobos_nullable_bool("Crater.DestroyTiberium", None),
+        crater_destroy_tiberium: section.read_phobos_nullable_bool("Crater.DestroyTiberium", None),
         sticky: section.read_bool("Sticky", false),
         psi_warning: section.read_bool("PsiWarning", false),
         double_thick: section.read_bool("DoubleThick", false),
@@ -1429,6 +1434,9 @@ impl ArtRegistry {
                     disable_voxel_cache: section.read_bool("DisableVoxelCache", false),
                     disable_shadow_cache: section.read_bool("DisableShadowCache", false),
                     can_be_hidden: section.read_bool("CanBeHidden", true),
+                    #[cfg(feature = "phobos")]
+                    aircraft_docking_dir_default_to_pose_dir: section
+                        .read_phobos_nullable_bool("AircraftDockingDir.DefaultToPoseDir", None),
                     queueing_cell,
                     pads,
                     damage_fire_offsets,

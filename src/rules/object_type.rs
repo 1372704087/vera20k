@@ -948,6 +948,22 @@ pub struct ObjectType {
     /// (`TechnoExt::ApplyGainedSelfHeal`, `0x6FA793`).
     #[cfg(feature = "phobos")]
     pub phobos_self_heal_gain_type: Option<crate::rules::phobos_self_heal::SelfHealGainType>,
+    /// Phobos `LandingDir` (`Nullable<int>`, unset; `Ext/AircraftType/
+    /// Body.cpp:28`, `Body.h:19`): the type's landing direction. An
+    /// AirportBound aircraft always uses `value & 0xFF`; otherwise a
+    /// negative value keeps its own facing (`AircraftExt::GetLandingDir`).
+    #[cfg(feature = "phobos")]
+    pub phobos_landing_dir: Option<i32>,
+    /// Phobos `AircraftDockingDir`/`AircraftDockingDir%d`
+    /// (`Nullable<DirType>` per dock; `Ext/BuildingType/Body.cpp:285-304`):
+    /// a building's per-dock landing directions, sized to `NumberOfDocks`.
+    #[cfg(feature = "phobos")]
+    pub phobos_aircraft_docking_dirs: Vec<Option<i32>>,
+    /// Phobos building-ART `AircraftDockingDir.DefaultToPoseDir`
+    /// (`Nullable<bool>`; `Ext/BuildingType/Body.cpp:307`, `Body.h:72`):
+    /// the building's own fallback for the global of the same name.
+    #[cfg(feature = "phobos")]
+    pub phobos_aircraft_docking_dir_default_to_pose_dir: Option<bool>,
     /// Phobos `ParadropMission`/`AIParadropMission` (`Nullable<Mission>`,
     /// unset; `Ext/TechnoType/Body.cpp:1171-1172`, `Body.h:411-412`): the
     /// mission a human- or AI-controlled `FootClass` queues after
@@ -5193,6 +5209,12 @@ impl ObjectType {
     /// `RuleSet::from_processed_rules` publishes that owner's retained result.
     pub fn from_ini_section(id: &str, section: &IniSection, category: ObjectCategory) -> Self {
         let armor = section.read_string("Armor", "none", 0x80);
+        // Phobos `AircraftDockingDir`/`AircraftDockingDir%d`
+        // (`Ext/BuildingType/Body.cpp:285-304`): sized to `NumberOfDocks`
+        // and read before the struct literal; the first key seeds the
+        // numeric loop, whose missing keys keep the running value.
+        #[cfg(feature = "phobos")]
+        let phobos_aircraft_docking_dirs = read_phobos_docking_dirs(section);
         // BuildingType45FE50: Hospital, Armory460B03, then the three
         // barracks readers460B1D/37/51. Each starts at constructor0 and folds
         // reached layer values with the live byte as the next pass's default.
@@ -6351,6 +6373,8 @@ impl ObjectType {
             tiberium_heal: section.read_bool("TiberiumHeal", false),
             deploy_to_land: section.read_bool("DeployToLand", false),
             airport_bound: section.read_bool("AirportBound", false),
+            #[cfg(feature = "phobos")]
+            phobos_landing_dir: section.read_phobos_nullable_int("LandingDir", None),
             fighter: section.read_bool("Fighter", false),
             fly_by: section.read_bool("FlyBy", false),
             fly_back: section.read_bool("FlyBack", false),
@@ -6638,6 +6662,10 @@ impl ObjectType {
             bunker: section.read_bool("Bunker", false),
             helipad: section.read_bool("Helipad", false),
             number_of_docks: section.read_int("NumberOfDocks", 1),
+            #[cfg(feature = "phobos")]
+            phobos_aircraft_docking_dirs,
+            #[cfg(feature = "phobos")]
+            phobos_aircraft_docking_dir_default_to_pose_dir: None,
             // TogglePower defaults to true for buildings, false for units.
             toggle_power: section.read_bool("TogglePower", category == ObjectCategory::Building),
             // BuildingType+0x1564/+0x1568. The native constructor does not write
@@ -6933,6 +6961,38 @@ fn building_int(section: &IniSection, category: ObjectCategory, key: &str) -> i3
 /// A flag only `BuildingTypeClass::ReadINI` reads (constructor false).
 fn building_bool(section: &IniSection, category: ObjectCategory, key: &str) -> bool {
     category == ObjectCategory::Building && section.read_bool(key, false)
+}
+
+/// Phobos `AircraftDockingDir`/`AircraftDockingDir%d`
+/// (`Ext/BuildingType/Body.cpp:285-304`): the base key seeds both index 0 and
+/// the running value the numeric loop carries; each `%d` read keeps the
+/// running value on a missing key and clears it on `none`. `DirType`'s
+/// reader accepts only 0..=224, so an out-of-range integer keeps the current
+/// value. A `NumberOfDocks` of zero or less reads nothing.
+#[cfg(feature = "phobos")]
+fn read_phobos_docking_dirs(section: &IniSection) -> Vec<Option<i32>> {
+    let docks = section.read_int("NumberOfDocks", 1);
+    if docks <= 0 {
+        return Vec::new();
+    }
+    let read_dir = |key: &str, current: Option<i32>| -> Option<i32> {
+        match section.read_phobos_nullable_int(key, current) {
+            Some(value) if !(0..=224).contains(&value) => current,
+            other => other,
+        }
+    };
+    let mut dirs = vec![None; docks as usize];
+    let mut current = read_dir("AircraftDockingDir", None);
+    if let Some(dir) = current {
+        dirs[0] = Some(dir);
+    }
+    for (index, slot) in dirs.iter_mut().enumerate() {
+        current = read_dir(&format!("AircraftDockingDir{index}"), current);
+        if let Some(dir) = current {
+            *slot = Some(dir);
+        }
+    }
+    dirs
 }
 
 #[cfg(test)]

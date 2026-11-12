@@ -3417,6 +3417,67 @@ impl Simulation {
     /// gamemd-derived: active YR `LogicClass__UnregisterObject @ 0x0055BAE0`
     /// gates removal on the object's membership flag, performs the first-match
     /// stable erase, then repairs that flag.
+    /// Phobos `LogicClass::Remove` for the damaged-redraw crumble latch.
+    #[cfg(feature = "phobos")]
+    pub(crate) fn terrain_remove_from_logic(&mut self, stable_id: u64) {
+        self.unregister_logic_object(stable_id);
+    }
+
+    /// Phobos `TerrainClass_TakeDamage_NowDead_Add` (`0x71BB2C`,
+    /// `Ext/TerrainType/Hooks.cpp:276-305`): a `HasCrumblingFrames=` tree
+    /// stays alive for its crumble sequence. IsCrumbling and Stage rate 2
+    /// (`Start_To_Crumble @ 0x0071C8E0`), Logic membership, then
+    /// `CrumblingSound` at the tree's coordinate.
+    #[cfg(feature = "phobos")]
+    pub(crate) fn terrain_start_crumble(&mut self, stable_id: u64, rules: &RuleSet) {
+        let Some((type_ref, coords)) = self
+            .terrain_objects
+            .get(stable_id)
+            .map(|terrain| (terrain.type_ref(), terrain.world_coord()))
+        else {
+            return;
+        };
+        let name = self.interner.resolve(type_ref).to_string();
+        let Some(terrain_type) = rules.terrain_object_type_case_insensitive(&name) else {
+            return;
+        };
+        self.terrain_objects.set_crumbling(stable_id, true);
+        let frames = rules.terrain_display_frame_count(&name).unwrap_or(0);
+        self.terrain_objects.start_crumble_animation(
+            stable_id,
+            frames,
+            self.session.binary_frame(),
+        );
+        self.register_logic_object(stable_id);
+        if let Some(sound) = &terrain_type.crumbling_sound {
+            self.sound_events
+                .emit(crate::sim::world::SimSoundEvent::voc_at_world_coord(
+                    sound.clone(),
+                    crate::sim::anim_class::AnimWorldCoord {
+                        x: coords.x,
+                        y: coords.y,
+                        z: coords.z,
+                    },
+                ));
+        }
+    }
+
+    /// The crumble sequence's end (`TerrainTypeExt::Remove`,
+    /// `Ext/TerrainType/Body.cpp:23-33`): UnInit the tree. The AI plays the
+    /// destroy effects before calling this.
+    #[cfg(feature = "phobos")]
+    pub(crate) fn terrain_crumble_finish(
+        &mut self,
+        stable_id: u64,
+        rules: &RuleSet,
+        overlay_registry: Option<&crate::rules::overlay_types::OverlayTypeRegistry>,
+        effects: FrameEffects<'_>,
+    ) {
+        let context = UninitContext::new(rules, overlay_registry).with_effects(effects);
+        let retired = self.retire_non_entity_object(stable_id, context);
+        debug_assert!(retired);
+    }
+
     fn unregister_logic_object(&mut self, stable_id: u64) -> bool {
         let Some(kind) = self.classify_object(stable_id) else {
             return false;

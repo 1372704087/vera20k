@@ -6222,6 +6222,59 @@ fn infantry_standing_fire_waits_for_fire_frame() {
     );
 }
 
+/// Phobos `FireOnce.ResetSequence=no` (`0x6FF905` -> `0x51B20E`,
+/// `Ext/Techno/Hooks.Misc.cpp:845-866`): the infantryman's own `FireOnce=`
+/// shot clears his target, but the class target-change block is skipped, so
+/// the firing latch reset and the unforced idle `Do_Action` do not run and he
+/// keeps his firing action.
+#[cfg(feature = "phobos")]
+#[test]
+fn phobos_fire_once_reset_sequence_keeps_the_firing_action() {
+    for (key, keeps) in [
+        ("", false),
+        (
+            "FireOnce.ResetSequence=no
+",
+            true,
+        ),
+    ] {
+        let rules = infantry_fire_frame_rules_with(&format!(
+            "[M60]
+FireOnce=yes
+{key}"
+        ));
+        let mut store = EntityStore::new();
+        store.insert(make_infantry_entity(1, "E1", 5, 5, 125));
+        store.insert(make_infantry_entity(2, "E2", 8, 5, 125));
+        let mut interner = test_interner();
+        install_entity_attack_target_for_test(&mut store, 1, 2);
+        let mut main_rng = SimRng::new(1);
+        for stage in 0..3 {
+            set_infantry_stage(&mut store, 1, stage);
+            let _ = tick(
+                &mut store,
+                &rules,
+                &mut interner,
+                u64::from(stage as u32),
+                &mut main_rng,
+            );
+        }
+        assert_eq!(
+            store.get(2).unwrap().health.current(),
+            100,
+            "{key:?}: the shot fired"
+        );
+        let attacker = store.get(1).unwrap();
+        assert_eq!(
+            attacker.attack_target.target(),
+            None,
+            "{key:?}: FireOnce clears the target"
+        );
+        let doing = attacker.mission_leaf.as_infantry().unwrap().doing();
+        assert_eq!(doing != 0, keeps, "{key:?}: firing action at {doing}");
+    }
+}
+
 /// `InfantryClass::Fire_At_Target`'s tail (`0x00520A57..0x00520AC7`): on the
 /// fire frame, a weapon 0 slower than `[CombatDamage] Incoming=` scatters the
 /// target's cell away from the shooter. ReadSpeed makes `Incoming=10` 25 and

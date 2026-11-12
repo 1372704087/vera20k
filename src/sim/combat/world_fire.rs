@@ -3249,6 +3249,20 @@ fn fireat_tail(
             .expect("DistributedFire firer retains its concrete target receiver");
     }
     if weapon.fire_once {
+        // Phobos `TechnoClass_FireAt_FireOnce` (`0x6FF905`,
+        // `Ext/Techno/Hooks.Firing.cpp:838-851`): the fired weapon's
+        // `FireOnce.ResetSequence=no` marks the infantryman before the
+        // `Assign_Target(NULL)` below, whose class target-change block then
+        // skips the latch reset and idle `Do_Action`.
+        #[cfg(feature = "phobos")]
+        if snap.category == EntityCategory::Infantry && !weapon.phobos_fire_once_reset_sequence() {
+            world
+                .substrate
+                .entities
+                .get_mut(snap.stable_id)
+                .expect("the fired receiver is still present")
+                .set_phobos_skip_target_change_reset_sequence(true);
+        }
         // Native Abstract+0x14 bit 4 admits Foot receivers, not buildings.
         if snap.category != EntityCategory::Structure {
             world.team_fire_once_complete(snap.stable_id, rules, overlay_registry, effects);

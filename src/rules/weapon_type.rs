@@ -500,6 +500,12 @@ impl WeaponType {
         self.phobos_extras.turret_recoil_suppress
     }
 
+    /// Phobos `FireOnce.ResetSequence=` (`Ext/WeaponType/Body.cpp:137`).
+    #[cfg(feature = "phobos")]
+    pub fn phobos_fire_once_reset_sequence(&self) -> bool {
+        self.phobos_extras.fire_once_reset_sequence
+    }
+
     /// Phobos `AttackNoThreatBuildings=` (`:206`) resolved against the
     /// human/AI `[General]` pair.
     #[cfg(feature = "phobos")]

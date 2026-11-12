@@ -45,6 +45,14 @@ pub struct PhobosWeaponExtras {
     /// unit recoil record (`Ext/Techno/Hooks.Firing.cpp:821-836`, hook
     /// `0x6FF0DD`).
     pub turret_recoil_suppress: bool,
+    /// `FireOnce.ResetSequence=` (`Body.cpp:137`, `Valueable<bool>` default
+    /// `true`, `Ext/WeaponType/Body.h:67,162`): `no` keeps an infantryman's
+    /// firing sequence across the target loss its `FireOnce=` shot causes —
+    /// the `0x6FF905` hook sets `SkipTargetChangeResetSequence`, and
+    /// `InfantryClass_AssignTarget_FireOnce` (`0x51B20E`,
+    /// `Ext/Techno/Hooks.Misc.cpp:845-866`) then skips the class
+    /// target-change latch reset and idle `Do_Action`.
+    pub fire_once_reset_sequence: bool,
     /// `ChargeTurret.Delays=` (`Body.cpp:135`, `ValueableVector<int>`,
     /// `Body.h:65`, default empty `:160`): per-burst-shot charge delays for a
     /// charge turret — the just-fired shot's list item overrides the saved
@@ -64,6 +72,7 @@ impl PhobosWeaponExtras {
             attack_no_threat_buildings: section
                 .read_phobos_nullable_bool("AttackNoThreatBuildings", None),
             turret_recoil_suppress: section.read_bool("TurretRecoil.Suppress", false),
+            fire_once_reset_sequence: section.read_bool("FireOnce.ResetSequence", true),
             charge_turret_delays: section
                 .read_ares_int_list("ChargeTurret.Delays")
                 .unwrap_or_default(),

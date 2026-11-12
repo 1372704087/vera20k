@@ -323,11 +323,33 @@ impl ConcreteMissionEffects for RepresentedConcreteMissionEffects<'_> {
             .get(prepared.receiver)
             .expect("preflight guaranteed receiver");
         let changes = entity.attack_target.target() != requested;
+        // Phobos `InfantryClass_AssignTarget_FireOnce` (`0x51B20E`,
+        // `Ext/Techno/Hooks.Misc.cpp:845-866`): a null target on a live
+        // infantryman consumes the `0x6FF905` flag, writes IsFiring=false
+        // (VERA holds no separate state) and jumps to `0x51B255`, past the
+        // class target-change block below. A dead receiver and an unchanged
+        // target leave the flag set, as the native gates do.
+        #[cfg(feature = "phobos")]
+        let skip_target_change = requested.is_none()
+            && changes
+            && entity.health.current() > 0
+            && entity.category() == crate::map::entities::EntityCategory::Infantry
+            && entity.phobos_skip_target_change_reset_sequence();
+        #[cfg(not(feature = "phobos"))]
+        let skip_target_change = false;
         // Infantry51B20E..51B24F clears its firing latch and requests an
         // unforced idle action BEFORE Techno6FCDB0 reads/writes TarCom. The
         // current Doing must survive until Do_Action tests interruptibility.
-        if changes {
+        if changes && !skip_target_change {
             sim.infantry_target_change_action(prepared.receiver, self.rules);
+        }
+        #[cfg(feature = "phobos")]
+        if skip_target_change {
+            sim.substrate
+                .entities
+                .get_mut(prepared.receiver)
+                .expect("target-change receiver present")
+                .set_phobos_skip_target_change_reset_sequence(false);
         }
         let entity = sim
             .substrate

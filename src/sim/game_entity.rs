@@ -167,6 +167,14 @@ pub struct GameEntity {
     #[cfg(feature = "phobos")]
     #[serde(default)]
     phobos_delayed_fire_remove_anim_on_no_delay: bool,
+    /// Phobos `InfantryExt::SkipTargetChangeResetSequence`
+    /// (`Ext/Infantry/Body.h:15`, serialized `Body.cpp:50`): set by the
+    /// `0x6FF905` `FireAt` hook when the fired weapon keeps
+    /// `FireOnce.ResetSequence=no`; the next null target consumes it and
+    /// skips the class target-change latch reset and idle `Do_Action`.
+    #[cfg(feature = "phobos")]
+    #[serde(default)]
+    phobos_skip_target_change_reset_sequence: bool,
     /// Phobos `UnitExt::KeepTargetOnMove` (`Ext/Unit/Body.h`): a Move order
     /// kept this unit's in-range target, so the Unit AI re-checks the range
     /// until it gives up.
@@ -2284,6 +2292,16 @@ impl GameEntity {
         self.phobos_delayed_fire_remove_anim_on_no_delay
     }
 
+    #[cfg(feature = "phobos")]
+    pub(crate) const fn phobos_skip_target_change_reset_sequence(&self) -> bool {
+        self.phobos_skip_target_change_reset_sequence
+    }
+
+    #[cfg(feature = "phobos")]
+    pub(crate) fn set_phobos_skip_target_change_reset_sequence(&mut self, skip: bool) {
+        self.phobos_skip_target_change_reset_sequence = skip;
+    }
+
     /// `timer.Start(...)` plus `DelayedFireWeaponIndex = weaponIndex`
     /// (`src/Ext/Techno/Hooks.Firing.cpp:671-672`, `Body.cpp:719-721`).
     #[cfg(feature = "phobos")]
@@ -2669,6 +2687,8 @@ impl GameEntity {
             phobos_delayed_fire_anim: None,
             #[cfg(feature = "phobos")]
             phobos_delayed_fire_remove_anim_on_no_delay: false,
+            #[cfg(feature = "phobos")]
+            phobos_skip_target_change_reset_sequence: false,
             #[cfg(feature = "phobos")]
             phobos_keep_target_on_move: false,
             #[cfg(feature = "phobos")]

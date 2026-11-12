@@ -117,6 +117,7 @@ Supported extensions:
 - [Terrain CanBeBuiltOn](phobos-terrain-can-be-built-on.md) (`CanBeBuiltOn` per terrain type plus `[General] Terrain.CanBeBuiltOn` / `Tibtree.CanBeBuiltOn` let a building replace the object; admission, flush, PlaceDown removal and the AI site search; 3 keys)
 - [Warhead debris block](phobos-warhead-debris.md) (`Debris.Conventional` water skip, `RandomRanged(MinDebris, MaxDebris)` budget, the warhead `DebrisMinimums`/`DebrisTypes.Limit` restored loop and `DebrisAnims` fallback; 4 keys)
 - [TurretRecoil.Suppress](phobos-turret-recoil.md) (a weapon's fired shot skips the unit recoil record; 1 key)
+- [FireOnce.ResetSequence](phobos-fire-once-reset-sequence.md) (`no` keeps an infantryman's firing sequence and action across the target clear his own `FireOnce=` shot causes; 1 key)
 - [Wall weapon selection](phobos-wall-weapon-select.md) (`AllowWeaponSelectAgainstWalls` per type and globally lets the wall checks at `0x51C1F1`/`0x73F495`/`0x70095A` fall back to a secondary wall-breaker; 2 keys)
 - [Projectile gravity](phobos-projectile-gravity.md) (`[Projectile] Gravity=` per projectile type)
 - [Projectile AU](phobos-projectile-au.md) (`[Projectile] AU=yes` admits underground auto-target candidates)

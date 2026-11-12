@@ -3284,6 +3284,13 @@ pub(crate) struct CountryVeterancyState {
     infantry: Vec<String>,
     units: Vec<String>,
     aircraft: Vec<String>,
+    /// Phobos `HouseTypeExt::VeteranDefenses` (`Ext/HouseType/Body.cpp:28`):
+    /// `ValueableVector<BuildingTypeClass*>`, empty at the extension
+    /// constructor (`:46`), read from the country's own section. It replaces
+    /// `VeteranBuildings` only for a `BuildCat=Combat` building
+    /// (`Ext/HouseType/Hooks.cpp:59-84`, hook `0x00442D1B`).
+    #[cfg(feature = "phobos")]
+    phobos_defenses: Vec<String>,
     #[cfg(feature = "ares")]
     ares: AresCountryState,
 }
@@ -3863,6 +3870,17 @@ impl CountryVeterancyState {
     #[cfg(feature = "ares")]
     pub(crate) fn paradrop(&self) -> &crate::rules::ares_country_paradrop::AresCountryParadrop {
         &self.ares.paradrop
+    }
+
+    /// Phobos `BuildingClass_Init_CountryBuildingVeteran`
+    /// (`Ext/HouseType/Hooks.cpp:59-84`, hook `0x00442D1B`): the country's
+    /// `VeteranDefenses` membership, consulted only when the building's
+    /// `BuildCat` is `Combat`; any other building keeps `VeteranBuildings`.
+    #[cfg(feature = "phobos")]
+    pub(crate) fn contains_defense(&self, type_id: &str) -> bool {
+        self.phobos_defenses
+            .iter()
+            .any(|id| id.eq_ignore_ascii_case(type_id))
     }
 
     pub(crate) fn contains(&self, category: ObjectCategory, type_id: &str) -> bool {
@@ -7788,6 +7806,22 @@ impl RulesPassProcessor {
                 let side = self.read_side_index(&raw, "Side", current);
                 if let Ok(side) = usize::try_from(side) {
                     self.change_country_side(index, side);
+                }
+                // Phobos `HouseTypeExt::LoadFromINIFile`'s
+                // `VeteranDefenses` (`Ext/HouseType/Body.cpp:28`): the same
+                // Building vector reader as Ares' `VeteranBuildings`, kept in
+                // its own list because the consumer picks between them by
+                // `BuildCat`. An absent key retains the current list.
+                #[cfg(feature = "phobos")]
+                if let Some(resolved) = self.resolve_existing_list_from(
+                    &raw,
+                    "VeteranDefenses",
+                    RulesTypeFamily::Building,
+                    0x800,
+                ) {
+                    self.family_mut(RulesTypeFamily::Country)[index]
+                        .country_veterancy
+                        .phobos_defenses = resolved;
                 }
             }
             // Both original success51214F and failed-section51215A enter

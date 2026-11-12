@@ -588,14 +588,20 @@ pub(super) fn undeploys(rules: &RuleSet, object: &crate::rules::object_type::Obj
 }
 
 /// UpdateAnimation's archive-less sale (`0x00451186..0x004511DF`): an
-/// `UndeploysInto=` building with no ArchiveTarget completes its pack-up at
-/// stage `0x17` only while its effective mission is Selling (4511C7..4511DD).
+/// `UndeploysInto=` building with no ArchiveTarget completes its pack-up only
+/// while its effective mission is Selling (4511C7..4511DD). The stage it
+/// completes at is the type's `SellBuildupLength`: the stock body compares
+/// `+0xF8` with the literal 0x17 at `0x4511D6`, which Phobos'
+/// `BuildingClass_AnimationAI_SellBuildup` hook (`Ext/Building/Hooks.cpp:381-389`)
+/// replaces with `BuildingTypeExt::SellBuildupLength`.
 pub(crate) fn archive_less_sale(
     rules: &RuleSet,
     type_id: &str,
     entity: &crate::sim::game_entity::GameEntity,
-) -> bool {
-    entity.building_down() && undeploy_target(rules, type_id).is_some() && !sale_archive(entity)
+) -> Option<i32> {
+    let object = rules.object(type_id)?;
+    (entity.building_down() && undeploy_target(rules, type_id).is_some() && !sale_archive(entity))
+        .then(|| object.sell_buildup_length())
 }
 
 /// The building's ArchiveTarget (`+0x218`); the player's undeploy order

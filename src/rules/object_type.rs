@@ -2341,8 +2341,14 @@ pub struct ObjectType {
     /// `Ext/BuildingType/Body.cpp:240`): a cell offset from the building's
     /// map coords where an infantry product leaves, replacing the flag,
     /// offered-cell and foundation search. Only a building reads it.
-    #[cfg(feature = "phobos")]
     barracks_exit_cell: Option<(i32, i32)>,
+    /// Phobos `BuildingTypeExt::SellBuildupLength`
+    /// (`Ext/BuildingType/Body.h:65`, `Valueable<int>`, read at
+    /// `Ext/BuildingType/Body.cpp:220`, constructed 23 at
+    /// `Ext/BuildingType/Body.h:197`): the construction stage at which an
+    /// archive-less `UndeploysInto=` sale completes (hook `0x4511D6`). Only a
+    /// building reads it.
+    sell_buildup_length: i32,
 
     // -- Cursor / interaction capability flags --
     // These drive which cursor is shown when hovering this unit/building.
@@ -4989,9 +4995,14 @@ impl ObjectType {
     /// Phobos `BuildingTypeExt::BarracksExitCell`: the authored infantry exit
     /// offset, `None` when the type leaves it unset. Consumed by
     /// `BuildingClass::GetDockCellForObject`'s hooked head (0x44EFD8).
-    #[cfg(feature = "phobos")]
     pub const fn barracks_exit_cell(&self) -> Option<(i32, i32)> {
         self.barracks_exit_cell
+    }
+
+    /// Phobos `BuildingTypeExt::SellBuildupLength`: the stage at which an
+    /// archive-less `UndeploysInto=` sale completes, 23 when unset.
+    pub const fn sell_buildup_length(&self) -> i32 {
+        self.sell_buildup_length
     }
 
     /// Native TechnoType virtual+BC (717800), used by Fly takeoff4CF9F2
@@ -6538,6 +6549,18 @@ impl ObjectType {
             } else {
                 None
             },
+            #[cfg(not(feature = "phobos"))]
+            barracks_exit_cell: None,
+            // Phobos `BuildingTypeExt::SellBuildupLength`
+            // (`Ext/BuildingType/Body.cpp:220`), a BuildingType-only key.
+            #[cfg(feature = "phobos")]
+            sell_buildup_length: if category == ObjectCategory::Building {
+                section.read_int("SellBuildupLength", 23)
+            } else {
+                23
+            },
+            #[cfg(not(feature = "phobos"))]
+            sell_buildup_length: 23,
 
             // Cursor / interaction capability flags. An InfantryType's
             // Engineer, C4, Infiltrate and Agent start at the constructor's

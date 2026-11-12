@@ -4617,10 +4617,14 @@ fn bullet_location(
     }
 }
 
-/// Bullet469D06..469EBA: one budget, then the typed VoxelAnim arm or the
-/// MetallicDebris SHP fallback. Both finish constructors synchronously before
-/// the outer cluster successor. Stock Smashing/TRexWH use the empty-list arm;
-/// an authored Smashing TIRE list uses the same typed selector as Techno deaths.
+/// Bullet469D06..469EBA, replaced by Phobos `BulletClass_Logics_Debris`
+/// (`0x469D1A`, `Ext/Bullet/Hooks.DetonateLogics.cpp:171-242`): with
+/// `Debris.Conventional` resolved over a Water cell the whole block is
+/// skipped; otherwise the budget is `RandomRanged(MinDebris, MaxDebris)` and
+/// a nonzero typed count runs the restored one-pass loop (warhead
+/// `DebrisMinimums`/`DebrisTypes.Limit`), while a zero count throws the
+/// warhead's `DebrisAnims` list, else `[General] MetallicDebris=`. Every
+/// constructor finishes synchronously before the outer cluster successor.
 fn emit_warhead_debris(
     world: &mut Simulation,
     rules: &RuleSet,
@@ -4628,10 +4632,40 @@ fn emit_warhead_debris(
     warhead: &WarheadType,
     out: &mut CombatEmit,
 ) {
-    use crate::sim::voxel_anim::{
-        ShpDebrisSource, debris_budget, throw_shp_debris, throw_typed_debris,
-    };
+    #[cfg(not(feature = "phobos"))]
+    use crate::sim::voxel_anim::debris_budget;
+    use crate::sim::voxel_anim::{ShpDebrisSource, throw_shp_debris, throw_typed_debris};
 
+    #[cfg(feature = "phobos")]
+    if warhead
+        .phobos_debris_conventional
+        .unwrap_or(rules.phobos_globals.debris_conventional)
+    {
+        let water = world.resolved_terrain.as_ref().is_some_and(|terrain| {
+            let rx = u16::try_from(crate::util::lepton::lepton_to_cell(detonation.impact.x));
+            let ry = u16::try_from(crate::util::lepton::lepton_to_cell(detonation.impact.y));
+            rx.ok()
+                .zip(ry.ok())
+                .and_then(|(rx, ry)| terrain.cell(rx, ry))
+                .is_some_and(|cell| {
+                    crate::rules::terrain_rules::LandType::from_index(cell.land_type)
+                        == Some(crate::rules::terrain_rules::LandType::Water)
+                })
+        });
+        if water {
+            return;
+        }
+    }
+
+    #[cfg(feature = "phobos")]
+    let budget = if warhead.max_debris <= 0 {
+        0
+    } else {
+        world
+            .scenario_rng
+            .next_range_i32_inclusive(warhead.min_debris, warhead.max_debris)
+    };
+    #[cfg(not(feature = "phobos"))]
     let budget = debris_budget(
         warhead.min_debris,
         warhead.max_debris,
@@ -4640,21 +4674,27 @@ fn emit_warhead_debris(
     if budget <= 0 {
         return;
     }
+    let count = warhead
+        .debris_types
+        .len()
+        .min(warhead.debris_maximums.len());
     let mut host = WarheadDebrisHost {
         world,
         rules,
         detonation: *detonation,
+        warhead,
         anims: &mut out.effects.explosion_effects,
         voxels: &mut out.effects.voxel_debris,
     };
-    let result = if warhead.debris_types.is_empty() {
-        throw_shp_debris(
-            budget,
-            ShpDebrisSource::RulesMetallicDebris,
-            rules.general.metallic_debris.len(),
-            &mut host,
-        )
-    } else {
+    #[cfg(feature = "phobos")]
+    let (minimums, limit, restored) = (
+        &warhead.phobos_debris_minimums[..],
+        warhead.phobos_debris_types_limit,
+        true,
+    );
+    #[cfg(not(feature = "phobos"))]
+    let (minimums, limit, restored) = (&[][..], None, false);
+    let result = if count > 0 {
         let types: Vec<_> = warhead
             .debris_types
             .iter()
@@ -4664,19 +4704,37 @@ fn emit_warhead_debris(
                     .map(|id| (id, rules.voxel_anim_type(id)))
             })
             .collect();
-        // The warhead's own Phobos `DebrisMinimums` is a separate key
-        // (`Ext/WarheadType/Body.cpp:302`), not this TechnoType one.
         throw_typed_debris(
             budget,
             &types,
             &warhead.debris_maximums,
-            &[],
+            minimums,
             None,
-            false,
-            None,
+            restored,
+            limit,
             &mut host,
         )
         .map(|_| ())
+    } else {
+        // Phobos `pWHExt->DebrisAnims.GetElements(MetallicDebris)`.
+        #[cfg(feature = "phobos")]
+        let (source, list_len) = if warhead.phobos_debris_anims.is_empty() {
+            (
+                ShpDebrisSource::RulesMetallicDebris,
+                rules.general.metallic_debris.len(),
+            )
+        } else {
+            (
+                ShpDebrisSource::WarheadDebrisAnims,
+                warhead.phobos_debris_anims.len(),
+            )
+        };
+        #[cfg(not(feature = "phobos"))]
+        let (source, list_len) = (
+            ShpDebrisSource::RulesMetallicDebris,
+            rules.general.metallic_debris.len(),
+        );
+        throw_shp_debris(budget, source, list_len, &mut host)
     };
     if let Err(error) = result {
         // Preserve earlier synchronous births on unsupported authored launch
@@ -4689,6 +4747,7 @@ struct WarheadDebrisHost<'w, 'r> {
     world: &'w mut Simulation,
     rules: &'r RuleSet,
     detonation: ProjectileDetonation,
+    warhead: &'r WarheadType,
     anims: &'w mut Vec<ExplosionEffect>,
     voxels: &'w mut Vec<crate::sim::voxel_anim::VoxelDebrisSpawn>,
 }
@@ -4703,10 +4762,6 @@ impl crate::sim::voxel_anim::ShpDebrisHost for WarheadDebrisHost<'_, '_> {
         source: crate::sim::voxel_anim::ShpDebrisSource,
         index: usize,
     ) -> Result<(), crate::util::native_x87::NativeX87Error> {
-        debug_assert_eq!(
-            source,
-            crate::sim::voxel_anim::ShpDebrisSource::RulesMetallicDebris
-        );
         //469E50 reads live GetCoords per piece, independently of the
         // impact argument and Inviso-scattered explosion placement.
         let location = bullet_location(self.world, &self.detonation).0;
@@ -4715,16 +4770,21 @@ impl crate::sim::voxel_anim::ShpDebrisHost for WarheadDebrisHost<'_, '_> {
             y: location.y,
             z: location.z.wrapping_add(20),
         };
-        self.world.emit_debris_anim(
-            self.rules,
-            self.rules
-                .general
-                .metallic_debris
-                .get(index)
-                .map(String::as_str),
-            coord,
-            self.anims,
-        )
+        let name = match source {
+            crate::sim::voxel_anim::ShpDebrisSource::RulesMetallicDebris => {
+                self.rules.general.metallic_debris.get(index)
+            }
+            #[cfg(feature = "phobos")]
+            crate::sim::voxel_anim::ShpDebrisSource::WarheadDebrisAnims => {
+                self.warhead.phobos_debris_anims.get(index)
+            }
+            #[cfg(not(feature = "phobos"))]
+            crate::sim::voxel_anim::ShpDebrisSource::WarheadDebrisAnims => None,
+            // Techno deaths own their own host and never route here.
+            crate::sim::voxel_anim::ShpDebrisSource::TypeDebrisAnims => None,
+        };
+        self.world
+            .emit_debris_anim(self.rules, name.map(String::as_str), coord, self.anims)
     }
 }
 
@@ -5432,6 +5492,10 @@ mod nuke_maker_tests;
 #[cfg(all(test, feature = "phobos"))]
 #[path = "phobos_bullet_init_tests.rs"]
 mod phobos_bullet_init_tests;
+
+#[cfg(test)]
+#[path = "world_receiver_debris_tests.rs"]
+mod debris_tests;
 
 fn warhead_damages_wall(
     warhead: &WarheadType,

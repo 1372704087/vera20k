@@ -377,6 +377,7 @@ impl<'r> DeathDebrisWorldHost<'_, 'r> {
         use crate::sim::voxel_anim::ShpDebrisSource;
         match source {
             ShpDebrisSource::TypeDebrisAnims => self.object_type.debris_anims.get(index),
+            ShpDebrisSource::WarheadDebrisAnims => None,
             ShpDebrisSource::RulesMetallicDebris => self.rules.general.metallic_debris.get(index),
         }
         .map(String::as_str)

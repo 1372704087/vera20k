@@ -526,6 +526,12 @@ pub struct PhobosGlobals {
     /// arcing launch run `BulletExt::ApplyArcingFix`.
     #[serde(default = "true_bool")]
     pub arcing_allow_elevation_inaccuracy: bool,
+    /// `[General] Debris.Conventional=`, default `no`
+    /// (`Ext/Rules/Body.cpp:494`, constructor `Ext/Rules/Body.h:909`): the
+    /// WarheadType `Debris.Conventional=` fallback; true skips a water
+    /// cell's bullet debris block (`0x469D1A`).
+    #[serde(default)]
+    pub debris_conventional: bool,
     /// `[CombatDamage] Temporal.ApplyMultiplier=` / `.ApplyVersus=`
     /// (`Valueable<bool>`, constructors `false`, `Ext/Rules/Body.h:494-495`,
     /// `:991-992`; reads `Ext/Rules/Body.cpp:583-584`): the global fallbacks
@@ -946,6 +952,7 @@ impl Default for PhobosGlobals {
             building_radio_link_sync_owner: true,
             ivan_icon_visibility: crate::rules::phobos_shields::AffectedHouse::OWNER,
             arcing_allow_elevation_inaccuracy: true,
+            debris_conventional: false,
             temporal_apply_multiplier: false,
             temporal_apply_versus: false,
             can_target_iron_curtained: true,
@@ -1150,6 +1157,8 @@ impl PhobosGlobals {
         // `Ext/Rules/Body.cpp:525`: the weapon key's `[General]` fallback.
         globals.cylinder_rangefinding =
             general.read_bool("CylinderRangefinding", globals.cylinder_rangefinding);
+        globals.debris_conventional =
+            general.read_bool("Debris.Conventional", globals.debris_conventional);
         globals.force_weapon_in_range_techno_only = general.read_bool(
             "ForceWeapon.InRange.TechnoOnly",
             globals.force_weapon_in_range_techno_only,

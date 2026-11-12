@@ -115,6 +115,7 @@ Supported extensions:
 - [Tiberium ramps](phobos-allow-ramps.md) (`AllowRamps` lets a tiberium type grow and spread onto cardinal ramp cells when its ramp art exists, and raises `NumSlopes` to 8; 1 key)
 - [Terrain passability](phobos-terrain-passable.md) (`IsPassable` per terrain type plus `[General] Terrain.IsPassable` / `Tibtree.IsPassable` make a terrain object contribute no occupation; 3 keys)
 - [Terrain CanBeBuiltOn](phobos-terrain-can-be-built-on.md) (`CanBeBuiltOn` per terrain type plus `[General] Terrain.CanBeBuiltOn` / `Tibtree.CanBeBuiltOn` let a building replace the object; admission, flush, PlaceDown removal and the AI site search; 3 keys)
+- [Warhead debris block](phobos-warhead-debris.md) (`Debris.Conventional` water skip, `RandomRanged(MinDebris, MaxDebris)` budget, the warhead `DebrisMinimums`/`DebrisTypes.Limit` restored loop and `DebrisAnims` fallback; 4 keys)
 - [Projectile gravity](phobos-projectile-gravity.md) (`[Projectile] Gravity=` per projectile type)
 - [Projectile AU](phobos-projectile-au.md) (`[Projectile] AU=yes` admits underground auto-target candidates)
 - [Cylinder rangefinding](phobos-cylinder-rangefinding.md) (`CylinderRangefinding` per weapon and globally: direct range uses `dx²+dy²`)

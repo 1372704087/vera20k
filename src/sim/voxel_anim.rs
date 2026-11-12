@@ -461,6 +461,9 @@ fn spin_angle(voxel_anim_type: &VoxelAnimType, draw: u32) -> Result<NativeF64Bit
 pub enum ShpDebrisSource {
     /// `TechnoType+0x5C4` — the section's own `DebrisAnims=`.
     TypeDebrisAnims,
+    /// Phobos `WarheadTypeExt::DebrisAnims=`: the warhead's own list, used
+    /// before the metallic fallback by the bullet debris block (`0x469D1A`).
+    WarheadDebrisAnims,
     /// `RulesClass+0x140` / `+0x14C` — `[General] MetallicDebris=`.
     RulesMetallicDebris,
 }
@@ -1344,7 +1347,9 @@ DebrisTypes.Limit=no
         let mut iterations = 0;
         while spawned < budget && iterations < 4096 {
             #[cfg(feature = "phobos")]
-            let count = expected.next_range_i32_inclusive(0, 9).min(budget - spawned);
+            let count = expected
+                .next_range_i32_inclusive(0, 9)
+                .min(budget - spawned);
             #[cfg(not(feature = "phobos"))]
             let count = (expected.next_raw_abs_modulo(10) as i32).min(budget - spawned);
             for _ in 0..count {

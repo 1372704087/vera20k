@@ -382,6 +382,27 @@ pub struct WarheadType {
     /// -> warhead `+0x1C4`. Native RAISES this to `min_debris` when it is
     /// lower (`0x0075DAE0`); it never lowers `min_debris` to meet it.
     pub max_debris: i32,
+    /// Phobos `WarheadTypeExt::Debris.Conventional=` (`Nullable<bool>`,
+    /// `Ext/WarheadType/Body.cpp:300`, `Body.h:149`): when resolved true and
+    /// the detonation cell is water, the bullet debris block is skipped
+    /// (`Ext/Bullet/Hooks.DetonateLogics.cpp:171-177`, hook `0x469D1A`).
+    #[cfg(feature = "phobos")]
+    pub phobos_debris_conventional: Option<bool>,
+    /// Phobos `WarheadTypeExt::DebrisTypes.Limit=` (`Nullable<bool>`, `:301`,
+    /// `Body.h:150`): the restored bullet loop's one-pass gate; unset keeps
+    /// `count > 1`.
+    #[cfg(feature = "phobos")]
+    pub phobos_debris_types_limit: Option<bool>,
+    /// Phobos `WarheadTypeExt::DebrisMinimums=` (`ValueableVector<int>`,
+    /// `:302`, `Body.h:151`): per-slot floor for the restored bullet loop.
+    #[cfg(feature = "phobos")]
+    pub phobos_debris_minimums: Vec<i32>,
+    /// Phobos `WarheadTypeExt::DebrisAnims=` (`ValueableVector<
+    /// AnimTypeClass*>`, `:299`): the SHP debris list used before
+    /// `[General] MetallicDebris=` when the typed count is zero
+    /// (`Ext/Bullet/Hooks.DetonateLogics.cpp:222-240`).
+    #[cfg(feature = "phobos")]
+    pub phobos_debris_anims: Vec<String>,
     /// Phobos `WarheadTypeExt::AllowDamageOnSelf` (`Nullable<bool>`): this
     /// warhead may deal damage and damage-adjacent effects to the object that
     /// fired it even when that object's type keeps `DamageSelf=no`.
@@ -976,6 +997,21 @@ impl WarheadType {
             debris_maximums,
             min_debris,
             max_debris,
+            // Phobos `WarheadTypeExt`'s four debris keys, read in
+            // `Ext/WarheadType/Body.cpp:299-302` order.
+            #[cfg(feature = "phobos")]
+            phobos_debris_anims: section
+                .read_list("DebrisAnims", 0x800)
+                .map(|tokens| tokens.into_iter().map(str::to_owned).collect())
+                .unwrap_or_default(),
+            #[cfg(feature = "phobos")]
+            phobos_debris_conventional: section
+                .read_phobos_nullable_bool("Debris.Conventional", None),
+            #[cfg(feature = "phobos")]
+            phobos_debris_types_limit: section
+                .read_phobos_nullable_bool("DebrisTypes.Limit", None),
+            #[cfg(feature = "phobos")]
+            phobos_debris_minimums: section.read_int_list("DebrisMinimums").unwrap_or_default(),
             #[cfg(feature = "phobos")]
             allow_damage_on_self: section.read_phobos_nullable_bool("AllowDamageOnSelf", None),
             #[cfg(feature = "phobos")]

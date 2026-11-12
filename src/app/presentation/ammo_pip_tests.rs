@@ -44,6 +44,47 @@ fn native_stage_frames(stage: &str) -> Vec<usize> {
         .collect()
 }
 
+#[cfg(feature = "phobos")]
+#[test]
+fn an_authored_empty_ammo_frame_continues_the_strip_to_capacity() {
+    // Phobos `TechnoClass_DrawPips_Ammo` (`Ext/Techno/Hooks.Pips.cpp:287-305`):
+    // a negative EmptyAmmoPipFrame stops the strip at the fill count (stock),
+    // an authored one draws that frame for every slot through GetPipMax.
+    use crate::rules::art_data::ArtRegistry;
+    use crate::rules::ini_parser::IniFile;
+    use crate::sim::world::display_layers::DisplayLayer;
+
+    let art_ini = IniFile::from_str("[RIPUART]\n[RIPCART]\n");
+    let mut rules = RuleSet::from_ini_with_fixed_art_for_test(
+        &crate::sim::arena_fixture::clear_ground_ini(
+            "[VehicleTypes]\n0=RIPU\n1=RIPC\n\
+             [RIPU]\nImage=RIPUART\nStrength=100\nAmmo=3\nPipScale=Ammo\n\
+             EmptyAmmoPipFrame=7\n\
+             [RIPC]\nImage=RIPCART\nStrength=100\nAmmo=3\nPipScale=Ammo\n",
+        ),
+        &art_ini,
+    )
+    .unwrap();
+    rules.install_art_data(ArtRegistry::from_ini(&art_ini));
+
+    let mut sim = Simulation::new();
+    let owner = sim.intern("Americans");
+    sim.fog_mut_for_test().reveal_all_for_owner(owner);
+    for (id, kind) in [(1u64, "RIPU"), (2, "RIPC")] {
+        let mut entity =
+            crate::sim::game_entity::GameEntity::test_default(id, kind, "Americans", 10, 10);
+        entity.set_type_ref_for_test(sim.intern(kind));
+        entity.set_owner_for_test(owner);
+        entity.set_category_for_test(crate::map::entities::EntityCategory::Unit);
+        entity.install_ammo_for_test(Some(crate::sim::ammo::TechnoAmmo::new(2)));
+        entity.selection.set_selected_for_test(true);
+        sim.entities_mut_for_test().insert(entity);
+        sim.submit_object_display_for_test(id, DisplayLayer::GROUND, Some(&rules));
+    }
+    assert_eq!(frames(&sim, &rules, 1, None), [13, 13, 7]);
+    assert_eq!(frames(&sim, &rules, 2, None), [13, 13]);
+}
+
 #[test]
 #[ignore = "physical retail map, rules and art; natural ORCA strike, return and rearm"]
 fn stock_harrier_ammo_pips_follow_real_strike_return_reload_and_selection() {

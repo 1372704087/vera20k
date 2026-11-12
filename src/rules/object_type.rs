@@ -2575,6 +2575,13 @@ pub struct ObjectType {
     /// ReadInt714179..714198 uses the retained field as its default.
     pip_wrap: i32,
 
+    /// Phobos `TechnoTypeExt::EmptyAmmoPipFrame` (`Ext/TechnoType/Body.h:238`,
+    /// `Valueable<int>` seeded -1): RULES `EmptyAmmoPipFrame=` on the type
+    /// section (`Ext/TechnoType/Body.cpp:1003`). A negative value keeps the
+    /// stock filled-only Ammo strip; an authored frame extends the strip to
+    /// `pip_max` with that empty outline (`Ext/Techno/Hooks.Pips.cpp:287-305`).
+    empty_ammo_pip_frame: i32,
+
     /// Whether this building absorbs infantry (Yuri Bio Reactor).
     /// Parsed from `InfantryAbsorb=yes` in rules.ini.
     pub infantry_absorb: bool,
@@ -4367,6 +4374,11 @@ impl ObjectType {
     /// Signed PipWrap configuration, before the draw caller's division.
     pub const fn pip_wrap(&self) -> i32 {
         self.pip_wrap
+    }
+
+    /// Phobos `EmptyAmmoPipFrame`: negative draws no empty Ammo outlines.
+    pub const fn empty_ammo_pip_frame(&self) -> i32 {
+        self.empty_ammo_pip_frame
     }
 
     /// Building4598A0's current-type query: UnitAbsorb OR InfantryAbsorb.
@@ -6434,6 +6446,12 @@ impl ObjectType {
                 .unwrap_or_default(),
             pips_draw_for_all: section.read_bool("PipsDrawForAll", false),
             pip_wrap: section.read_int("PipWrap", 0),
+            // Phobos `TechnoTypeExt::EmptyAmmoPipFrame`
+            // (`Ext/TechnoType/Body.cpp:1003`), constructor value -1.
+            #[cfg(feature = "phobos")]
+            empty_ammo_pip_frame: section.read_int("EmptyAmmoPipFrame", -1),
+            #[cfg(not(feature = "phobos"))]
+            empty_ammo_pip_frame: -1,
             unit_absorb: section.read_bool("UnitAbsorb", false),
             infantry_absorb: section.read_bool("InfantryAbsorb", false),
             grinding: section.read_bool("Grinding", false),

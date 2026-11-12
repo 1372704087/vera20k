@@ -2111,8 +2111,22 @@ pub(crate) fn scale_pip_draws(
             .techno_pip_fill_level(object, rules, None)
             .clamp(0, object.pip_max(rules).max(0));
         //70A3B7 resets this arm three pixels above the ordinary Y anchor,
-        //even after a preceding spawn row. No empty Ammo outlines are drawn.
-        pips.extend((0..filled as usize).map(|slot| pip(slot, 13, row_y - 3)));
+        //even after a preceding spawn row. Phobos `TechnoClass_DrawPips_Ammo`
+        //(`Ext/Techno/Hooks.Pips.cpp:287-305`) stops at the fill level while
+        //`EmptyAmmoPipFrame` is negative (stock), else draws that frame for
+        //every slot through GetPipMax. The stock `AmmoPipFrame` stays 13
+        //until its own key is ported.
+        let fill_slots = usize::try_from(filled).unwrap_or(0);
+        let slots = if object.empty_ammo_pip_frame() >= 0 {
+            usize::try_from(object.pip_max(rules).max(0)).unwrap_or(0)
+        } else {
+            fill_slots
+        };
+        let empty = usize::try_from(object.empty_ammo_pip_frame()).unwrap_or(0);
+        pips.extend((0..slots).map(|slot| {
+            let frame = if slot < fill_slots { 13 } else { empty };
+            pip(slot, frame, row_y - 3)
+        }));
         return pips;
     }
     if object.pip_scale == crate::rules::object_type::PipScale::MindControl {

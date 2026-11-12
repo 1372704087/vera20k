@@ -657,7 +657,7 @@ impl<'a> FireSubject<'a> {
                         organic: target_obj.organic,
                         is_simple_deployer: target_obj.is_simple_deployer,
                         non_vehicle: target_obj.non_vehicle,
-                        is_1x1_with_undeploy: target_obj.is_1x1_with_undeploy(),
+                        is_vehicle: target_obj.is_vehicle(),
                         #[cfg(feature = "phobos")]
                         allow_airstrike: target_obj.allow_airstrike,
                         #[cfg(feature = "phobos")]

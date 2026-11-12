@@ -133,14 +133,7 @@ pub(crate) fn raise_combat_alert(
     if globals.combat_alert_ignore_building
         && category == EntityCategory::Structure
         && type_keys.not_building.map_or_else(
-            || {
-                !super::vehicle_like(
-                    category,
-                    object.non_vehicle,
-                    object.is_1x1_with_undeploy(),
-                    || false,
-                )
-            },
+            || !super::vehicle_like(category, object.non_vehicle, object.is_vehicle(), || false),
             |not_building| !not_building,
         )
     {

@@ -421,7 +421,7 @@ impl Simulation {
         let vehicle = crate::sim::combat::vehicle_like(
             target.category(),
             target_type.non_vehicle,
-            target_type.is_1x1_with_undeploy(),
+            target_type.is_vehicle(),
             || {
                 if let Some(terrain) = self.resolved_terrain.as_ref() {
                     let cells = crate::map::resolved_terrain::NativeCellQuery::isolated(terrain);
@@ -663,16 +663,14 @@ impl Simulation {
                         EntryClickAction::NoEnter
                     });
                 }
-                (select
-                    && self.house_is_human_player(actor.owner())
-                    && !target_obj.is_1x1_with_undeploy())
-                .then(|| {
-                    if self.session.current_house() == Some(target.owner()) {
-                        EntryClickAction::Grind
-                    } else {
-                        EntryClickAction::NoEnter
-                    }
-                })
+                (select && self.house_is_human_player(actor.owner()) && !target_obj.is_vehicle())
+                    .then(|| {
+                        if self.session.current_house() == Some(target.owner()) {
+                            EntryClickAction::Grind
+                        } else {
+                            EntryClickAction::NoEnter
+                        }
+                    })
             }
             EntityCategory::Aircraft => {
                 let target_obj = self.object_type(target.type_ref(), rules)?;
@@ -1231,7 +1229,7 @@ impl Simulation {
             .engineer_repairable(object.repairable);
         #[cfg(not(feature = "ares"))]
         let repairable = object.repairable;
-        if object.is_1x1_with_undeploy() || !repairable {
+        if object.is_vehicle() || !repairable {
             return None;
         }
         if !object.bridge_repair_hut {
@@ -1617,7 +1615,7 @@ impl Simulation {
             && target.category() == EntityCategory::Structure
             && self
                 .object_type(target.type_ref(), rules)
-                .is_some_and(|object| object.is_1x1_with_undeploy())
+                .is_some_and(|object| object.is_vehicle())
         {
             return InfantryPerCellBuildingAdmission::UndeployBuilding;
         }

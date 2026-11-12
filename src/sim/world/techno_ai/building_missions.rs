@@ -794,6 +794,23 @@ fn mission_guard(sim: &mut Simulation, id: u64, rules: &RuleSet, ctx: ObjectAiCt
             queue_and_commence(sim, id, MissionType::Attack, rules);
             return 1;
         }
+        // Phobos' armed Guard return (`Ext/Building/Hooks.cpp:1284-1305`,
+        // hook `0x4496FB`): a set `GuardRetryDelay` (type first, then
+        // `[General] BuildingGuardRetryDelay`) answers the retry frames
+        // directly; a range draws its own jitter and a single value draws
+        // nothing, replacing the stock `AARate` body below.
+        #[cfg(feature = "phobos")]
+        if let Some(range) = obj
+            .guard_retry_delay()
+            .or(rules.phobos_globals.building_guard_retry_delay)
+        {
+            return if range.is_single() {
+                range.low
+            } else {
+                sim.scenario_rng
+                    .next_range_i32_inclusive(range.low, range.high)
+            };
+        }
         // `0x004497AF..0x004497DA`: the AARate delay.
         let frames = rules.mission_control.aa_rate_frames(current);
         return rate_delay(&mut sim.scenario_rng, frames, 1);

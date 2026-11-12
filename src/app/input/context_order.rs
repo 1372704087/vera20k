@@ -4160,7 +4160,7 @@ pub(super) fn infantry_c4_action(
     }
     let building = sim.interner().object_type(target.type_ref(), rules)?;
     // Building virtual+80: 457620 -> BuildingType465D40, not invulnerability.
-    if building.is_1x1_with_undeploy() {
+    if building.is_vehicle() {
         return None;
     }
     Some(if building.can_c4 && !building.invisible_in_game {

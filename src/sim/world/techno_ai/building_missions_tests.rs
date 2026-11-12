@@ -305,6 +305,64 @@ fn mission_guard_matches_the_original() {
     }
 }
 
+/// Phobos `BuildingTypeExt::GuardRetryDelay` (`Ext/BuildingType/Body.cpp:258`)
+/// through the hooked armed Guard return (`Ext/Building/Hooks.cpp:1284-1305`,
+/// hook `0x4496FB`): a set type key answers the retry frames directly, a range
+/// drawing its own jitter and a single value drawing nothing;
+/// `[General] BuildingGuardRetryDelay` answers for a type that leaves the key
+/// unset. Both replace the stock `AARate` delay and its `Random(0, 2)` draw.
+#[cfg(feature = "phobos")]
+#[test]
+fn guard_retry_delay_replaces_the_aarate_delay() {
+    let retry_rules = |type_key: &str, general_key: &str| {
+        RuleSet::from_ini(&crate::sim::arena_fixture::clear_ground_ini(&format!(
+            "[General]\n{general_key}\
+             [Guard]\nRate=.030\nAARate=.016\n\
+             [BuildingTypes]\n0=DEF\n1=SHED\n\
+             [DEF]\nStrength=1000\nArmor=concrete\nFoundation=1x1\nPrimary=Gun\n\
+             CanPassiveAquire=no\n{type_key}\
+             [SHED]\nStrength=1000\nArmor=wood\nFoundation=1x1\n\
+             [Gun]\nDamage=10\nROF=20\nRange=6\nProjectile=Shell\nWarhead=AP\n\
+             [Shell]\nAG=yes\n\
+             [AP]\nVerses=100%,100%,100%,100%,100%,100%,100%,100%,100%,100%,100%\n"
+        )))
+        .unwrap()
+    };
+    let run = |rules: &RuleSet| {
+        let (mut sim, building, _) = fixture(rules, "DEF", (8, 5));
+        set_mission(
+            &mut sim,
+            building,
+            MissionId::from_known(MissionType::Guard),
+            0,
+        );
+        sim.scenario_rng = SimRng::new(4);
+        let before = sim.scenario_rng.logical_state();
+        let returns = mission_guard(
+            &mut sim,
+            building,
+            rules,
+            crate::sim::world::ObjectAiCtx::default(),
+        );
+        (returns, sim.scenario_rng.logical_state() == before)
+    };
+
+    let (ranged, _) = run(&retry_rules("GuardRetryDelay=10,20\n", ""));
+    assert!(
+        (10..=20).contains(&ranged),
+        "a ranged type key draws its own frames: {ranged}"
+    );
+    let (single, no_draw) = run(&retry_rules("GuardRetryDelay=7\n", ""));
+    assert_eq!(single, 7, "a single type value answers directly");
+    assert!(no_draw, "the stock `Random(0, 2)` draw is skipped");
+    let (fallback, no_draw) = run(&retry_rules("", "BuildingGuardRetryDelay=5\n"));
+    assert_eq!(
+        fallback, 5,
+        "[General] answers for a type that leaves the key unset"
+    );
+    assert!(no_draw, "the fallback also skips the stock draw");
+}
+
 /// Every `attack` row: Mission_Attack's return and actions for each
 /// GetFireError code (answered from the row, as the oracle answers it), the
 /// null-target tail and the delayed-fire OK arm: FireAt becomes the combat

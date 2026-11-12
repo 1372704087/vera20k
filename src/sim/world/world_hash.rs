@@ -1318,6 +1318,17 @@ impl Simulation {
                 b"house-factory-counters-v1".hash(hasher);
                 factories.hash(hasher);
             }
+            // Phobos' excluded part of those counters changes the
+            // `0x00500910` speed count, so two worlds that differ only there
+            // are not the same state.
+            #[cfg(feature = "phobos")]
+            {
+                let excluded = house.tracking().non_mfb_factories();
+                if excluded != [0; 5] {
+                    b"phobos-house-non-mfb-factories-v1".hash(hasher);
+                    excluded.hash(hasher);
+                }
+            }
             let war_factories = house.tracking().war_factories();
             if war_factories != 0 {
                 b"house-war-factories-v1".hash(hasher);

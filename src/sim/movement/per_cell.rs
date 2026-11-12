@@ -1052,7 +1052,7 @@ impl Simulation {
                 if entity.category() == EntityCategory::Structure
                     && !self
                         .entity_object_type(entity, rules)
-                        .is_some_and(|ty| ty.is_1x1_with_undeploy())
+                        .is_some_and(|ty| ty.is_vehicle())
                 {
                     return None;
                 }

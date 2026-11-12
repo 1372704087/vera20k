@@ -37,10 +37,12 @@ fn make_rules(unit: &str, building: &str, warhead: &str, audio: &str) -> RuleSet
         "[InfantryTypes]\n\
          [VehicleTypes]\n0=MTNK\n\
          [AircraftTypes]\n\
-         [BuildingTypes]\n0=GAPOWR\n1=BVEH\n\
+         [BuildingTypes]\n0=GAPOWR\n1=BVEH\n2=CBVEH\n\
          [MTNK]\nStrength={STRENGTH}\nArmor=none\n{unit}\
          [GAPOWR]\nStrength={STRENGTH}\nArmor=none\nFoundation=2x2\n{building}\
          [BVEH]\nStrength={STRENGTH}\nArmor=none\nFoundation=1x1\nUndeploysInto=MTNK\n\
+         [CBVEH]\nStrength={STRENGTH}\nArmor=none\nFoundation=1x1\nUndeploysInto=MTNK\n\
+         ConsideredVehicle=no\n\
          [Warheads]\n0=WH\n1=SUPPRESSWH\n\
          [WH]\n{VERSE}\n{warhead}\
          [SUPPRESSWH]\n{VERSE}\nCombatAlert.Suppress=yes\n\
@@ -381,6 +383,43 @@ fn type_alert_global_default_and_building_gates() {
         alerts(&vehicle_like).len(),
         1,
         "a 1x1 UndeploysInto building is vehicle-like"
+    );
+}
+
+/// Phobos `ConsideredVehicle` (`Ext/BuildingType/Hooks.cpp:154-168`, hook
+/// `0x465D40`) through the `CombatAlert.NotBuilding` fallback
+/// (`Ext/Techno/Hooks.ReceiveDamage.cpp:106`): the key overrides the building
+/// vt+0x80 both ways, so a 2x2 building that authors `yes` alerts like a
+/// vehicle and a 1x1 `UndeploysInto=` building that authors `no` is skipped
+/// like an ordinary base.
+#[test]
+fn considered_vehicle_flips_the_building_alert_gate() {
+    let mut vehicle = fixture(
+        "VoiceFeedback=FeedbackVoice\n",
+        "ConsideredVehicle=yes\n",
+        "",
+        "CombatAlert=yes\n",
+    );
+    replace_target(&mut vehicle, "GAPOWR", EntityCategory::Structure);
+    {
+        let source = vehicle.enemy;
+        hit(&mut vehicle, 50, Some(source), "WH");
+    }
+    assert_eq!(
+        alerts(&vehicle).len(),
+        1,
+        "ConsideredVehicle=yes alerts as a vehicle"
+    );
+
+    let mut base = fixture("VoiceFeedback=FeedbackVoice\n", "", "", "CombatAlert=yes\n");
+    replace_target(&mut base, "CBVEH", EntityCategory::Structure);
+    {
+        let source = base.enemy;
+        hit(&mut base, 50, Some(source), "WH");
+    }
+    assert!(
+        alerts(&base).is_empty(),
+        "ConsideredVehicle=no suppresses the vehicle-like building"
     );
 }
 

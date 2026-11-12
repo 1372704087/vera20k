@@ -444,7 +444,7 @@ impl ProjectileCollisionWorld<'_> {
                         .get(id)
                         .and_then(|object| self.interner.object_type(object.type_ref(), self.rules))
                         .is_some_and(|kind| {
-                            kind.is_1x1_with_undeploy()
+                            kind.is_vehicle()
                                 && kind
                                     .undeploys_into
                                     .as_deref()

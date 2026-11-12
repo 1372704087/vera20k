@@ -1458,6 +1458,26 @@ pub struct ObjectType {
     /// (`Ext/BuildingType/Hooks.cpp:389-411`, `0x4426DB`, `0x70272E`,
     /// `0x702777`) skip the whole request, not just a branch of it.
     disable_damage_sound: bool,
+    /// Phobos `BuildingTypeExt::ConsideredVehicle` (`Ext/BuildingType/Body.h:63`,
+    /// `Nullable<bool>`, read at `Ext/BuildingType/Body.cpp:219`): overrides the
+    /// `BuildingTypeClass::IsVehicle @ 0x00465D40` answer for this building
+    /// type (`Ext/BuildingType/Hooks.cpp:154-168`, hook `0x465D40`). Unset
+    /// keeps the stock 1x1 `UndeploysInto=` body; only a building reads it.
+    considered_vehicle: Option<bool>,
+    /// Phobos `BuildingTypeExt::ExcludeFromMultipleFactoryBonus`
+    /// (`Ext/BuildingType/Body.h:35`, `Valueable<bool>` seeded false, read at
+    /// `Ext/BuildingType/Body.cpp:198`): the building still joins the house
+    /// factory counter, but not the count
+    /// `HouseClass::GetFactoryCount @ 0x00500910` answers for production speed
+    /// (`Ext/House/Hooks.cpp:543-575`). Only a building reads it.
+    exclude_from_multiple_factory_bonus: bool,
+    /// Phobos `BuildingTypeExt::GuardRetryDelay`
+    /// (`Ext/BuildingType/Body.h:114`, `Nullable<PartialVector2D<int>>`, read
+    /// at `Ext/BuildingType/Body.cpp:258`): the frames an armed building waits
+    /// before rechecking its target, replacing the `[Guard]` `AARate` delay.
+    /// Unset falls back to `[General] BuildingGuardRetryDelay`
+    /// (`Ext/Rules/Body.cpp:579`). Only a building reads it.
+    guard_retry_delay: Option<crate::rules::ini_value::PartialIntPair>,
     /// Installed Ares TypeExt+504/+508 and+50C/+510 (ctor1003CE14..2E).
     /// Unset, explicit silence and a resolved Voc ID remain distinct.
     #[cfg(feature = "ares")]
@@ -5148,17 +5168,39 @@ impl ObjectType {
         self.undeploys_into.is_some() && self.foundation.dimensions() == (1, 1)
     }
 
+    /// `TechnoClass` vt+0x80 for a structure and `BuildingTypeClass::IsVehicle
+    /// @ 0x00465D40`: Phobos' `ConsideredVehicle` answers directly when the
+    /// building type sets it (`Ext/BuildingType/Hooks.cpp:154-168`, hook
+    /// `0x465D40`), otherwise the stock [`Self::is_1x1_with_undeploy`] body
+    /// runs. Non-building types never read the key, so they keep their stock
+    /// answers at the callers.
+    pub fn is_vehicle(&self) -> bool {
+        self.considered_vehicle
+            .unwrap_or_else(|| self.is_1x1_with_undeploy())
+    }
+
+    /// Phobos `BuildingTypeExt::ExcludeFromMultipleFactoryBonus`: whether the
+    /// building stays out of the `0x00500910` factory count that drives the
+    /// multiple-factory speed-up.
+    pub const fn exclude_from_multiple_factory_bonus(&self) -> bool {
+        self.exclude_from_multiple_factory_bonus
+    }
+
+    /// Phobos `BuildingTypeExt::GuardRetryDelay`: the armed building's guard
+    /// recheck delay, `None` when the type leaves it unset.
+    pub const fn guard_retry_delay(&self) -> Option<crate::rules::ini_value::PartialIntPair> {
+        self.guard_retry_delay
+    }
+
     /// BuildingClass::CanBeSelectedNow's type test (`0x00459C03`): whether a
-    /// band box may select the building, [`Self::is_1x1_with_undeploy`]; Ares
+    /// band box may select the building, [`Self::is_vehicle`] (vt+0x80); Ares
     /// 3.0 BuildingClass_CanBeSelectedNow_MassSelectable 10013CF0 lets
     /// `MassSelectable=` override it.
     pub fn band_selectable(&self) -> bool {
         #[cfg(feature = "ares")]
-        return self
-            .building_type_ext
-            .mass_selectable(self.is_1x1_with_undeploy());
+        return self.building_type_ext.mass_selectable(self.is_vehicle());
         #[cfg(not(feature = "ares"))]
-        self.is_1x1_with_undeploy()
+        self.is_vehicle()
     }
 
     /// The slot the per-class House and HouseType factor getters select by the
@@ -5189,7 +5231,7 @@ impl ObjectType {
         }
         self.category == ObjectCategory::Building
             && (self.undeploys_into.is_none() || !self.resource_gatherer)
-            && !self.is_1x1_with_undeploy()
+            && !self.is_vehicle()
     }
 
     /// Phobos `[TechnoType] Harvester.Counted=`: whether this type joins its
@@ -6105,6 +6147,34 @@ impl ObjectType {
                 && section.read_bool("DisableDamageSound", false),
             #[cfg(not(feature = "phobos"))]
             disable_damage_sound: false,
+            // Phobos `BuildingTypeExt::ConsideredVehicle`
+            // (`Ext/BuildingType/Body.cpp:219`), a BuildingType-only
+            // `Nullable<bool>`; only a building reads it.
+            #[cfg(feature = "phobos")]
+            considered_vehicle: if category == ObjectCategory::Building {
+                section.read_phobos_nullable_bool("ConsideredVehicle", None)
+            } else {
+                None
+            },
+            #[cfg(not(feature = "phobos"))]
+            considered_vehicle: None,
+            // Phobos `BuildingTypeExt::ExcludeFromMultipleFactoryBonus`
+            // (`Ext/BuildingType/Body.cpp:198`), a BuildingType-only key.
+            #[cfg(feature = "phobos")]
+            exclude_from_multiple_factory_bonus: category == ObjectCategory::Building
+                && section.read_bool("ExcludeFromMultipleFactoryBonus", false),
+            #[cfg(not(feature = "phobos"))]
+            exclude_from_multiple_factory_bonus: false,
+            // Phobos `BuildingTypeExt::GuardRetryDelay`
+            // (`Ext/BuildingType/Body.cpp:258`), a BuildingType-only key.
+            #[cfg(feature = "phobos")]
+            guard_retry_delay: if category == ObjectCategory::Building {
+                section.read_phobos_nullable_partial_int_pair("GuardRetryDelay", None)
+            } else {
+                None
+            },
+            #[cfg(not(feature = "phobos"))]
+            guard_retry_delay: None,
             #[cfg(feature = "ares")]
             promotion_sounds: [None, None],
             #[cfg(feature = "ares")]
@@ -7769,6 +7839,52 @@ mod tests {
         assert!(!obj.is_1x1_with_undeploy());
 
         assert!(rules.object("MODDEPLOY").unwrap().is_1x1_with_undeploy());
+    }
+
+    /// Phobos `BuildingTypeExt::ConsideredVehicle`
+    /// (`Ext/BuildingType/Body.cpp:219`) and `BuildingTypeClass_IsVehicle`
+    /// (`Ext/BuildingType/Hooks.cpp:154-168`, hook `0x465D40`): a set key
+    /// answers [`ObjectType::is_vehicle`] directly, both ways; unset keeps the
+    /// stock 1x1 `UndeploysInto=` body, a rejected read leaves the key unset,
+    /// and a non-building never reads it.
+    #[cfg(feature = "phobos")]
+    #[test]
+    fn phobos_considered_vehicle_overrides_the_is_vehicle_answer() {
+        let rules = rules(
+            "[BuildingTypes]\n0=PLAIN\n1=MCV\n2=STOCK\n3=BAD\n\
+             [VehicleTypes]\n0=VEH\n\
+             [PLAIN]\nFoundation=2x2\nConsideredVehicle=yes\n\
+             [MCV]\nFoundation=1x1\nUndeploysInto=AMCV\nConsideredVehicle=no\n\
+             [STOCK]\nFoundation=1x1\nUndeploysInto=AMCV\n\
+             [BAD]\nFoundation=2x2\nConsideredVehicle=maybe\n\
+             [VEH]\nFoundation=1x1\nConsideredVehicle=yes\n",
+        );
+        let object = |id| rules.object(id).expect("type").clone();
+
+        let plain = object("PLAIN");
+        assert!(!plain.is_1x1_with_undeploy());
+        assert!(
+            plain.is_vehicle(),
+            "ConsideredVehicle=yes answers over the stock body"
+        );
+        let mcv = object("MCV");
+        assert!(mcv.is_1x1_with_undeploy());
+        assert!(
+            !mcv.is_vehicle(),
+            "ConsideredVehicle=no answers over the stock body"
+        );
+        assert!(
+            object("STOCK").is_vehicle(),
+            "an unset key keeps the stock 1x1 UndeploysInto body"
+        );
+        assert!(
+            !object("BAD").is_vehicle(),
+            "a rejected read leaves the key unset"
+        );
+        assert!(
+            !object("VEH").is_vehicle(),
+            "a non-building never reads the key"
+        );
     }
 
     /// Phobos `UnitTypeExt`'s three `OreGathering.*` vectors through the

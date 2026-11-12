@@ -312,7 +312,7 @@ pub(super) fn apply_building_receive_prelude(
     {
         return BuildingReceivePrelude::ReturnZero;
     }
-    if event.attacker_id == RAD_NO_ATTACKER || target_type.is_1x1_with_undeploy() {
+    if event.attacker_id == RAD_NO_ATTACKER || target_type.is_vehicle() {
         return BuildingReceivePrelude::Continue;
     }
     if let Some(owner) = houses.get_mut(&target.owner()) {

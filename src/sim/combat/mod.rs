@@ -149,17 +149,17 @@ mod phobos_extra_warheads_tests;
 #[cfg(all(test, feature = "phobos"))]
 mod phobos_feedback_weapon_tests;
 #[cfg(all(test, feature = "phobos"))]
-mod phobos_unlimbo_detonate_tests;
-#[cfg(all(test, feature = "phobos"))]
 mod phobos_no_turret_tests;
 #[cfg(all(test, feature = "phobos"))]
 mod phobos_open_topped_fire_tests;
 #[cfg(all(test, feature = "phobos"))]
 mod phobos_open_transport_tests;
 #[cfg(all(test, feature = "phobos"))]
+mod phobos_shrapnel_trigger_tests;
+#[cfg(all(test, feature = "phobos"))]
 mod phobos_spawns_crate_tests;
 #[cfg(all(test, feature = "phobos"))]
-mod phobos_shrapnel_trigger_tests;
+mod phobos_unlimbo_detonate_tests;
 #[cfg(all(test, feature = "phobos"))]
 mod phobos_visual_scatter_tests;
 // Phobos `ROF.RandomDelay` (`0x006FD0B5`) redraws the full-rearm jitter, so
@@ -369,19 +369,20 @@ impl UnitFacingUpdate {
 
 /// TechnoClass vt+0x80, whether an object counts as a vehicle, by its class:
 /// a Unit that is not `NonVehicle=` (`0x00746400`, UnitType `+0xE1B`), a
-/// building that is a 1x1 `UndeploysInto=` (`0x00457620` → `0x00465D40`,
-/// [`ObjectType::is_1x1_with_undeploy`]), an aircraft its vt+0x50 calls low
-/// (`0x0041B910`), never an infantryman (`0x004263B0`). `low_flying` is that
-/// vt+0x50 in the caller's own map lookup, asked only for an aircraft.
+/// building whose [`ObjectType::is_vehicle`] answers (`0x00457620` →
+/// `0x00465D40`, Phobos' `ConsideredVehicle` override included), an aircraft
+/// its vt+0x50 calls low (`0x0041B910`), never an infantryman (`0x004263B0`).
+/// `low_flying` is that vt+0x50 in the caller's own map lookup, asked only for
+/// an aircraft.
 pub(crate) fn vehicle_like(
     class: EntityCategory,
     non_vehicle: bool,
-    is_1x1_with_undeploy: bool,
+    is_vehicle: bool,
     low_flying: impl FnOnce() -> bool,
 ) -> bool {
     match class {
         EntityCategory::Unit => !non_vehicle,
-        EntityCategory::Structure => is_1x1_with_undeploy,
+        EntityCategory::Structure => is_vehicle,
         EntityCategory::Aircraft => low_flying(),
         EntityCategory::Infantry => false,
     }

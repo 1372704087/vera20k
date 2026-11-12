@@ -184,6 +184,13 @@ pub struct TrackingFacts {
     /// `Naval=`.
     #[serde(default)]
     factory: Option<FactorySlot>,
+    /// Phobos `BuildingTypeExt::ExcludeFromMultipleFactoryBonus`: this
+    /// building joins its house factory counter but not the
+    /// `0x00500910` count production speed reads. Retained with the other
+    /// constructor-bound type facts so a removal subtracts what the addition
+    /// added.
+    #[serde(default)]
+    exclude_from_multiple_factory_bonus: bool,
     /// Live BuildingType+800 (`Storage=`); other classes' cargo capacity
     /// does not join House+310. Production types are immutable for this object;
     /// deploy/undeploy constructs a replacement with its own type facts.
@@ -206,7 +213,7 @@ impl TrackingFacts {
             return Self::default();
         };
         let unit_like_building = category == EntityCategory::Structure
-            && (ty.is_1x1_with_undeploy()
+            && (ty.is_vehicle()
                 || ty
                     .undeploys_into
                     .as_deref()
@@ -233,6 +240,10 @@ impl TrackingFacts {
                         .map(|factory| FactorySlot::of(factory, ty.naval))
                 })
                 .flatten(),
+            // Phobos `BuildingTypeExt::ExcludeFromMultipleFactoryBonus`
+            // (`Ext/BuildingType/Body.cpp:198`); a UnitType never carries it.
+            exclude_from_multiple_factory_bonus: category == EntityCategory::Structure
+                && ty.exclude_from_multiple_factory_bonus(),
             storage_capacity: if category == EntityCategory::Structure {
                 ty.storage
             } else {
@@ -531,6 +542,13 @@ pub struct HouseTracking {
     /// `HouseClass+0x5378..+0x5388`, in [`FactorySlot`] order.
     #[serde(default)]
     factories: [i32; 5],
+    /// Phobos `HouseExt::Num*_NonMFB` (`Ext/House/Body.h`, updated by
+    /// `UpdateNonMFBFactoryCounts`, `Ext/House/Body.cpp:475-503`): the part of
+    /// [`Self::factories`] that authored `ExcludeFromMultipleFactoryBonus` and
+    /// that `HouseClass::GetFactoryCount @ 0x00500910` subtracts
+    /// (`GetFactoryCountWithoutNonMFB`, `:505-536`).
+    #[serde(default)]
+    non_mfb_factories: [i32; 5],
     /// House+310, zeroed by4F58DE. Retained event total, independent of
     /// filtered active-building counts and the separate raw amount stores.
     #[serde(default)]
@@ -686,16 +704,42 @@ impl HouseTracking {
         if let Some(slot) = entity.tracking_facts.factory {
             let count = &mut self.factories[slot as usize];
             *count = count.wrapping_add(delta);
+            // Phobos hooks `0x4FF9C9`/`0x4FFA99` beside the increment and the
+            // recount (`Ext/House/Hooks.cpp:543-557`): the same building also
+            // moves the exclusion count, so
+            // `GetFactoryCountWithoutNonMFB` drops it from the speed count.
+            if entity.tracking_facts.exclude_from_multiple_factory_bonus {
+                let excluded = &mut self.non_mfb_factories[slot as usize];
+                *excluded = excluded.wrapping_add(delta);
+            }
         }
     }
 
-    /// `HouseClass::GetFactoryCount @ 0x00500910`: one factory counter.
+    /// `HouseClass::GetFactoryCount @ 0x00500910`: one factory counter. Phobos
+    /// replaces the body (`Ext/House/Hooks.cpp:565-575`) with
+    /// `GetFactoryCountWithoutNonMFB` (`Ext/House/Body.cpp:505-536`): the raw
+    /// counter minus its excluded part, raised to zero.
     pub(crate) const fn factory_count(&self, slot: FactorySlot) -> i32 {
+        #[cfg(feature = "phobos")]
+        {
+            let index = slot as usize;
+            let count = self.factories[index].wrapping_sub(self.non_mfb_factories[index]);
+            if count < 0 { 0 } else { count }
+        }
+        #[cfg(not(feature = "phobos"))]
         self.factories[slot as usize]
     }
 
+    /// The excluded part of the factory counters, for the world hash.
+    #[cfg(feature = "phobos")]
+    pub(crate) const fn non_mfb_factories(&self) -> [i32; 5] {
+        self.non_mfb_factories
+    }
+
     /// The EVA funds nag's factory sum (`0x004F8B74..0x004F8B92`): infantry,
-    /// vehicle, building and naval, without aircraft.
+    /// vehicle, building and naval, without aircraft. The nag reads the
+    /// House counters themselves, so Phobos' `0x00500910` replacement body
+    /// does not apply here.
     pub(crate) const fn funds_nag_factories(&self) -> i32 {
         let [_, infantry, vehicle, building, naval] = self.factories;
         naval

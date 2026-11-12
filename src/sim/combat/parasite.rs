@@ -583,7 +583,7 @@ impl Simulation {
                     victim_entity.category(),
                     warhead.phobos_parasite.culling_target,
                     self.object_type(victim_entity.type_ref(), rules)
-                        .is_some_and(|object| object.is_1x1_with_undeploy()),
+                        .is_some_and(|object| object.is_vehicle()),
                 )
             });
         #[cfg(not(feature = "phobos"))]

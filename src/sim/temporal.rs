@@ -566,9 +566,7 @@ impl Simulation {
         };
         let notify_house = match entity.category() {
             EntityCategory::Unit if object.harvester => false,
-            EntityCategory::Structure
-                if !object.insignificant && !object.is_1x1_with_undeploy() =>
-            {
+            EntityCategory::Structure if !object.insignificant && !object.is_vehicle() => {
                 // HouseNotify owns the deployed-miner subtype.
                 true
             }

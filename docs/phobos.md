@@ -227,6 +227,14 @@ Supported extensions:
 - [Land sequences in water](phobos-land-sequences.md) (`OnlyUseLandSequences` on the art section plus `[General]`: infantry keep land sequences in water; 1 type key + 1 `[General]` global)
 - [Super-weapon sidebar tab](phobos-sw-tab-index.md) (`TabIndex`: which of the four sidebar tabs a super weapon cameo occupies, out-of-range resetting to `1`; 1 type key)
 
+## Unmapped-section audit
+
+The forty `###` sections of Phobos's `New-or-Enhanced-Logics.md` whose keys the
+coverage scanner could not resolve — the keys they really read, the VERA owner
+and a status each — are tabulated in the
+[unmapped-section audit](phobos-audit-unmapped-40.md). It records mapping state
+only; the sections there are not implemented by it.
+
 ## Original project and authors
 
 VERA20K implements the behavior in Rust. It does not load `Phobos.dll`, import

@@ -26,7 +26,10 @@ pub enum TerrainAssetLoadPhase {
 struct TerrainShapeBinding {
     filename: Option<String>,
     /// Immutable physical timing metadata for the already saved per-ID timer.
-    /// Only IsAnimated/SpawnsTiberium types have this gameplay projection.
+    /// IsAnimated/SpawnsTiberium types and Phobos crumbling types have this
+    /// gameplay projection: `TerrainClass_AI_Crumbling` reads
+    /// `GetImage()->Frames` for any `HasCrumblingFrames` type
+    /// (`Ext/TerrainType/Hooks.cpp:75-91`).
     frame_count: Option<u16>,
 }
 
@@ -115,6 +118,14 @@ impl TerrainAssetCatalog {
                     "Terrain spawner [{name}] has no valid SHP {filename}; no validated midpoint is available"
                 );
             }
+            let mut needs_frame_count = spawner;
+            // `TerrainClass_AI_Crumbling` (`0x71C812`,
+            // `Ext/TerrainType/Hooks.cpp:75-91`) folds `GetImage()->Frames / 2`
+            // for every `HasCrumblingFrames` type, animated or not.
+            #[cfg(feature = "phobos")]
+            {
+                needs_frame_count |= terrain.has_crumbling_frames;
+            }
             catalog.bindings.insert(
                 name,
                 TerrainShapeBinding {
@@ -122,14 +133,15 @@ impl TerrainAssetCatalog {
                         && terrain.shape_requested()
                         && (phase == TerrainAssetLoadPhase::Fresh || terrain.uses_theater_shape()))
                     .then_some(filename),
-                    frame_count: spawner.then_some(count).flatten(),
+                    frame_count: needs_frame_count.then_some(count).flatten(),
                 },
             );
         }
         catalog
     }
 
-    /// Literal unsigned SHP count used by the retained per-ID Terrain timer.
+    /// Literal unsigned SHP count used by the retained per-ID Terrain timer
+    /// and by the Phobos crumbling `Frames / 2` fold.
     pub fn frame_count(&self, name: &str) -> Option<u16> {
         canonical_type_id(name).and_then(|name| self.bindings.get(&name)?.frame_count)
     }

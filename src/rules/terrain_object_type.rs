@@ -177,6 +177,14 @@ pub struct TerrainObjectType {
     #[cfg(feature = "phobos")]
     #[serde(default)]
     pub(crate) crumbling_sound: Option<String>,
+    /// Phobos `DestroyAnim=` (`:72`, `ValueableVector<AnimTypeClass*>`,
+    /// constructor `Body.h:49`): the random destroy animation
+    /// `PlayDestroyEffects` draws from (`Ext/TerrainType/Body.cpp:20`).
+    /// Unresolvable tokens never entered the native vector; the consumer
+    /// filters them again through the registered AnimType list.
+    #[cfg(feature = "phobos")]
+    #[serde(default)]
+    pub(crate) destroy_anim: Vec<String>,
     /// Phobos `DestroySound=` (`:73`, `ValueableIdx<VocClass>`, constructor
     /// `Body.h:50`): the sound a destroyed terrain object plays
     /// (`Ext/TerrainType/Body.cpp:19`).
@@ -290,6 +298,14 @@ impl TerrainObjectType {
             minimap_color: section.read_phobos_nullable_color("MinimapColor", None),
             #[cfg(feature = "phobos")]
             crumbling_sound: section.read_name("CrumblingSound", 0x80).map(str::to_owned),
+            // `ValueableVector<T>::Read` (`Utilities/TemplateDef.h:1946-1954`)
+            // clears and re-parses only when ReadString succeeds; INI_EX's
+            // buffer is Phobos.h:26's 2048.
+            #[cfg(feature = "phobos")]
+            destroy_anim: section
+                .read_list("DestroyAnim", 0x800)
+                .map(|tokens| tokens.into_iter().map(str::to_owned).collect())
+                .unwrap_or_default(),
             #[cfg(feature = "phobos")]
             destroy_sound: section.read_name("DestroySound", 0x80).map(str::to_owned),
         };
@@ -642,14 +658,15 @@ mod tests {
     use super::*;
     use crate::rules::ini_parser::IniFile;
 
-    /// Phobos' five `TerrainTypeExt` keys (`Ext/TerrainType/Body.cpp:73-83`), in
+    /// Phobos' `TerrainTypeExt` keys (`Ext/TerrainType/Body.cpp:72-83`), in
     /// one production read, plus the ctor values a blank section keeps.
     #[test]
     #[cfg(feature = "phobos")]
     fn the_phobos_terrain_keys_read_and_default() {
         let ini = IniFile::from_str(
             "[TIBTRE01]\nDestroySound=EXPLODE\nMinimapColor=10,20,30\n\
-             HasDamagedFrames=yes\nCrumblingSound=CRUMBLE\nAnimationLength=7\n",
+             HasDamagedFrames=yes\nCrumblingSound=CRUMBLE\nAnimationLength=7\n\
+             DestroyAnim=CRUMBLE1, CRUMBLE2\n[TIBTRE02]\nStrength=10\n",
         );
         let section = ini.section("TIBTRE01").expect("section");
         let t = TerrainObjectType::from_ini_section("TIBTRE01", section);
@@ -658,10 +675,22 @@ mod tests {
         assert!(t.has_damaged_frames);
         assert_eq!(t.crumbling_sound.as_deref(), Some("CRUMBLE"));
         assert_eq!(t.animation_length, Some(7));
+        // `parse_values` (`Utilities/TemplateDef.h:1730-1741`) does not trim,
+        // and `Enumerable::FindIndex` compares with `_strcmpi`, so the spaced
+        // token stays as authored and resolves to no AnimType.
+        assert_eq!(t.destroy_anim, ["CRUMBLE1", " CRUMBLE2"]);
+        assert!(
+            TerrainObjectType::from_ini_section(
+                "TIBTRE02",
+                ini.section("TIBTRE02").expect("section")
+            )
+            .destroy_anim
+            .is_empty()
+        );
 
         let blank_ini = IniFile::from_str(
             "[TIBTRE01]\nMinimapColor=<default>\nAnimationLength=\n\
-             DestroySound=\nCrumblingSound=\nHasDamagedFrames=\n",
+             DestroySound=\nCrumblingSound=\nHasDamagedFrames=\nDestroyAnim=\n",
         );
         let blank = TerrainObjectType::from_ini_section(
             "TIBTRE01",
@@ -672,6 +701,7 @@ mod tests {
         assert_eq!(blank.destroy_sound, None);
         assert_eq!(blank.crumbling_sound, None);
         assert!(!blank.has_damaged_frames);
+        assert!(blank.destroy_anim.is_empty());
     }
 
     #[test]

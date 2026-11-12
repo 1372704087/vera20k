@@ -12320,7 +12320,8 @@ impl RuleSet {
         self.buildup_assets.insert_sell_rate_for_test(type_id, rate);
     }
 
-    /// Raw SHP header count used by `TerrainClass::AI` midpoint timing.
+    /// Raw SHP header count used by `TerrainClass::AI` midpoint timing and by
+    /// the Phobos crumbling `Frames / 2` fold (`0x71C812`).
     pub fn terrain_spawner_frame_count(&self, name: &str) -> Option<u16> {
         self.terrain_assets.frame_count(name)
     }

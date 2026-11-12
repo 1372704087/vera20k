@@ -231,3 +231,159 @@ fn stock_harrier_ammo_pips_follow_real_strike_return_reload_and_selection() {
         );
     }
 }
+
+/// The production ammo-pip strip for one authored type section. `extra` is
+/// appended to the `[RIPU]` section, so each key can be varied without a
+/// second fixture. Mirrors the ordinary construction path of the existing
+/// `EmptyAmmoPipFrame` test (a hand-built entity never reaches DrawPipScale).
+#[cfg(feature = "phobos")]
+fn ammo_pip_scene(extra: &str) -> (RuleSet, Simulation, u64) {
+    use crate::rules::art_data::ArtRegistry;
+    use crate::rules::ini_parser::IniFile;
+    use crate::sim::ammo::TechnoAmmo;
+
+    let art_ini = IniFile::from_str("[RIPUART]\n");
+    let text = format!(
+        "[VehicleTypes]\n0=RIPU\n\
+         [RIPU]\nImage=RIPUART\nStrength=100\nSpeed=5\nAmmo=3\nInitialAmmo=2\n\
+         PipScale=Ammo\n{extra}"
+    );
+    let mut rules = RuleSet::from_ini_with_fixed_art_for_test(
+        &crate::sim::arena_fixture::clear_ground_ini(&text),
+        &art_ini,
+    )
+    .unwrap();
+    rules.install_art_data(ArtRegistry::from_ini(&art_ini));
+
+    let mut sim = crate::sim::arena_fixture::rival_arena(&rules, 7);
+    sim.intern_rule_type_ids(&rules);
+    sim.resolve_type_handles(&rules);
+    let owner = sim.interner().get("Americans").unwrap();
+    sim.fog_mut_for_test().reveal_all_for_owner(owner);
+    let id = sim
+        .spawn_object("RIPU", "Americans", 10, 10, 0, &rules)
+        .expect("RIPU spawns");
+    sim.entities_mut_for_test()
+        .get_mut(id)
+        .unwrap()
+        .install_ammo_for_test(Some(TechnoAmmo::new(2)));
+    assert!(sim.apply_command(
+        "Americans",
+        &Command::Select {
+            entity_ids: vec![id],
+            additive: false,
+        },
+        Some(&rules),
+    ));
+    (rules, sim, id)
+}
+
+/// The full production draws, so an offset/size assertion sees the placement
+/// as well as the frame.
+#[cfg(feature = "phobos")]
+fn draws(sim: &Simulation, rules: &RuleSet, id: u64) -> Vec<super::ui_overlays::ScalePipDraw> {
+    let before = sim.state_hash();
+    let entity = sim.entities().get(id).expect("RIPU survives");
+    let result = super::ui_overlays::scale_pip_draws(
+        sim,
+        entity,
+        None,
+        Some(sim.interner().resolve(entity.owner())),
+        rules,
+    );
+    assert_eq!(before, sim.state_hash(), "display cannot spend Ammo");
+    result
+}
+
+/// Phobos `AmmoPipFrame` (`Ext/TechnoType/Body.cpp:1002`, constructor 13 at
+/// `Body.h:666`, consumer `Ext/Techno/Hooks.Pips.cpp:286`): the unwrapped
+/// strip's filled frame is the authored value, not the hardcoded stock 13.
+#[cfg(feature = "phobos")]
+#[test]
+fn an_authored_ammo_pip_frame_replaces_the_stock_thirteen() {
+    let (rules, sim, id) = ammo_pip_scene("AmmoPipFrame=5\n");
+    assert_eq!(rules.object("RIPU").unwrap().ammo_pip_frame(), 5);
+    let authored = draws(&sim, &rules, id);
+    assert_eq!(authored.iter().map(|d| d.frame).collect::<Vec<_>>(), [5, 5]);
+
+    let (stock_rules, stock_sim, stock_id) = ammo_pip_scene("");
+    assert_eq!(stock_rules.object("RIPU").unwrap().ammo_pip_frame(), 13);
+    assert_eq!(frames(&stock_sim, &stock_rules, stock_id, None), [13, 13]);
+}
+
+/// Phobos `AmmoPipWrapStartFrame` (`Ext/TechnoType/Body.cpp:1004`,
+/// constructor 14 at `Body.h:668`, consumer
+/// `Ext/Techno/Hooks.Pips.cpp:249`). VERA's PipWrap arm is dormant, so this
+/// pins the production reader's authored value and constructor default.
+#[cfg(feature = "phobos")]
+#[test]
+fn the_ammo_pip_wrap_start_frame_reads_its_authoring_and_constructor() {
+    let (rules, _, _) = ammo_pip_scene("AmmoPipWrapStartFrame=21\n");
+    assert_eq!(
+        rules.object("RIPU").unwrap().ammo_pip_wrap_start_frame(),
+        21
+    );
+    let (stock, _, _) = ammo_pip_scene("");
+    assert_eq!(
+        stock.object("RIPU").unwrap().ammo_pip_wrap_start_frame(),
+        14
+    );
+}
+
+/// Phobos `AmmoPipSize` (`Ext/TechnoType/Body.cpp:1005`,
+/// `Nullable<Point2D>` seeded empty at `Body.h:669`, consumer
+/// `Ext/Techno/Hooks.Pips.cpp:172`): a full pair replaces the strip's X/Y
+/// step, while the unset state keeps the stock 4 / 0 layout.
+#[cfg(feature = "phobos")]
+#[test]
+fn the_ammo_pip_size_changes_the_strip_step_only_when_authored() {
+    let (rules, sim, id) = ammo_pip_scene("AmmoPipSize=9,3\n");
+    assert_eq!(rules.object("RIPU").unwrap().ammo_pip_size(), Some([9, 3]));
+    let authored = draws(&sim, &rules, id);
+    assert_eq!(
+        authored.iter().map(|d| d.offset_pixels).collect::<Vec<_>>(),
+        [[0, 7], [9, 10]]
+    );
+
+    let (stock_rules, stock_sim, stock_id) = ammo_pip_scene("");
+    assert_eq!(stock_rules.object("RIPU").unwrap().ammo_pip_size(), None);
+    let stock = draws(&stock_sim, &stock_rules, stock_id);
+    assert_eq!(
+        stock.iter().map(|d| d.offset_pixels).collect::<Vec<_>>(),
+        [[0, 7], [4, 7]]
+    );
+}
+
+/// Phobos `AmmoPipOffset` (`Ext/TechnoType/Body.cpp:1006`,
+/// constructor `{0,0}` at `Body.h:670`, consumer
+/// `Ext/Techno/Hooks.Pips.cpp:241`): the pair translates every pip by the
+/// same amount, after the optional `AmmoPipSize` step.
+#[cfg(feature = "phobos")]
+#[test]
+fn an_authored_ammo_pip_offset_translates_every_pip_in_the_strip() {
+    let (rules, sim, id) = ammo_pip_scene("AmmoPipOffset=6,-2\n");
+    assert_eq!(rules.object("RIPU").unwrap().ammo_pip_offset(), [6, -2]);
+    let authored = draws(&sim, &rules, id);
+    assert_eq!(
+        authored.iter().map(|d| d.offset_pixels).collect::<Vec<_>>(),
+        [[6, 5], [10, 5]]
+    );
+
+    let (both_rules, both_sim, both_id) = ammo_pip_scene("AmmoPipSize=9,3\nAmmoPipOffset=6,-2\n");
+    let both = draws(&both_sim, &both_rules, both_id);
+    assert_eq!(
+        both.iter().map(|d| d.offset_pixels).collect::<Vec<_>>(),
+        [[6, 5], [15, 8]]
+    );
+
+    let (stock_rules, stock_sim, stock_id) = ammo_pip_scene("");
+    assert_eq!(
+        stock_rules.object("RIPU").unwrap().ammo_pip_offset(),
+        [0, 0]
+    );
+    let stock = draws(&stock_sim, &stock_rules, stock_id);
+    assert_eq!(
+        stock.iter().map(|d| d.offset_pixels).collect::<Vec<_>>(),
+        [[0, 7], [4, 7]]
+    );
+}

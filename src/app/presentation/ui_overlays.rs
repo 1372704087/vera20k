@@ -2104,6 +2104,9 @@ pub(crate) fn scale_pip_draws(
         //fill; depleted Ammo emits no empty outline. Draw flags600/noA/Z
         //are owned by the existing per-parent scale replay.
         //Nonzero PipWrap70A421..4E6 remains a separate dormant configuration.
+        // TODO(wrap): use `ammo_pip_wrap_start_frame()` as the wrap arm's
+        // PIPS2 start frame (`Ext/Techno/Hooks.Pips.cpp:249`) once the
+        // `PipWrap` drawing mechanism is ported.
         if object.pip_wrap() != 0 {
             return pips;
         }
@@ -2112,10 +2115,10 @@ pub(crate) fn scale_pip_draws(
             .clamp(0, object.pip_max(rules).max(0));
         //70A3B7 resets this arm three pixels above the ordinary Y anchor,
         //even after a preceding spawn row. Phobos `TechnoClass_DrawPips_Ammo`
-        //(`Ext/Techno/Hooks.Pips.cpp:287-305`) stops at the fill level while
+        //(`Ext/Techno/Hooks.Pips.cpp:286-305`) stops at the fill level while
         //`EmptyAmmoPipFrame` is negative (stock), else draws that frame for
-        //every slot through GetPipMax. The stock `AmmoPipFrame` stays 13
-        //until its own key is ported.
+        //every slot through GetPipMax; `AmmoPipFrame` supplies the filled
+        //frame (`Ext/TechnoType/Body.cpp:1002`), stock 13.
         let fill_slots = usize::try_from(filled).unwrap_or(0);
         let slots = if object.empty_ammo_pip_frame() >= 0 {
             usize::try_from(object.pip_max(rules).max(0)).unwrap_or(0)
@@ -2123,9 +2126,31 @@ pub(crate) fn scale_pip_draws(
             fill_slots
         };
         let empty = usize::try_from(object.empty_ammo_pip_frame()).unwrap_or(0);
+        // A negative authored frame has no VERA `usize` frame counterpart;
+        // fall back to the stock 13 for that degenerate read.
+        let full = usize::try_from(object.ammo_pip_frame()).unwrap_or(13);
+        // Phobos `TechnoClass_DrawPips_Sizes` (`0x709B2E`,
+        // `Ext/Techno/Hooks.Pips.cpp:172`) replaces the Ammo pip width/height
+        // that the draw loop uses as its X/Y step; `None` keeps the stock
+        // `pip()` closure's 4 / (building ? 2 : 0) layout untouched.
+        let sized_step = object.ammo_pip_size();
+        // Phobos `TechnoClass_DrawPips_Ammo` (`0x70A36E`,
+        // `Ext/Techno/Hooks.Pips.cpp:241`) adds the offset to the draw
+        // origin, so every pip translates by the same pair after its slot
+        // step rather than once per slot.
+        let [dx, dy] = object.ammo_pip_offset();
         pips.extend((0..slots).map(|slot| {
-            let frame = if slot < fill_slots { 13 } else { empty };
-            pip(slot, frame, row_y - 3)
+            let frame = if slot < fill_slots { full } else { empty };
+            let mut draw = pip(slot, frame, row_y - 3);
+            if let Some([step_x, step_y]) = sized_step {
+                draw.offset_pixels = [
+                    (slot as i32).wrapping_mul(step_x),
+                    (row_y - 3).wrapping_add((slot as i32).wrapping_mul(step_y)),
+                ];
+            }
+            draw.offset_pixels[0] = draw.offset_pixels[0].wrapping_add(dx);
+            draw.offset_pixels[1] = draw.offset_pixels[1].wrapping_add(dy);
+            draw
         }));
         return pips;
     }

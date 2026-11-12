@@ -2793,6 +2793,34 @@ pub struct ObjectType {
     /// `pip_max` with that empty outline (`Ext/Techno/Hooks.Pips.cpp:287-305`).
     empty_ammo_pip_frame: i32,
 
+    /// Phobos `TechnoTypeExt::AmmoPipFrame` (`Ext/TechnoType/Body.h:237`,
+    /// `Valueable<int>` seeded 13 at `Body.h:666`): the filled Ammo pip's
+    /// PIPS2 frame on the unwrapped strip, read from the type section at
+    /// `Ext/TechnoType/Body.cpp:1002` and used at
+    /// `Ext/Techno/Hooks.Pips.cpp:286`. Stock draws frame 13.
+    ammo_pip_frame: i32,
+
+    /// Phobos `TechnoTypeExt::AmmoPipWrapStartFrame`
+    /// (`Ext/TechnoType/Body.h:239`, `Valueable<int>` seeded 14 at
+    /// `Body.h:668`): the PIPS2 start frame of the wrapped Ammo strip's
+    /// level counter (`Ext/TechnoType/Body.cpp:1004`, consumer
+    /// `Ext/Techno/Hooks.Pips.cpp:249`). VERA's PipWrap arm is dormant, so
+    /// this is stored and read but not yet consumed.
+    ammo_pip_wrap_start_frame: i32,
+
+    /// Phobos `TechnoTypeExt::AmmoPipSize` (`Ext/TechnoType/Body.h:240`,
+    /// `Nullable<Point2D>` seeded empty at `Body.h:669`): overrides the
+    /// stock Ammo pip width/height step (`Ext/TechnoType/Body.cpp:1005`,
+    /// consumer `Ext/Techno/Hooks.Pips.cpp:172`). `None` keeps the stock
+    /// layout. VERA holds the pair as `[x, y]` lepton-pixel steps.
+    ammo_pip_size: Option<[i32; 2]>,
+
+    /// Phobos `TechnoTypeExt::AmmoPipOffset` (`Ext/TechnoType/Body.h:241`,
+    /// `Valueable<Point2D>` seeded `{0,0}` at `Body.h:670`): added once to
+    /// the Ammo strip's draw origin (`Ext/TechnoType/Body.cpp:1006`,
+    /// consumer `Ext/Techno/Hooks.Pips.cpp:241`). VERA holds `[x, y]`.
+    ammo_pip_offset: [i32; 2],
+
     /// Whether this building absorbs infantry (Yuri Bio Reactor).
     /// Parsed from `InfantryAbsorb=yes` in rules.ini.
     pub infantry_absorb: bool,
@@ -4652,6 +4680,26 @@ impl ObjectType {
     /// Phobos `EmptyAmmoPipFrame`: negative draws no empty Ammo outlines.
     pub const fn empty_ammo_pip_frame(&self) -> i32 {
         self.empty_ammo_pip_frame
+    }
+
+    /// Phobos `AmmoPipFrame`: the filled Ammo pip's PIPS2 frame (stock 13).
+    pub const fn ammo_pip_frame(&self) -> i32 {
+        self.ammo_pip_frame
+    }
+
+    /// Phobos `AmmoPipWrapStartFrame`: the wrapped strip's start frame.
+    pub const fn ammo_pip_wrap_start_frame(&self) -> i32 {
+        self.ammo_pip_wrap_start_frame
+    }
+
+    /// Phobos `AmmoPipSize`: the authored `[x, y]` pip step, else stock.
+    pub const fn ammo_pip_size(&self) -> Option<[i32; 2]> {
+        self.ammo_pip_size
+    }
+
+    /// Phobos `AmmoPipOffset`: the strip's origin offset in pixels.
+    pub const fn ammo_pip_offset(&self) -> [i32; 2] {
+        self.ammo_pip_offset
     }
 
     /// Building4598A0's current-type query: UnitAbsorb OR InfantryAbsorb.
@@ -7018,6 +7066,31 @@ impl ObjectType {
             empty_ammo_pip_frame: section.read_int("EmptyAmmoPipFrame", -1),
             #[cfg(not(feature = "phobos"))]
             empty_ammo_pip_frame: -1,
+            // Phobos `TechnoTypeExt::AmmoPipFrame`
+            // (`Ext/TechnoType/Body.cpp:1002`), constructor value 13.
+            #[cfg(feature = "phobos")]
+            ammo_pip_frame: section.read_int("AmmoPipFrame", 13),
+            #[cfg(not(feature = "phobos"))]
+            ammo_pip_frame: 13,
+            // Phobos `TechnoTypeExt::AmmoPipWrapStartFrame`
+            // (`Ext/TechnoType/Body.cpp:1004`), constructor value 14.
+            #[cfg(feature = "phobos")]
+            ammo_pip_wrap_start_frame: section.read_int("AmmoPipWrapStartFrame", 14),
+            #[cfg(not(feature = "phobos"))]
+            ammo_pip_wrap_start_frame: 14,
+            // Phobos `TechnoTypeExt::AmmoPipSize`
+            // (`Ext/TechnoType/Body.cpp:1005`), `Nullable<Point2D>` with no
+            // constructor value: only a full two-integer read sets it.
+            #[cfg(feature = "phobos")]
+            ammo_pip_size: section.read_phobos_nullable_int_pair("AmmoPipSize", None),
+            #[cfg(not(feature = "phobos"))]
+            ammo_pip_size: None,
+            // Phobos `TechnoTypeExt::AmmoPipOffset`
+            // (`Ext/TechnoType/Body.cpp:1006`), constructor `{0,0}`.
+            #[cfg(feature = "phobos")]
+            ammo_pip_offset: section.read_phobos_int_pair("AmmoPipOffset", [0, 0]),
+            #[cfg(not(feature = "phobos"))]
+            ammo_pip_offset: [0, 0],
             unit_absorb: section.read_bool("UnitAbsorb", false),
             infantry_absorb: section.read_bool("InfantryAbsorb", false),
             grinding: section.read_bool("Grinding", false),

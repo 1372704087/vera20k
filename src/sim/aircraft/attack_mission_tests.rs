@@ -329,6 +329,7 @@ fn firing_force_scatter_gates_the_attack_missions_scatter() {
 /// reads the AircraftType section only; its nullable value wins over
 /// `[General] AircraftFiringForceScatter` (`Ext/Rules/Body.cpp:473`), whose
 /// constructor default is `yes`.
+#[cfg(feature = "phobos")]
 #[test]
 fn firing_force_scatter_reads_the_aircraft_section_then_the_general_fallback() {
     let rules = RuleSet::from_ini(&IniFile::from_str(

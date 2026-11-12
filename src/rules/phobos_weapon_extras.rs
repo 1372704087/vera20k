@@ -26,7 +26,7 @@ use crate::rules::ini_parser::IniSection;
 use crate::rules::ruleset::RuleSet;
 
 /// The five `WeaponTypeExt` keys owned here.
-#[derive(Debug, Clone, Default, PartialEq, Eq, Hash, serde::Serialize, serde::Deserialize)]
+#[derive(Debug, Clone, PartialEq, Eq, Hash, serde::Serialize, serde::Deserialize)]
 pub struct PhobosWeaponExtras {
     /// `FeedbackWeapon=` (`Body.cpp:124`, read `<true>`): the weapon also
     /// detonated at the firer right after a shot
@@ -60,6 +60,21 @@ pub struct PhobosWeaponExtras {
     /// (`Ext/Techno/Hooks.Firing.cpp:936-976`); the real rearm keeps the
     /// native duration. Items `<= 0` keep the native value.
     pub charge_turret_delays: Vec<i32>,
+}
+
+impl Default for PhobosWeaponExtras {
+    /// The constructor values, including `FireOnce.ResetSequence`'s `true`
+    /// (`Ext/WeaponType/Body.h:162`), so an empty section equals the default.
+    fn default() -> Self {
+        Self {
+            feedback_weapon: None,
+            visual_scatter: false,
+            attack_no_threat_buildings: None,
+            turret_recoil_suppress: false,
+            fire_once_reset_sequence: true,
+            charge_turret_delays: Vec::new(),
+        }
+    }
 }
 
 impl PhobosWeaponExtras {

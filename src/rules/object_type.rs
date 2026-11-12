@@ -1434,6 +1434,14 @@ pub struct ObjectType {
     /// Only an AircraftType section reaches the Phobos reader.
     #[cfg(feature = "phobos")]
     phobos_paradrop_end_delay: Option<i32>,
+    /// Phobos `TechnoTypeExt::MaxGuardRange` (`Ext/TechnoType/Body.cpp:975`,
+    /// `Valueable<Leptons>`, constructor `Body.h:647` = `Leptons(4096)`): the
+    /// hard cap `TechnoClass::GetGuardRange @ 0x00707E60` applies after it
+    /// doubles the radius (`Ext/Techno/Hooks.cpp:1967-1996`, hook `0x707E63`).
+    /// Consumer: `combat::threat_range::threat_range_leptons`. Every
+    /// TechnoType family reaches the reader.
+    #[cfg(feature = "phobos")]
+    phobos_max_guard_range: i32,
     /// Ares TechnoTypeExt `VoiceRepair` (ValueableIdx<VocClass>, unset -1):
     /// the attack voice of a repairing weapon (TechnoClass_SelectFiringVoice
     /// 1004B1D0, hook 0x7090A8).
@@ -4784,6 +4792,13 @@ impl ObjectType {
         self.phobos_paradrop_end_delay
     }
 
+    /// Phobos `TechnoTypeExt::MaxGuardRange`, see
+    /// [`Self::phobos_max_guard_range`].
+    #[cfg(feature = "phobos")]
+    pub(crate) fn phobos_max_guard_range(&self) -> i32 {
+        self.phobos_max_guard_range
+    }
+
     pub fn voice_attack(&self) -> &[String] {
         &self.voice_attack
     }
@@ -6230,6 +6245,10 @@ impl ObjectType {
             phobos_paradrop_end_delay: (category == ObjectCategory::Aircraft)
                 .then(|| section.read_phobos_nullable_int("ParadropEndDelay", None))
                 .flatten(),
+            // `TechnoTypeExt::LoadFromINIFile` (`Ext/TechnoType/Body.cpp:975`),
+            // a `read<Leptons>` (cells x 256) for every family.
+            #[cfg(feature = "phobos")]
+            phobos_max_guard_range: section.read_phobos_leptons("MaxGuardRange", 4096),
             voice_capture: None,
             prevent_attack_move: section.read_bool("PreventAttackMove", false),
             voice_die: section

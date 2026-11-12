@@ -278,14 +278,15 @@ impl WeaponOffsets {
             "Prone",
             &mut self.prone_burst,
         );
-        for slot in 0..2 {
-            let prefix = if slot == 0 {
-                "PrimaryFire"
-            } else {
-                "SecondaryFire"
-            };
-            self.deployed_simple[slot] = nullable_flh(art, &format!("Deployed{prefix}FLH"));
-            self.prone_simple[slot] = nullable_flh(art, &format!("Prone{prefix}FLH"));
+        // `Ext/InfantryType/Body.cpp:34-37` reads these four keys directly;
+        // `InfantryExt::GetSimpleFLH` (`Ext/Infantry/Body.cpp:8-41`) selects
+        // one by weapon index and state.
+        for (slot, deployed_key, prone_key) in [
+            (0, "DeployedPrimaryFireFLH", "PronePrimaryFireFLH"),
+            (1, "DeployedSecondaryFireFLH", "ProneSecondaryFireFLH"),
+        ] {
+            self.deployed_simple[slot] = nullable_flh(art, deployed_key);
+            self.prone_simple[slot] = nullable_flh(art, prone_key);
         }
     }
 

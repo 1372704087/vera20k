@@ -1937,10 +1937,12 @@ pub(crate) fn commit_entities(
         if result_one_arm && sound_enabled {
             for _ in 0..2 {
                 if let Some(target) = world.substrate.entities.get(target_id)
-                    && let Some(sound_id) = world
-                        .interner
-                        .object_type(target.type_ref(), rules)
-                        .and_then(|object| object.damage_sound())
+                    && let Some(object) = world.interner.object_type(target.type_ref(), rules)
+                    // Phobos `DisableDamageSound` skips both of this arm's
+                    // requests (`Ext/BuildingType/Hooks.cpp:389-411`, hooks
+                    // `0x70272E`/`0x702777` return `0x702765`/`0x7027AE`).
+                    && !object.disable_damage_sound()
+                    && let Some(sound_id) = object.damage_sound()
                 {
                     let coordinate =
                         crate::sim::movement::ground_pose::position_world_coord(&target.position);
@@ -2253,7 +2255,12 @@ pub(crate) fn commit_entities(
             && world
                 .interner
                 .object_type(target.type_ref(), rules)
-                .is_some_and(|object| object.damage_sound().is_none())
+                // Phobos `DisableDamageSound` also skips the global request
+                // this block issues (`Ext/BuildingType/Hooks.cpp:389-411`,
+                // hook `0x4426DB` returns `0x44270B`).
+                .is_some_and(|object| {
+                    !object.disable_damage_sound() && object.damage_sound().is_none()
+                })
             && let Some(sound_id) = rules.general.building_damage_sound()
         {
             let coordinate =
@@ -4646,7 +4653,17 @@ fn emit_warhead_debris(
                     .map(|id| (id, rules.voxel_anim_type(id)))
             })
             .collect();
-        throw_typed_debris(budget, &types, &warhead.debris_maximums, None, &mut host).map(|_| ())
+        // The warhead's own Phobos `DebrisMinimums` is a separate key
+        // (`Ext/WarheadType/Body.cpp:302`), not this TechnoType one.
+        throw_typed_debris(
+            budget,
+            &types,
+            &warhead.debris_maximums,
+            &[],
+            None,
+            &mut host,
+        )
+        .map(|_| ())
     };
     if let Err(error) = result {
         // Preserve earlier synchronous births on unsupported authored launch

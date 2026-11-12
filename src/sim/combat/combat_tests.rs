@@ -5439,12 +5439,15 @@ fn a_struck_building_sounds_the_global_damage_cue_only_on_a_state_crossing() {
 [InfantryTypes]\n0=E1\n\n\
 [VehicleTypes]\n0=MTNK\n\n\
 [AircraftTypes]\n\n\
-[BuildingTypes]\n0=GAPOWR\n1=GAWEAP\n2=CABAD\n\n\
+[BuildingTypes]\n0=GAPOWR\n1=GAWEAP\n2=CABAD\n3=CADIS\n4=CADMG\n\n\
 [E1]\nStrength=100\nArmor=none\n\n\
 [MTNK]\nStrength=300\nArmor=none\nSpeed=6\nPrimary=Plain\n\n\
 [GAPOWR]\nStrength=100\nArmor=none\n\n\
 [GAWEAP]\nStrength=100\nArmor=none\nDamageSound=BuildingMetalDamaged\n\n\
 [CABAD]\nStrength=100\nArmor=none\nDamageSound=UnknownDamage\n\n\
+[CADIS]\nStrength=100\nArmor=none\nDisableDamageSound=yes\n\n\
+[CADMG]\nStrength=100\nArmor=none\nDamageSound=BuildingMetalDamaged\n\
+DisableDamageSound=yes\n\n\
 [Plain]\nDamage=10\nROF=20\nRange=6\nWarhead=PlainWH\n\n\
 [PlainWH]\nVerses=100%,100%,100%,100%,100%,100%,100%,100%,100%,100%,100%\n",
     );
@@ -5602,6 +5605,32 @@ fn a_struck_building_sounds_the_global_damage_cue_only_on_a_state_crossing() {
     let (sounds, hp) = hit("CABAD", EntityCategory::Structure, 60, false);
     assert_eq!(hp, 40);
     assert_eq!(damage_cues(&sounds), [coordinate]);
+
+    // Phobos `BuildingTypeExt::DisableDamageSound`
+    // (`Ext/BuildingType/Hooks.cpp:389-411`, hooks `0x4426DB`, `0x70272E`,
+    // `0x702777`): a struck building with the key issues no damage cue, while
+    // the stock rows above keep both the global and the type's own cue.
+    #[cfg(feature = "phobos")]
+    {
+        assert!(rules.object("CADIS").unwrap().disable_damage_sound());
+        assert!(
+            !rules.object("GAPOWR").unwrap().disable_damage_sound(),
+            "unset stays false"
+        );
+        let (sounds, hp) = hit("CADIS", EntityCategory::Structure, 60, false);
+        assert_eq!(hp, 40);
+        assert!(
+            damage_cues(&sounds).is_empty(),
+            "the global BuildingDamageSound cue is skipped on a crossing"
+        );
+        let (sounds, hp) = hit("CADMG", EntityCategory::Structure, 20, false);
+        assert_eq!(hp, 80);
+        assert!(
+            type_cues(&sounds).is_empty(),
+            "the type's own DamageSound requests are skipped"
+        );
+        assert!(damage_cues(&sounds).is_empty());
+    }
 
     // Original7019D8 raises defended zero to1 before Object's Verses kernel.
     // The executed retail AP/concrete control reduces that1 back to0; this

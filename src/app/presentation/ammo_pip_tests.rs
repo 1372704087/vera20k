@@ -44,6 +44,66 @@ fn native_stage_frames(stage: &str) -> Vec<usize> {
         .collect()
 }
 
+#[cfg(feature = "phobos")]
+#[test]
+fn an_authored_empty_ammo_frame_continues_the_strip_to_capacity() {
+    // Phobos `TechnoClass_DrawPips_Ammo` (`Ext/Techno/Hooks.Pips.cpp:287-305`):
+    // a negative EmptyAmmoPipFrame stops the strip at the fill count (stock),
+    // an authored one draws that frame for every slot through GetPipMax.
+    use crate::rules::art_data::ArtRegistry;
+    use crate::rules::ini_parser::IniFile;
+
+    let art_ini = IniFile::from_str("[RIPUART]\n[RIPCART]\n");
+    let mut rules = RuleSet::from_ini_with_fixed_art_for_test(
+        &crate::sim::arena_fixture::clear_ground_ini(
+            "[VehicleTypes]\n0=RIPU\n1=RIPC\n\
+             [RIPU]\nImage=RIPUART\nStrength=100\nSpeed=5\nAmmo=3\nInitialAmmo=2\n\
+             PipScale=Ammo\nEmptyAmmoPipFrame=7\n\
+             [RIPC]\nImage=RIPCART\nStrength=100\nSpeed=5\nAmmo=3\nInitialAmmo=2\n\
+             PipScale=Ammo\n",
+        ),
+        &art_ini,
+    )
+    .unwrap();
+    rules.install_art_data(ArtRegistry::from_ini(&art_ini));
+    assert_eq!(
+        rules.object("RIPU").unwrap().empty_ammo_pip_frame(),
+        7,
+        "the reader keeps the authored frame on the drawn type"
+    );
+
+    // Every other pip fixture builds its subject through the ordinary
+    // construction path: a hand-built entity never reaches DrawPipScale's
+    // admission and supplies no strip at all.
+    let mut sim = crate::sim::arena_fixture::rival_arena(&rules, 7);
+    sim.intern_rule_type_ids(&rules);
+    sim.resolve_type_handles(&rules);
+    let owner = sim.interner().get("Americans").unwrap();
+    sim.fog_mut_for_test().reveal_all_for_owner(owner);
+    let authored = sim
+        .spawn_object("RIPU", "Americans", 10, 10, 0, &rules)
+        .expect("authored EmptyAmmoPipFrame unit");
+    let stock = sim
+        .spawn_object("RIPC", "Americans", 12, 10, 0, &rules)
+        .expect("stock Ammo unit");
+    for id in [authored, stock] {
+        sim.entities_mut_for_test()
+            .get_mut(id)
+            .unwrap()
+            .install_ammo_for_test(Some(crate::sim::ammo::TechnoAmmo::new(2)));
+    }
+    assert!(sim.apply_command(
+        "Americans",
+        &Command::Select {
+            entity_ids: vec![authored, stock],
+            additive: false,
+        },
+        Some(&rules),
+    ));
+    assert_eq!(frames(&sim, &rules, authored, None), [13, 13, 7]);
+    assert_eq!(frames(&sim, &rules, stock, None), [13, 13]);
+}
+
 #[test]
 #[ignore = "physical retail map, rules and art; natural ORCA strike, return and rearm"]
 fn stock_harrier_ammo_pips_follow_real_strike_return_reload_and_selection() {

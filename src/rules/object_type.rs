@@ -1406,6 +1406,13 @@ pub struct ObjectType {
     /// Missing, empty and unregistered names retain the prior resolved ID in
     /// the existing processed-rules reader, starting at the native -1 default.
     damage_sound: Option<String>,
+    /// Phobos `BuildingTypeExt::DisableDamageSound` (`Ext/BuildingType/Body.h:95`,
+    /// `Valueable<bool>` seeded false, read at `Ext/BuildingType/Body.cpp:245`):
+    /// the building plays neither its own [`Self::damage_sound`] nor the global
+    /// `[AudioVisual] BuildingDamageSound=` cue. The three hooks
+    /// (`Ext/BuildingType/Hooks.cpp:389-411`, `0x4426DB`, `0x70272E`,
+    /// `0x702777`) skip the whole request, not just a branch of it.
+    disable_damage_sound: bool,
     /// Installed Ares TypeExt+504/+508 and+50C/+510 (ctor1003CE14..2E).
     /// Unset, explicit silence and a resolved Voc ID remain distinct.
     #[cfg(feature = "ares")]
@@ -2585,6 +2592,13 @@ pub struct ObjectType {
     /// ReadInt714179..714198 uses the retained field as its default.
     pip_wrap: i32,
 
+    /// Phobos `TechnoTypeExt::EmptyAmmoPipFrame` (`Ext/TechnoType/Body.h:238`,
+    /// `Valueable<int>` seeded -1): RULES `EmptyAmmoPipFrame=` on the type
+    /// section (`Ext/TechnoType/Body.cpp:1003`). A negative value keeps the
+    /// stock filled-only Ammo strip; an authored frame extends the strip to
+    /// `pip_max` with that empty outline (`Ext/Techno/Hooks.Pips.cpp:287-305`).
+    empty_ammo_pip_frame: i32,
+
     /// Whether this building absorbs infantry (Yuri Bio Reactor).
     /// Parsed from `InfantryAbsorb=yes` in rules.ini.
     pub infantry_absorb: bool,
@@ -3031,6 +3045,13 @@ pub struct ObjectType {
     /// `DebrisMaximums=` CSV, positionally paired with `debris_types`: the cap
     /// on how many of each type may be thrown. 36 stock sections.
     pub debris_maximums: Vec<i32>,
+    /// Phobos `TechnoTypeExt::DebrisMinimums` (`Ext/TechnoType/Body.h:379`,
+    /// `ValueableVector<int>` defaulting empty), read beside `DebrisMaximums`
+    /// (`Ext/TechnoType/Body.cpp:1147`) and consumed by the restored debris loop
+    /// (`Misc/Hooks.BugFixes.cpp:167-190`): entry `i` is the floor of that
+    /// slot's throw, the last entry repeating for later slots and a missing
+    /// list leaving the floor at 0. No stock section authors it.
+    pub debris_minimums: Vec<i32>,
     /// `DebrisAnims=` CSV of `[Animations]` ids — the SHP half of the debris a
     /// death throws, as distinct from the VXL half above. 166 stock sections,
     /// all of them `[BuildingTypes]`.
@@ -4379,6 +4400,11 @@ impl ObjectType {
         self.pip_wrap
     }
 
+    /// Phobos `EmptyAmmoPipFrame`: negative draws no empty Ammo outlines.
+    pub const fn empty_ammo_pip_frame(&self) -> i32 {
+        self.empty_ammo_pip_frame
+    }
+
     /// Building4598A0's current-type query: UnitAbsorb OR InfantryAbsorb.
     /// Class-specific entry and lifecycle admission remain with each caller.
     /// Original instructions/readers: procedural_drawing_oracle/absorber_pips.
@@ -4701,6 +4727,12 @@ impl ObjectType {
 
     pub fn damage_sound(&self) -> Option<&str> {
         self.damage_sound.as_deref()
+    }
+
+    /// Phobos `BuildingTypeExt::DisableDamageSound`: this building's struck cue
+    /// stays silent.
+    pub const fn disable_damage_sound(&self) -> bool {
+        self.disable_damage_sound
     }
 
     pub fn secret_lab(&self) -> &crate::rules::secret_lab::SecretLabRules {
@@ -5914,6 +5946,13 @@ impl ObjectType {
             create_sound: None,
             secret_lab: Default::default(),
             damage_sound: None,
+            // Phobos `BuildingTypeExt::DisableDamageSound`
+            // (`Ext/BuildingType/Body.cpp:245`), a BuildingType-only key.
+            #[cfg(feature = "phobos")]
+            disable_damage_sound: category == ObjectCategory::Building
+                && section.read_bool("DisableDamageSound", false),
+            #[cfg(not(feature = "phobos"))]
+            disable_damage_sound: false,
             #[cfg(feature = "ares")]
             promotion_sounds: [None, None],
             #[cfg(feature = "ares")]
@@ -6447,6 +6486,12 @@ impl ObjectType {
                 .unwrap_or_default(),
             pips_draw_for_all: section.read_bool("PipsDrawForAll", false),
             pip_wrap: section.read_int("PipWrap", 0),
+            // Phobos `TechnoTypeExt::EmptyAmmoPipFrame`
+            // (`Ext/TechnoType/Body.cpp:1003`), constructor value -1.
+            #[cfg(feature = "phobos")]
+            empty_ammo_pip_frame: section.read_int("EmptyAmmoPipFrame", -1),
+            #[cfg(not(feature = "phobos"))]
+            empty_ammo_pip_frame: -1,
             unit_absorb: section.read_bool("UnitAbsorb", false),
             infantry_absorb: section.read_bool("InfantryAbsorb", false),
             grinding: section.read_bool("Grinding", false),
@@ -6606,6 +6651,12 @@ impl ObjectType {
                 .unwrap_or_default(),
             #[cfg(not(feature = "ares"))]
             debris_maximums: section.read_int_list("DebrisMaximums").unwrap_or_default(),
+            // Phobos `TechnoTypeExt::DebrisMinimums`
+            // (`Ext/TechnoType/Body.cpp:1147`), beside the maximums list.
+            #[cfg(feature = "phobos")]
+            debris_minimums: section.read_int_list("DebrisMinimums").unwrap_or_default(),
+            #[cfg(not(feature = "phobos"))]
+            debris_minimums: Vec::new(),
             debris_anims: Vec::new(),
             close_range: section.read_bool("CloseRange", false),
             stupid_hunt: section.read_bool("StupidHunt", false),
@@ -8166,7 +8217,7 @@ mod tests {
              [BuildingTypes]\n0=GAPOWR\n1=NAPOWR\n\
              [GAPOWR]\n\
              MinDebris=4\nMaxDebris=9\n\
-             DebrisTypes=TIRE\nDebrisMaximums=3\n\
+             DebrisTypes=TIRE\nDebrisMaximums=3\nDebrisMinimums=2\n\
              DebrisAnims=DBRIS1LG,DBRIS1SM,DBRIS4LG\n\
              [NAPOWR]\nMaxDebris=5\n\
              debristypes=TIRE\nDEBRISMAXIMUMS=3\nDebrisanims=DBRIS1LG\n",
@@ -8175,6 +8226,12 @@ mod tests {
         assert_eq!((obj.min_debris, obj.max_debris), (4, 9));
         assert_eq!(obj.debris_types, vec!["TIRE".to_string()]);
         assert_eq!(obj.debris_maximums, vec![3]);
+        #[cfg(feature = "phobos")]
+        assert_eq!(
+            obj.debris_minimums,
+            vec![2],
+            "Phobos DebrisMinimums sits beside the maximums list"
+        );
         assert_eq!(obj.debris_anims.len(), 3);
 
         // The lowercase spelling must NOT be read. gamemd's `INIClass` hashes

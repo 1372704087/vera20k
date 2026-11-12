@@ -564,6 +564,10 @@ pub struct DebrisTypeData<'a> {
     pub debris_types: &'a [Option<(VoxelAnimTypeId, &'a VoxelAnimType)>],
     /// `+0x330` vector, positionally paired with `debris_types`.
     pub debris_maximums: &'a [i32],
+    /// Phobos `TechnoTypeExt::DebrisMinimums`, positionally paired with
+    /// `debris_maximums`. Empty leaves the stock per-entry modulo pick, which
+    /// is what every retail type takes.
+    pub debris_minimums: &'a [i32],
     /// `+0x5C4` vector, count at `+0x5D4`.
     pub debris_anim_count: usize,
     /// `RulesClass+0x14C`.
@@ -584,9 +588,65 @@ pub(crate) fn throw_typed_debris(
     mut budget: i32,
     types: &[Option<(VoxelAnimTypeId, &VoxelAnimType)>],
     maximums: &[i32],
+    minimums: &[i32],
     owner_house: Option<InternedId>,
     host: &mut impl VoxelDebrisHost,
 ) -> Result<i32, NativeX87Error> {
+    if !minimums.is_empty() {
+        // Phobos `TechnoClass_ReceiveDamage_Debris`
+        // (`Misc/Hooks.BugFixes.cpp:167-190`, hook `0x702299`): the restored
+        // loop takes `count = min(DebrisTypes.Count, DebrisMaximums.Count)`,
+        // throws `RandomRanged(min, max(1, maximum))` per slot — the minimum
+        // floored at 0 and its last entry repeating for later slots — and,
+        // with `DebrisTypes.Limit` at its `count > 1` default, stops after one
+        // whole pass instead of cycling the list until the budget drains.
+        let count = types.len().min(maximums.len());
+        if count > 0 && budget > 0 {
+            let last_minimum = minimums.len() as i32 - 1;
+            let limit = count > 1;
+            let mut index = 0usize;
+            let mut iterations = 0u32;
+            loop {
+                let current_max = maximums[index].max(1);
+                let current_min = if last_minimum >= 0 {
+                    minimums[index.min(last_minimum as usize)].max(0)
+                } else {
+                    0
+                };
+                let amount = host
+                    .rng()
+                    .next_range_i32_inclusive(current_min, current_max)
+                    .min(budget);
+                if amount > 0
+                    && let Some((type_id, voxel_type)) = types[index]
+                {
+                    for _ in 0..amount {
+                        let origin = host.voxel_origin();
+                        host.construct_voxel(type_id, voxel_type, owner_house, origin)?;
+                    }
+                }
+                budget -= amount;
+                if budget <= 0 {
+                    break;
+                }
+                index += 1;
+                if index < count {
+                    continue;
+                }
+                if limit {
+                    break;
+                }
+                index = 0;
+                // Recovery bound only; Phobos retries a zero-pick pass forever
+                // on a one-slot list whose every draw is 0.
+                iterations += 1;
+                if iterations >= DEBRIS_LOOP_ITERATION_CEILING {
+                    break;
+                }
+            }
+        }
+        return Ok(budget);
+    }
     if !types.is_empty() && budget > 0 {
         let mut well_formed = true;
         let mut can_drain = false;
@@ -758,6 +818,7 @@ pub fn throw_death_debris(
         budget,
         data.debris_types,
         data.debris_maximums,
+        data.debris_minimums,
         owner_house,
         host,
     )?;
@@ -812,6 +873,7 @@ mod tests {
         min_debris: i32,
         debris_types: &'a [Option<(VoxelAnimTypeId, &'a VoxelAnimType)>],
         debris_maximums: &'a [i32],
+        debris_minimums: &'a [i32],
         debris_anim_count: usize,
         metallic_debris_count: usize,
     ) -> DebrisTypeData<'a> {
@@ -820,6 +882,7 @@ mod tests {
             min_debris,
             debris_types,
             debris_maximums,
+            debris_minimums,
             debris_anim_count,
             metallic_debris_count,
         }
@@ -925,7 +988,7 @@ mod tests {
         // a type with no `MaxDebris=` costs the shared stream nothing.
         let voxel_type = tire();
         let types = [Some((VoxelAnimTypeId(0), &voxel_type))];
-        let input = data(0, 0, &types, &[3], 6, 20);
+        let input = data(0, 0, &types, &[3], &[], 6, 20);
         let mut rng = SimRng::new(11);
         assert!(throw(&input, &mut rng).is_empty());
         assert_eq!(rng.logical_view(), SimRng::new(11).logical_view());
@@ -940,7 +1003,7 @@ mod tests {
         // `budget` draws in gamemd and lands on an out-of-bounds index the
         // caller resolves away. Skipping the draws instead would shift the
         // shared cursor for every later consumer in the tick.
-        let input = data(5, 4, &[], &[], 0, 0);
+        let input = data(5, 4, &[], &[], &[], 0, 0);
         let mut rng = SimRng::new(5);
         let thrown = throw(&input, &mut rng);
         assert!(
@@ -984,7 +1047,7 @@ mod tests {
             Some((VoxelAnimTypeId(0), &voxel_type)),
         ];
         for seed in 0..64u64 {
-            let input = data(7, 6, &types, &[5, 5], 0, 20);
+            let input = data(7, 6, &types, &[5, 5], &[], 0, 20);
             let mut rng = SimRng::new(seed);
             let thrown = throw(&input, &mut rng);
             assert_eq!(
@@ -1000,6 +1063,36 @@ mod tests {
     }
 
     #[test]
+    fn phobos_debris_minimums_floor_each_slots_throw() {
+        // Phobos `TechnoClass_ReceiveDamage_Debris`
+        // (`Misc/Hooks.BugFixes.cpp:167-190`, hook `0x702299`) replaced the
+        // stock `|Next| % (maximum + 1)` pick with
+        // `RandomRanged(min, max(1, maximum))`. `MinDebris=1, MaxDebris=2`
+        // pins a budget of 1 without a draw, and the slot's minimum of 4 sits
+        // above the stock modulo's zero outcome, so every seed must still throw
+        // one piece where the stock arm can draw a zero and throw none.
+        let voxel_type = tire();
+        let types = [Some((VoxelAnimTypeId(0), &voxel_type))];
+        for seed in 0..8u64 {
+            let input = data(2, 1, &types, &[5], &[4], 0, 20);
+            let mut rng = SimRng::new(seed);
+            let thrown = throw(&input, &mut rng);
+            assert_eq!(
+                thrown.voxels.len(),
+                1,
+                "seed {seed}: the slot's floor always fills the pinned budget"
+            );
+            let mut expected = SimRng::new(seed);
+            let _ = expected.next_range_i32_inclusive(4, 5);
+            assert_eq!(
+                rng.logical_view(),
+                expected.logical_view(),
+                "seed {seed}: one bounded pick per slot"
+            );
+        }
+    }
+
+    #[test]
     fn gsi_05_14_each_voxel_piece_costs_exactly_seven_draws() {
         // Four `Random__Next()` in `VoxelAnimClass::Constructor` plus three
         // `RandomRanged(-0xFFFF, 0xFFFF)` in `BounceClass::Init`. The count is
@@ -1007,7 +1100,7 @@ mod tests {
         // same tick.
         let voxel_type = tire();
         let types = [Some((VoxelAnimTypeId(0), &voxel_type))];
-        let input = data(4, 3, &types, &[9], 0, 20);
+        let input = data(4, 3, &types, &[9], &[], 0, 20);
         let mut rng = SimRng::new(2024);
         let thrown = throw(&input, &mut rng);
         assert_eq!(thrown.voxels.len(), 3);
@@ -1039,7 +1132,7 @@ mod tests {
         // at `0x0070252D`. 166 stock sections take the first arm and 158 the
         // second; 13 of the 17 sections spelling `Maxdebris=` would have
         // joined the second arm had the read folded case, which it does not.
-        let input = data(9, 7, &[], &[], 6, 20);
+        let input = data(9, 7, &[], &[], &[], 6, 20);
         let mut rng = SimRng::new(31);
         let thrown = throw(&input, &mut rng);
         assert!(!thrown.anims.is_empty());
@@ -1058,7 +1151,7 @@ mod tests {
         // `DebrisTypes=TIRE`, no `DebrisAnims=`.
         let voxel_type = tire();
         let types = [Some((VoxelAnimTypeId(0), &voxel_type))];
-        let input = data(6, 5, &types, &[4], 6, 20);
+        let input = data(6, 5, &types, &[4], &[], 6, 20);
         let mut rng = SimRng::new(77);
         let thrown = throw(&input, &mut rng);
         assert_eq!(thrown.voxels.len(), 5);

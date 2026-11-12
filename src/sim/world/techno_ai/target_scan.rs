@@ -707,6 +707,24 @@ impl Simulation {
     }
 }
 
+/// Phobos `TechnoClass_TargetAndEstimateDamage_TargetingDelay` (`0x70982C`,
+/// `Ext/Techno/Hooks.Targeting.cpp:12-45`): the AI-controlled Area Guard
+/// delay override — the type's `AIGuardAreaTargetingDelay`, else the
+/// `[General]` one. A human-controlled house ignores both.
+#[cfg(feature = "phobos")]
+pub(crate) fn phobos_ai_guard_area_targeting_delay(
+    rules: &RuleSet,
+    object: Option<&crate::rules::object_type::ObjectType>,
+    human: bool,
+) -> Option<i32> {
+    if human {
+        return None;
+    }
+    object
+        .and_then(|object| object.phobos_ai_guard_area_targeting_delay)
+        .or(rules.phobos_globals.ai_guard_area_targeting_delay)
+}
+
 /// The production scan host.
 struct WorldScan<'s, 'r> {
     sim: &'s mut Simulation,
@@ -751,6 +769,20 @@ impl<'r> ScanHost for WorldScan<'_, 'r> {
     fn targeting_delay(&self, area_guard: bool) -> i32 {
         let general = &self.rules.general;
         if area_guard {
+            #[cfg(feature = "phobos")]
+            {
+                let object = self
+                    .sim
+                    .interner
+                    .object_type(self.entity().type_ref(), self.rules);
+                if let Some(delay) = phobos_ai_guard_area_targeting_delay(
+                    self.rules,
+                    object,
+                    self.sim.owner_is_human(self.entity().owner()),
+                ) {
+                    return delay;
+                }
+            }
             general.guard_area_targeting_delay
         } else {
             general.normal_targeting_delay
@@ -912,7 +944,6 @@ impl<'r> ScanHost for WorldScan<'_, 'r> {
             target.estimated_health.debit(amount);
         }
     }
-
 }
 
 impl Simulation {
@@ -1721,5 +1752,60 @@ mod tests {
             assert_eq!(held, expected.is_some(), "{kind}: held target");
         }
     }
-}
 
+    /// Phobos `TechnoClass_TargetAndEstimateDamage_TargetingDelay`
+    /// (`Ext/Techno/Hooks.Targeting.cpp:12-45`, `0x70982C`): the type's
+    /// `AIGuardAreaTargetingDelay` wins over the `[General]` value, and a
+    /// human-controlled house ignores both.
+    #[cfg(feature = "phobos")]
+    #[test]
+    fn ai_guard_area_targeting_delay_falls_back_from_type_to_global() {
+        let rules =
+            crate::rules::ruleset::RuleSet::from_ini(&crate::sim::arena_fixture::clear_ground_ini(
+                "[Countries]
+0=Americans
+                 [General]
+AIGuardAreaTargetingDelay=30
+                 [VehicleTypes]
+0=UNIT
+1=PLAIN
+                 [UNIT]
+Strength=100
+AIGuardAreaTargetingDelay=45
+                 [PLAIN]
+Strength=100
+",
+            ))
+            .unwrap();
+        assert_eq!(
+            phobos_ai_guard_area_targeting_delay(&rules, rules.object("UNIT"), false),
+            Some(45),
+            "the type key wins"
+        );
+        assert_eq!(
+            phobos_ai_guard_area_targeting_delay(&rules, rules.object("PLAIN"), false),
+            Some(30),
+            "an unset type falls back to [General]"
+        );
+        assert_eq!(
+            phobos_ai_guard_area_targeting_delay(&rules, rules.object("UNIT"), true),
+            None,
+            "a human-controlled house ignores both"
+        );
+        let none =
+            crate::rules::ruleset::RuleSet::from_ini(&crate::sim::arena_fixture::clear_ground_ini(
+                "[Countries]
+0=Americans
+[VehicleTypes]
+0=UNIT
+[UNIT]
+Strength=100
+",
+            ))
+            .unwrap();
+        assert_eq!(
+            phobos_ai_guard_area_targeting_delay(&none, none.object("UNIT"), false),
+            None
+        );
+    }
+}

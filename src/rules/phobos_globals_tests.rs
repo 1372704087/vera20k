@@ -36,16 +36,20 @@ fn the_force_weapon_globals_default_and_read_from_general() {
 fn the_negative_damage_modifier_fallback() {
     assert!(!PhobosGlobals::default().apply_modifiers_on_negative_damage);
     assert!(
-        read("[General]
+        read(
+            "[General]
 ApplyModifiersOnNegativeDamage=yes
-")
-            .apply_modifiers_on_negative_damage
+"
+        )
+        .apply_modifiers_on_negative_damage
     );
     assert!(
-        !read("[CombatDamage]
+        !read(
+            "[CombatDamage]
 ApplyModifiersOnNegativeDamage=yes
-")
-            .apply_modifiers_on_negative_damage
+"
+        )
+        .apply_modifiers_on_negative_damage
     );
     #[cfg(feature = "phobos")]
     {
@@ -513,4 +517,24 @@ fn the_g1_combat_damage_gates_construct_and_read_from_their_own_section() {
     assert!(wrong_section.arcing_allow_elevation_inaccuracy);
     assert!(!wrong_section.temporal_apply_multiplier);
     assert!(!wrong_section.temporal_apply_versus);
+}
+
+/// `[General] AIGuardAreaTargetingDelay` (`Nullable<int>`, unset) and
+/// `CrushSlowdownMultiplier` (`Valueable<double>`, 0.2).
+#[test]
+fn ai_guard_delay_and_crush_multiplier_default_and_read() {
+    let defaults = PhobosGlobals::default();
+    assert_eq!(defaults.ai_guard_area_targeting_delay, None);
+    assert_eq!(
+        f64::from_bits(defaults.crush_slowdown_multiplier.bits()),
+        0.2
+    );
+    let set = read(
+        "[General]
+AIGuardAreaTargetingDelay=45
+CrushSlowdownMultiplier=0.5
+",
+    );
+    assert_eq!(set.ai_guard_area_targeting_delay, Some(45));
+    assert_eq!(f64::from_bits(set.crush_slowdown_multiplier.bits()), 0.5);
 }

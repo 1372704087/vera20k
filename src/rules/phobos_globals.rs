@@ -67,6 +67,12 @@ fn read_double_bits(section: &IniSection, key: &str, current: NativeF64Bits) -> 
     )
 }
 
+/// `[General] CrushSlowdownMultiplier=`'s constructor value, 0.2
+/// (`Ext/Rules/Body.h:715`; the same binary64 as the stock Drive/Ship cap).
+fn crush_slowdown_default() -> NativeF64Bits {
+    NativeF64Bits::from_bits(0x3fc9_9999_9999_999a)
+}
+
 /// The `Nullable<double>` counterpart of [`read_double_bits`].
 fn read_nullable_double_bits(
     section: &IniSection,
@@ -148,6 +154,18 @@ pub struct PhobosGlobals {
     pub keep_range_allow_ai: bool,
     /// `[General] KeepRange.AllowPlayer=`, default `no` (`:270`, `Body.h:188`).
     pub keep_range_allow_player: bool,
+    /// `[General] AIGuardAreaTargetingDelay=` (`Nullable<int>`, unset;
+    /// `Ext/Rules/Body.cpp:430`, `Body.h:315`, constructor `:826`): the
+    /// AI-controlled Area Guard scan-delay override
+    /// (`TechnoClass_TargetAndEstimateDamage_TargetingDelay @ 0x70982C`); a
+    /// type key wins over this, and a human-controlled house ignores both.
+    #[serde(default)]
+    pub ai_guard_area_targeting_delay: Option<i32>,
+    /// `[General] CrushSlowdownMultiplier=` (`Valueable<double>`, default
+    /// 0.2; `Ext/Rules/Body.cpp:273`, `Body.h:191,715`): the cap for the
+    /// Drive/Ship crush slowdown (`0x4B1150`, `0x6A0813`).
+    #[serde(default = "crush_slowdown_default")]
+    pub crush_slowdown_multiplier: NativeF64Bits,
     /// `[General] ArtImageSwap=`, default `no` (`Phobos.INI.cpp:262`):
     /// Phobos' ART `Image=` redirect for TechnoTypes. VERA's body SHP source
     /// already applies that redirect, so the SHP UnitType turret file name
@@ -849,6 +867,8 @@ impl Default for PhobosGlobals {
             keep_range_allow_ai: false,
             keep_range_allow_player: false,
             art_image_swap: false,
+            ai_guard_area_targeting_delay: None,
+            crush_slowdown_multiplier: crush_slowdown_default(),
             keep_range_early_stop: 0,
             parasite_grapple_anim: None,
             parasite_allow_water_exit: None,
@@ -1182,6 +1202,15 @@ impl PhobosGlobals {
         globals.keep_range_allow_player =
             general.read_bool("KeepRange.AllowPlayer", globals.keep_range_allow_player);
         globals.art_image_swap = general.read_bool("ArtImageSwap", globals.art_image_swap);
+        globals.ai_guard_area_targeting_delay = general.read_phobos_nullable_int(
+            "AIGuardAreaTargetingDelay",
+            globals.ai_guard_area_targeting_delay,
+        );
+        globals.crush_slowdown_multiplier = read_double_bits(
+            &general,
+            "CrushSlowdownMultiplier",
+            globals.crush_slowdown_multiplier,
+        );
         globals.keep_range_early_stop =
             general.read_ares_int("KeepRange.EarlyStopFrame", globals.keep_range_early_stop);
         globals.parasite_allow_water_exit = general.read_phobos_nullable_bool(

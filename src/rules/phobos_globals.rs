@@ -953,6 +953,17 @@ pub struct PhobosGlobals {
     /// (`Ext/Team/Body.cpp:...`).
     #[serde(default = "minus_one_i32")]
     pub set_recruitable_on_liberate: i32,
+    /// `[AudioVisual] NoAlphaImageOnBuildup=`, default `no`
+    /// (`Ext/Rules/Body.cpp:645`, constructor `Ext/Rules/Body.h:1038`): the
+    /// fallback for a BuildingType's own `Nullable<bool>`.
+    #[serde(default)]
+    pub no_alpha_image_on_buildup: bool,
+    /// `[General] ParadropDelay=`, default **5**
+    /// (`Ext/Rules/Body.cpp:522`, constructor `Ext/Rules/Body.h:936`): the
+    /// fallback for an AircraftType's own `Nullable<int>`
+    /// (`Ext/Aircraft/Hooks.cpp:1274`).
+    #[serde(default = "default_paradrop_delay")]
+    pub paradrop_delay: i32,
     /// `[General] AllowWeaponSelectAgainstWalls=`, default `no`
     /// (`Ext/Rules/Body.cpp` read through `RulesExt`, constructor
     /// `Ext/Rules/Body.h:702`): the fallback for a TechnoType's own key.
@@ -1014,6 +1025,11 @@ fn subterranean_height_default() -> i32 {
 /// (`Ext/Rules/Body.h:726`).
 fn display_income_delay_default() -> i32 {
     15
+}
+
+/// `[General] ParadropDelay=`'s constructor value (`Ext/Rules/Body.h:936`).
+fn default_paradrop_delay() -> i32 {
+    5
 }
 
 impl Default for PhobosGlobals {
@@ -1187,6 +1203,8 @@ impl Default for PhobosGlobals {
             display_income: false,
             display_income_delay: display_income_delay_default(),
             set_recruitable_on_liberate: -1,
+            no_alpha_image_on_buildup: false,
+            paradrop_delay: default_paradrop_delay(),
             allow_weapon_select_against_walls: false,
         }
     }
@@ -1219,6 +1237,10 @@ impl PhobosGlobals {
         // draws (`CombatLightDetailLevel.CheckColored=` is the sibling key).
         globals.combat_light_detail_level =
             audio_visual.read_int("CombatLightDetailLevel", globals.combat_light_detail_level);
+        // `Ext/Rules/Body.cpp:645`: the `[AudioVisual]` fallback a BuildingType's
+        // `NoAlphaImageOnBuildup=` overrides.
+        globals.no_alpha_image_on_buildup =
+            audio_visual.read_bool("NoAlphaImageOnBuildup", globals.no_alpha_image_on_buildup);
         globals.parasite_grapple_anim = audio_visual
             .read_type_name("Parasite.GrappleAnim", 0x100)
             .map(str::to_owned);
@@ -1498,6 +1520,9 @@ impl PhobosGlobals {
             globals.ai_paradrop_mission,
             |current, value| MissionType::from_map_name(value).unwrap_or(current),
         );
+        // `Ext/Rules/Body.cpp:522`: the `[General]` fallback an AircraftType's
+        // `ParadropDelay=` overrides (`Ext/Aircraft/Hooks.cpp:1274`).
+        globals.paradrop_delay = general.read_ares_int("ParadropDelay", globals.paradrop_delay);
         globals.aircraft_weapon_kick_out_passengers = general.read_bool(
             "AircraftWeapon.KickOutPassengers",
             globals.aircraft_weapon_kick_out_passengers,

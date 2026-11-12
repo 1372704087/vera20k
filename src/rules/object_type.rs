@@ -1101,6 +1101,56 @@ pub struct ObjectType {
     /// takes `[General] BuildingStartFacing.Random`. Building types only.
     #[cfg(feature = "phobos")]
     pub phobos_start_facing_random: Option<bool>,
+    /// Phobos `DeployFireDelay=` (`Ext/BuildingType/Body.cpp:311`,
+    /// `Nullable<int>`): overrides the building's deploy-fire delay; unset
+    /// keeps the native `RandomRanged(0, 2) + 14`
+    /// (`Ext/Building/Hooks.Unload.cpp:73`). Building types only.
+    #[cfg(feature = "phobos")]
+    pub phobos_deploy_fire_delay: Option<i32>,
+    /// Phobos `NoAlphaImageOnBuildup=` (`Ext/BuildingType/Body.cpp:234`,
+    /// `Nullable<bool>`): skip the buildup image's alpha blend; unset takes
+    /// `[AudioVisual]`. Building types only.
+    #[cfg(feature = "phobos")]
+    pub phobos_no_alpha_image_on_buildup: Option<bool>,
+    /// Phobos `NoBuildAreaOnBuildup=` (`Ext/BuildingType/Body.cpp:233`,
+    /// `Valueable<bool>`, default no): a building in `Construction=` draws no
+    /// build area (`Ext/BuildingType/Hooks.cpp:245`). Building types only.
+    #[cfg(feature = "phobos")]
+    pub phobos_no_build_area_on_buildup: bool,
+    /// Phobos `SetTabBySelecting=` (`Ext/BuildingType/Body.cpp:282`,
+    /// `Valueable<int>`, default -1): the sidebar tab a selection switches to;
+    /// -1 leaves the tab alone. Building types only.
+    #[cfg(feature = "phobos")]
+    pub phobos_set_tab_by_selecting: i32,
+    /// Phobos `DeployingAnims=` (`Ext/UnitType/Body.cpp:58`,
+    /// `ValueableVector<AnimType*>`, empty): the deploying anim a Unit picks
+    /// by facing (`GeneralUtils::GetItemForDirection`); empty uses stock
+    /// `DeployingAnim=`. Unit types only.
+    #[cfg(feature = "phobos")]
+    pub phobos_deploying_anims: Vec<String>,
+    /// Phobos `CrushOverlayExtraForwardTilt=` (`Ext/UnitType/Body.cpp:72`,
+    /// `Valueable<double>`, default **0.02**): the extra forward rocking rate
+    /// a crushing Unit adds (`Ext/Unit/Hooks.Crushing.cpp:18`). Phobos reads it
+    /// through `ReadDouble`'s `float` out-parameter, so a value read from INI
+    /// is the nearest binary32 widened back. Unit types only.
+    #[cfg(feature = "phobos")]
+    pub phobos_crush_overlay_extra_forward_tilt: f64,
+    /// Phobos `LandingAnim=` (`Ext/AircraftType/Body.cpp:41`,
+    /// `Nullable<AnimType*>`): the anim a landing aircraft plays; unset takes
+    /// `[AudioVisual] DefaultLandingAnim` (and its
+    /// `.Dropship`/`.Carryall` variants). Aircraft types only.
+    #[cfg(feature = "phobos")]
+    pub phobos_landing_anim: Option<String>,
+    /// Phobos `ParadropDelay=` (`Ext/AircraftType/Body.cpp:37`,
+    /// `Nullable<int>`): overrides the paradrop overfly delay; unset takes
+    /// `[General] ParadropDelay` (5). Aircraft types only.
+    #[cfg(feature = "phobos")]
+    pub phobos_paradrop_delay: Option<i32>,
+    /// Phobos `SpawnHeight=` (`Ext/AircraftType/Body.cpp:27`,
+    /// `Nullable<int>`): a spawning aircraft's Unlimbo height; unset keeps its
+    /// `FlightLevel` (`Ext/Aircraft/Body.cpp:77`). Aircraft types only.
+    #[cfg(feature = "phobos")]
+    pub phobos_spawn_height: Option<i32>,
     /// Phobos `Explodes.KillPassengers` (`Ext/TechnoType/Body.cpp:968`) and
     /// `Explodes.DuringBuildup` (`Ext/BuildingType/Body.cpp:222`), consumed by
     /// the `TechnoClass::ReceiveDamage` death arm.
@@ -5669,6 +5719,54 @@ impl ObjectType {
                 .then(|| section.read_phobos_nullable_bool("StartFacing.Random", None))
                 .flatten(),
             #[cfg(feature = "phobos")]
+            phobos_deploy_fire_delay: (category == ObjectCategory::Building)
+                .then(|| section.read_phobos_nullable_int("DeployFireDelay", None))
+                .flatten(),
+            #[cfg(feature = "phobos")]
+            phobos_no_alpha_image_on_buildup: (category == ObjectCategory::Building)
+                .then(|| section.read_phobos_nullable_bool("NoAlphaImageOnBuildup", None))
+                .flatten(),
+            #[cfg(feature = "phobos")]
+            phobos_no_build_area_on_buildup: category == ObjectCategory::Building
+                && section.read_bool("NoBuildAreaOnBuildup", false),
+            #[cfg(feature = "phobos")]
+            phobos_set_tab_by_selecting: if category == ObjectCategory::Building {
+                section.read_ares_int("SetTabBySelecting", -1)
+            } else {
+                -1
+            },
+            #[cfg(feature = "phobos")]
+            phobos_deploying_anims: if category == ObjectCategory::Vehicle {
+                section
+                    .read_list("DeployingAnims", 0x800)
+                    .map(|tokens| tokens.into_iter().map(str::to_owned).collect())
+                    .unwrap_or_default()
+            } else {
+                Vec::new()
+            },
+            #[cfg(feature = "phobos")]
+            phobos_crush_overlay_extra_forward_tilt: if category == ObjectCategory::Vehicle {
+                section.read_phobos_double("CrushOverlayExtraForwardTilt", 0.02)
+            } else {
+                0.0
+            },
+            #[cfg(feature = "phobos")]
+            phobos_landing_anim: (category == ObjectCategory::Aircraft)
+                .then(|| {
+                    section.read_phobos_nullable_with("LandingAnim", None, |raw| {
+                        Some(raw.to_owned())
+                    })
+                })
+                .flatten(),
+            #[cfg(feature = "phobos")]
+            phobos_paradrop_delay: (category == ObjectCategory::Aircraft)
+                .then(|| section.read_phobos_nullable_int("ParadropDelay", None))
+                .flatten(),
+            #[cfg(feature = "phobos")]
+            phobos_spawn_height: (category == ObjectCategory::Aircraft)
+                .then(|| section.read_phobos_nullable_int("SpawnHeight", None))
+                .flatten(),
+            #[cfg(feature = "phobos")]
             phobos_explodes: crate::rules::phobos_explodes::PhobosExplodesSettings::from_section(
                 section,
                 category == ObjectCategory::Building,
@@ -7492,6 +7590,72 @@ mod tests {
                 row.raw
             );
         }
+    }
+
+    /// `Ext/BuildingType/Body.cpp:233-234,282,311`,
+    /// `Ext/UnitType/Body.cpp:58,72` and `Ext/AircraftType/Body.cpp:27,37,41`:
+    /// each key keeps its own constructor value and its own category.
+    #[cfg(feature = "phobos")]
+    #[test]
+    fn phobos_type_scalars_and_nullables_read_with_constructor_defaults() {
+        let building = IniFile::from_str(
+            "[BLD]\nStrength=100\nDeployFireDelay=20\nNoAlphaImageOnBuildup=yes\n\
+             NoBuildAreaOnBuildup=yes\nSetTabBySelecting=3\n",
+        );
+        let object = ObjectType::from_ini_section(
+            "BLD",
+            building.section("BLD").unwrap(),
+            ObjectCategory::Building,
+        );
+        assert_eq!(object.phobos_deploy_fire_delay, Some(20));
+        assert_eq!(object.phobos_no_alpha_image_on_buildup, Some(true));
+        assert!(object.phobos_no_build_area_on_buildup);
+        assert_eq!(object.phobos_set_tab_by_selecting, 3);
+
+        let unit = IniFile::from_str(
+            "[UNT]\nStrength=100\nDeployingAnims=A,B,C\nCrushOverlayExtraForwardTilt=0.05\n",
+        );
+        let object = ObjectType::from_ini_section(
+            "UNT",
+            unit.section("UNT").unwrap(),
+            ObjectCategory::Vehicle,
+        );
+        assert_eq!(object.phobos_deploying_anims, ["A", "B", "C"]);
+        // Phobos `ReadDouble` writes a `float`; the literal therefore lands as
+        // the nearest binary32 widened back to double.
+        assert_eq!(
+            object.phobos_crush_overlay_extra_forward_tilt,
+            f64::from(0.05_f32)
+        );
+
+        let aircraft = IniFile::from_str(
+            "[AIR]\nStrength=100\nLandingAnim=LAND\nParadropDelay=8\nSpawnHeight=200\n",
+        );
+        let object = ObjectType::from_ini_section(
+            "AIR",
+            aircraft.section("AIR").unwrap(),
+            ObjectCategory::Aircraft,
+        );
+        assert_eq!(object.phobos_landing_anim.as_deref(), Some("LAND"));
+        assert_eq!(object.phobos_paradrop_delay, Some(8));
+        assert_eq!(object.phobos_spawn_height, Some(200));
+
+        let unset = IniFile::from_str("[UNT]\nStrength=100\n");
+        let object = ObjectType::from_ini_section(
+            "UNT",
+            unset.section("UNT").unwrap(),
+            ObjectCategory::Vehicle,
+        );
+        assert_eq!(object.phobos_deploy_fire_delay, None);
+        assert_eq!(object.phobos_no_alpha_image_on_buildup, None);
+        assert!(!object.phobos_no_build_area_on_buildup);
+        assert_eq!(object.phobos_set_tab_by_selecting, -1);
+        assert!(object.phobos_deploying_anims.is_empty());
+        // The constructor value, not zero.
+        assert_eq!(object.phobos_crush_overlay_extra_forward_tilt, 0.02);
+        assert_eq!(object.phobos_landing_anim, None);
+        assert_eq!(object.phobos_paradrop_delay, None);
+        assert_eq!(object.phobos_spawn_height, None);
     }
 
     #[test]

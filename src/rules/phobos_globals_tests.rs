@@ -688,3 +688,22 @@ fn allow_weapon_select_against_walls_is_combat_damage() {
         !read("[General]\nAllowWeaponSelectAgainstWalls=yes\n").allow_weapon_select_against_walls
     );
 }
+
+/// `[AudioVisual] NoAlphaImageOnBuildup=` (`Ext/Rules/Body.cpp:645`,
+/// constructor false `Body.h:1038`) and `[General] ParadropDelay=`
+/// (`:522`, constructor 5 `Body.h:936`).
+#[test]
+fn the_buildup_alpha_and_paradrop_delay_globals_read() {
+    let defaults = PhobosGlobals::default();
+    assert!(!defaults.no_alpha_image_on_buildup);
+    assert_eq!(defaults.paradrop_delay, 5);
+
+    let set = read("[AudioVisual]\nNoAlphaImageOnBuildup=yes\n[General]\nParadropDelay=9\n");
+    assert!(set.no_alpha_image_on_buildup);
+    assert_eq!(set.paradrop_delay, 9);
+
+    // Each key has one section: the sibling section must not satisfy it.
+    let wrong = read("[General]\nNoAlphaImageOnBuildup=yes\n[AudioVisual]\nParadropDelay=9\n");
+    assert!(!wrong.no_alpha_image_on_buildup);
+    assert_eq!(wrong.paradrop_delay, 5);
+}

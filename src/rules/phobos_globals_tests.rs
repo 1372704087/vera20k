@@ -620,3 +620,24 @@ fn reload_in_transport_defaults_and_reads() {
     assert!(!PhobosGlobals::default().reload_in_transport);
     assert!(read("[General]\nReloadInTransport=yes\n").reload_in_transport);
 }
+
+/// `[General]` gained-self-heal caps and gates (`Ext/Rules/Body.h:30-34`).
+#[test]
+fn self_heal_caps_and_gates_default_and_read() {
+    let defaults = PhobosGlobals::default();
+    assert_eq!(defaults.infantry_gain_self_heal_cap, None);
+    assert_eq!(defaults.units_gain_self_heal_cap, None);
+    assert!(defaults.gain_self_heal_allow_multiplay_passive);
+    assert!(!defaults.gain_self_heal_from_player_control);
+    assert!(!defaults.gain_self_heal_from_allies);
+    let set = read(
+        "[General]\nInfantryGainSelfHealCap=3\nUnitsGainSelfHealCap=2\n\
+         GainSelfHealAllowMultiplayPassive=no\nGainSelfHealFromPlayerControl=yes\n\
+         GainSelfHealFromAllies=yes\n",
+    );
+    assert_eq!(set.infantry_gain_self_heal_cap, Some(3));
+    assert_eq!(set.units_gain_self_heal_cap, Some(2));
+    assert!(!set.gain_self_heal_allow_multiplay_passive);
+    assert!(set.gain_self_heal_from_player_control);
+    assert!(set.gain_self_heal_from_allies);
+}

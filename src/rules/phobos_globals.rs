@@ -846,6 +846,27 @@ pub struct PhobosGlobals {
     /// (`Ext/Techno/Hooks.Transport.cpp:70-165`).
     #[serde(default)]
     pub reload_in_transport: bool,
+    /// `[General] InfantryGainSelfHealCap=`, `Nullable<int>`
+    /// (`Ext/Rules/Body.cpp:111`, `Body.h:30,570`): the cap on the infantry
+    /// self-heal count; unset means no cap.
+    #[serde(default)]
+    pub infantry_gain_self_heal_cap: Option<i32>,
+    /// `[General] UnitsGainSelfHealCap=`, `Nullable<int>`
+    /// (`Ext/Rules/Body.cpp:112`, `Body.h:31,571`).
+    #[serde(default)]
+    pub units_gain_self_heal_cap: Option<i32>,
+    /// `[General] GainSelfHealAllowMultiplayPassive=`, default `yes`
+    /// (`Ext/Rules/Body.cpp:113`, `Body.h:32,572`).
+    #[serde(default = "true_bool")]
+    pub gain_self_heal_allow_multiplay_passive: bool,
+    /// `[General] GainSelfHealFromPlayerControl=`, default `no`
+    /// (`Ext/Rules/Body.cpp:114`, `Body.h:33,573`).
+    #[serde(default)]
+    pub gain_self_heal_from_player_control: bool,
+    /// `[General] GainSelfHealFromAllies=`, default `no`
+    /// (`Ext/Rules/Body.cpp:115`, `Body.h:34,574`).
+    #[serde(default)]
+    pub gain_self_heal_from_allies: bool,
     /// `[General] VeteranReload=`, default **`1.0`**
     /// (`Ext/Rules/Body.cpp:388`, constructor `Ext/Rules/Body.h:808`).
     #[serde(default = "one_f64")]
@@ -1074,6 +1095,11 @@ impl Default for PhobosGlobals {
             no_queue_up_to_unload: false,
             no_queue_up_to_unload_buildings: None,
             reload_in_transport: false,
+            infantry_gain_self_heal_cap: None,
+            units_gain_self_heal_cap: None,
+            gain_self_heal_allow_multiplay_passive: true,
+            gain_self_heal_from_player_control: false,
+            gain_self_heal_from_allies: false,
             veteran_reload: NativeF64Bits::ONE,
             veteran_empty_reload: None,
             is_voice_created_global: false,
@@ -1252,6 +1278,23 @@ impl PhobosGlobals {
         );
         globals.reload_in_transport =
             general.read_bool("ReloadInTransport", globals.reload_in_transport);
+        // `Ext/Rules/Body.cpp:111-115`: the gained-self-heal caps and gates.
+        globals.infantry_gain_self_heal_cap = general.read_phobos_nullable_int(
+            "InfantryGainSelfHealCap",
+            globals.infantry_gain_self_heal_cap,
+        );
+        globals.units_gain_self_heal_cap = general
+            .read_phobos_nullable_int("UnitsGainSelfHealCap", globals.units_gain_self_heal_cap);
+        globals.gain_self_heal_allow_multiplay_passive = general.read_bool(
+            "GainSelfHealAllowMultiplayPassive",
+            globals.gain_self_heal_allow_multiplay_passive,
+        );
+        globals.gain_self_heal_from_player_control = general.read_bool(
+            "GainSelfHealFromPlayerControl",
+            globals.gain_self_heal_from_player_control,
+        );
+        globals.gain_self_heal_from_allies =
+            general.read_bool("GainSelfHealFromAllies", globals.gain_self_heal_from_allies);
         // `Ext/Rules/Body.cpp:213-214`: the Ares radar-jam scan's House filter
         // (`Valueable<AffectedHouse>`, default Enemies) and interval.
         globals.radar_jam_houses = crate::rules::phobos_shields::read_affected_house(

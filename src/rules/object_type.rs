@@ -942,6 +942,12 @@ pub struct ObjectType {
     /// (`LocomotionClass_Process_DamagedSpeedMultiplier @ 0x4B3DF0/0x6A343F`).
     #[cfg(feature = "phobos")]
     pub phobos_damaged_speed: Option<crate::util::native_x87::NativeF64Bits>,
+    /// Phobos `SelfHealGainType` (`Nullable<SelfHealGainType>`, unset;
+    /// `Ext/TechnoType/Body.cpp:957`, `Body.h:201`): which house self-heal
+    /// capacity this techno draws on. Unset keeps the stock classification
+    /// (`TechnoExt::ApplyGainedSelfHeal`, `0x6FA793`).
+    #[cfg(feature = "phobos")]
+    pub phobos_self_heal_gain_type: Option<crate::rules::phobos_self_heal::SelfHealGainType>,
     /// Phobos `ParadropMission`/`AIParadropMission` (`Nullable<Mission>`,
     /// unset; `Ext/TechnoType/Body.cpp:1171-1172`, `Body.h:411-412`): the
     /// mission a human- or AI-controlled `FootClass` queues after
@@ -5913,6 +5919,11 @@ impl ObjectType {
             phobos_damaged_speed: section
                 .read_phobos_nullable_double("DamagedSpeed", None)
                 .map(|value| crate::util::native_x87::NativeF64Bits::from_bits(value.to_bits())),
+            #[cfg(feature = "phobos")]
+            phobos_self_heal_gain_type: section
+                .read_string_with("SelfHealGainType", 2048, None, |current, value| {
+                    crate::rules::phobos_self_heal::SelfHealGainType::parse(value).or(current)
+                }),
             #[cfg(feature = "phobos")]
             phobos_paradrop_mission: section
                 .read_string_with("ParadropMission", 2048, None, |current, value| {

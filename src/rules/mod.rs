@@ -179,6 +179,8 @@ pub mod phobos_exit_through_roof;
 #[cfg(feature = "phobos")]
 pub mod phobos_land_sequences;
 #[cfg(feature = "phobos")]
+pub mod phobos_self_heal;
+#[cfg(feature = "phobos")]
 pub mod phobos_sw_tab_index;
 #[cfg(feature = "phobos")]
 pub mod phobos_parasite;

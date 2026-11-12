@@ -94,6 +94,7 @@ Supported extensions:
 - [Timer blink colour](phobos-timer-blink-color.md) (`[AudioVisual] TimerBlinkColorScheme=` names a `[Colors]` entry)
 - [Missing cameo](phobos-missing-cameo.md) (`[AudioVisual] MissingCameo=` for types with no cameo art)
 - [Power plant enhancers](phobos-power-plant-enhancer.md) (`PowerPlantEnhancer.*` output boosts, `PowerPlant.DamageFactor` and placement range rings)
+- [Designator range rings](phobos-designator-range.md) (`ShowDesignatorRange` in `[Phobos]`, `[AudioVisual]` and per superweapon: ring the armed superweapon's `SW.Designators`/`SW.Inhibitors` technos at their `DesignatorRange`/`InhibitorRange`; 3 keys)
 - [Overpower thresholds](phobos-overpower.md) (`Overpower.KeepOnline` / `.ChargeWeapon` per building type and `ElectricAssaultLevel` per warhead drive the Tesla-charger power bypass and the overpowered weapon latch; 3 keys)
 - [Iron-curtained targeting](phobos-iron-curtain-targeting.md) (`CanTarget.IronCurtained` / `AutoTarget.IronCurtained` per weapon plus the `[CombatDamage]` human/AI fallbacks: firing, retaliation and auto-target gates; 5 keys)
 - [Berzerk targeting](phobos-berzerk-targeting.md) (`[CombatDamage] BerzerkTargeting=` limits the houses a berzerk firer may target)

@@ -1745,6 +1745,75 @@ mod tests {
         );
     }
 
+    /// Phobos `IsPassable=` (`Ext/TerrainType/Body.h:33`,
+    /// `Ext/TerrainType/Hooks.Passable.cpp:10-18`): the type key, else
+    /// `Tibtree.IsPassable`/`Terrain.IsPassable` by `SpawnsTiberium=`, zeroes
+    /// the occupation bits so the terrain never blocks movement.
+    #[cfg(feature = "phobos")]
+    #[test]
+    fn phobos_terrain_is_passable_zeroes_occupation_bits() {
+        let build = |general: &str, tree: &str, rock: &str| {
+            let ini = IniFile::from_str(&format!(
+                "[General]
+TreeStrength=10
+{general}                 [InfantryTypes]
+[VehicleTypes]
+[AircraftTypes]
+[BuildingTypes]
+                 [TerrainTypes]
+0=TREE
+1=ROCK
+                 [TREE]
+SpawnsTiberium=yes
+TemperateOccupationBits=7
+{tree}                 [ROCK]
+TemperateOccupationBits=7
+{rock}"
+            ));
+            RuleSet::from_ini(&ini).expect("passable rules")
+        };
+        let bits = |rules: &RuleSet, name: &str| {
+            rules
+                .terrain_object_type_case_insensitive(name)
+                .unwrap()
+                .raw_occupation_bits(false)
+        };
+        let keyed = build("", "IsPassable=yes
+", "");
+        assert_eq!(bits(&keyed, "TREE"), 0, "type key");
+        let stock = build("", "", "");
+        assert_eq!(bits(&stock, "TREE"), 7);
+        assert_eq!(bits(&stock, "ROCK"), 7);
+        let tibtree = build("Tibtree.IsPassable=yes
+", "", "");
+        assert_eq!(bits(&tibtree, "TREE"), 0, "tiberium tree global");
+        assert_eq!(bits(&tibtree, "ROCK"), 7, "ordinary terrain untouched");
+        let terrain = build("Terrain.IsPassable=yes
+", "", "");
+        assert_eq!(bits(&terrain, "ROCK"), 0, "ordinary global");
+        assert_eq!(bits(&terrain, "TREE"), 7, "tiberium tree untouched");
+        let explicit_no = build(
+            "Terrain.IsPassable=yes
+Tibtree.IsPassable=yes
+",
+            "IsPassable=no
+",
+            "",
+        );
+        assert_eq!(bits(&explicit_no, "TREE"), 7, "explicit no beats globals");
+
+        let terrain_type = keyed
+            .terrain_object_type_case_insensitive("TREE")
+            .unwrap();
+        let mut interner = StringInterner::default();
+        let type_ref = interner.intern("TREE");
+        let terrain = TerrainObjectState::new(1, type_ref, (1, 1), terrain_type, false, None);
+        assert_eq!(terrain.occupation_bits(), 0);
+        let mut grid = resolved_clear_grid();
+        mark_terrain_occupation(&terrain, Some(&mut grid));
+        assert!(!grid.cell(1, 1).unwrap().terrain_object_blocks);
+    }
+
     #[test]
     fn gsi_04_04_runtime_terrain_occupation_uses_shared_zone_writer() {
         let rules = rules("TemperateOccupationBits=7\n");

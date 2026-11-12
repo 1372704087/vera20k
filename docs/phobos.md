@@ -113,6 +113,7 @@ Supported extensions:
 - [RevealToAll radius](phobos-reveal-to-all-radius.md) (`RevealToAll.Radius` sets the sight circle a computer RevealToAll building shows the current house; 1 key)
 - [Negative-damage modifiers](phobos-negative-damage-modifiers.md) (`ApplyModifiersOnNegativeDamage` per warhead and globally runs a negative packet through falloff/Verses instead of the stock bypass; 2 keys)
 - [Tiberium ramps](phobos-allow-ramps.md) (`AllowRamps` lets a tiberium type grow and spread onto cardinal ramp cells when its ramp art exists, and raises `NumSlopes` to 8; 1 key)
+- [Terrain passability](phobos-terrain-passable.md) (`IsPassable` per terrain type plus `[General] Terrain.IsPassable` / `Tibtree.IsPassable` make a terrain object contribute no occupation; 3 keys)
 - [Projectile gravity](phobos-projectile-gravity.md) (`[Projectile] Gravity=` per projectile type)
 - [Projectile AU](phobos-projectile-au.md) (`[Projectile] AU=yes` admits underground auto-target candidates)
 - [Cylinder rangefinding](phobos-cylinder-rangefinding.md) (`CylinderRangefinding` per weapon and globally: direct range uses `dx²+dy²`)

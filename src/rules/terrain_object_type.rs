@@ -59,6 +59,15 @@ pub struct TerrainObjectType {
     is_logic: bool,
     /// `SpawnsTiberium=yes` — periodically spawns ore in adjacent cells.
     pub spawns_tiberium: bool,
+    /// Phobos `IsPassable=` (`Ext/TerrainType/Body.h:33`, a `Nullable<bool>`):
+    /// the type's own override; unset keeps the selected `[General]` fallback.
+    #[cfg(feature = "phobos")]
+    is_passable: Option<bool>,
+    /// Resolved Phobos `IsPassable` (`Ext/TerrainType/Hooks.Passable.cpp:10-18`):
+    /// the type key else `Tibtree.IsPassable`/`Terrain.IsPassable` selected by
+    /// `SpawnsTiberium=`. False without the phobos feature.
+    #[serde(default)]
+    passable: bool,
     /// `IsAnimated=yes` — required gate for SpawnsTiberium logic.
     pub is_animated: bool,
     /// Signed logic frames per animation step; native ReadInt stores without clamps.
@@ -178,6 +187,9 @@ impl TerrainObjectType {
             ambient_sound: None,
             is_logic: read_state.is_logic,
             spawns_tiberium: section.read_bool("SpawnsTiberium", false),
+            #[cfg(feature = "phobos")]
+            is_passable: section.read_phobos_nullable_bool("IsPassable", None),
+            passable: false,
             is_animated: section.read_bool("IsAnimated", false),
             animation_rate: section.read_int("AnimationRate", 0),
             animation_probability,
@@ -270,11 +282,29 @@ impl TerrainObjectType {
     }
 
     pub fn raw_occupation_bits(&self, snow_theater: bool) -> i32 {
+        // Phobos 0x71C110 (`Ext/TerrainType/Hooks.Passable.cpp:7`): a
+        // passable type never sets its occupation bit.
+        if self.passable {
+            return 0;
+        }
         if snow_theater {
             self.snow_occupation_bits
         } else {
             self.temperate_occupation_bits
         }
+    }
+
+    /// Resolve the Phobos passability fallback once the globals are known.
+    #[cfg(feature = "phobos")]
+    pub(crate) fn project_passability(
+        &mut self,
+        globals: &crate::rules::phobos_globals::PhobosGlobals,
+    ) {
+        self.passable = self.is_passable.unwrap_or(if self.spawns_tiberium {
+            globals.tibtree_is_passable
+        } else {
+            globals.terrain_is_passable
+        });
     }
 
     pub(crate) fn is_logic(&self) -> bool {

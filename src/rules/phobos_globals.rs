@@ -230,6 +230,16 @@ pub struct PhobosGlobals {
     /// of the railgun/blast-wave ambient damage.
     #[serde(default)]
     pub ambient_damage_ignore_target: bool,
+    /// `[General] Terrain.IsPassable=`, default `no`
+    /// (`Ext/Rules/Body.cpp:479`, constructor `Ext/Rules/Body.h:894`): an
+    /// ordinary terrain type with no `IsPassable=` key contributes no
+    /// occupation bit.
+    #[serde(default)]
+    pub terrain_is_passable: bool,
+    /// `[General] Tibtree.IsPassable=`, default `no` (`:480`, `:895`): the
+    /// same for a `SpawnsTiberium=` type.
+    #[serde(default)]
+    pub tibtree_is_passable: bool,
     /// `[General] ApplyModifiersOnNegativeDamage=`, default `no`
     /// (`Ext/Rules/Body.cpp:492`, constructor `Ext/Rules/Body.h:907`): the
     /// fallback for an unset warhead key; a negative packet keeps the stock
@@ -828,6 +838,8 @@ impl Default for PhobosGlobals {
             amphibious_enter: false,
             amphibious_unload: false,
             ambient_damage_ignore_target: false,
+            terrain_is_passable: false,
+            tibtree_is_passable: false,
             apply_modifiers_on_negative_damage: false,
             force_weapon_in_range_techno_only: true,
             force_weapon_in_range_apply_range_modifiers: false,
@@ -1048,6 +1060,12 @@ impl PhobosGlobals {
             "AmbientDamage.IgnoreTarget",
             globals.ambient_damage_ignore_target,
         );
+        // `Ext/Rules/Body.cpp:479-480`: the terrain passability fallbacks,
+        // both constructed false.
+        globals.terrain_is_passable =
+            general.read_bool("Terrain.IsPassable", globals.terrain_is_passable);
+        globals.tibtree_is_passable =
+            general.read_bool("Tibtree.IsPassable", globals.tibtree_is_passable);
         // `Ext/Rules/Body.cpp:492`: the negative-damage modifier fallback,
         // constructed false.
         globals.apply_modifiers_on_negative_damage = general.read_bool(

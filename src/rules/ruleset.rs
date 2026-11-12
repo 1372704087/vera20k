@@ -7583,6 +7583,17 @@ impl RuleSet {
         rules
             .overlay_registry
             .project_tiberium_ramps(&rules.tiberium_types);
+        #[cfg(feature = "phobos")]
+        {
+            let Self {
+                terrain_object_types,
+                phobos_globals,
+                ..
+            } = &mut rules;
+            for ty in terrain_object_types.values_mut() {
+                ty.project_passability(phobos_globals);
+            }
+        }
         rules.rebuild_animation_sequences();
         Ok(rules)
     }

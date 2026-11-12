@@ -1016,6 +1016,45 @@ mod tests {
         host.receipt
     }
 
+    /// Counts selected pieces per `[VoxelAnims]` type without spending the
+    /// constructor's draws, so the RNG cursor shows only the selector picks.
+    struct SelectionHost<'a> {
+        rng: &'a mut SimRng,
+        pieces: Vec<(VoxelAnimTypeId, i32)>,
+    }
+
+    impl ShpDebrisHost for SelectionHost<'_> {
+        fn rng(&mut self) -> &mut SimRng {
+            self.rng
+        }
+        fn construct_anim(
+            &mut self,
+            _source: ShpDebrisSource,
+            _index: usize,
+        ) -> Result<(), NativeX87Error> {
+            Ok(())
+        }
+    }
+
+    impl VoxelDebrisHost for SelectionHost<'_> {
+        fn voxel_origin(&self) -> IVec3 {
+            IVec3::new(0, 0, 0)
+        }
+        fn construct_voxel(
+            &mut self,
+            type_id: VoxelAnimTypeId,
+            _voxel_type: &VoxelAnimType,
+            _owner_house: Option<InternedId>,
+            _origin: IVec3,
+        ) -> Result<(), NativeX87Error> {
+            match self.pieces.iter_mut().find(|(id, _)| *id == type_id) {
+                Some((_, count)) => *count += 1,
+                None => self.pieces.push((type_id, 1)),
+            }
+            Ok(())
+        }
+    }
+
     #[test]
     fn gsi_05_14_no_debris_without_a_positive_maxdebris_and_no_draw_taken() {
         // `TEST ECX,ECX / JLE` at `0x00702291` sits BEFORE the budget draw, so
@@ -1181,6 +1220,40 @@ mod tests {
                 expected.logical_view(),
                 "seed {seed}: one bounded pick per slot"
             );
+        }
+
+        // The same through the production loop with two bound slots: the
+        // hook's budget is `RandomRanged(9, 10)` and each slot's pick from
+        // 4..=5 is bounded by the remaining budget, so both slots always throw
+        // within their authored bounds.
+        let first = tire();
+        let second = tire();
+        let bound = [
+            Some((VoxelAnimTypeId(0), &first)),
+            Some((VoxelAnimTypeId(1), &second)),
+        ];
+        let floored = data(10, 9, &bound, &[5, 5], &[4], 0, 20);
+        for seed in 0..64u64 {
+            let mut rng = SimRng::new(seed);
+            let mut host = SelectionHost {
+                rng: &mut rng,
+                pieces: Vec::new(),
+            };
+            throw_death_debris(&floored, None, &mut host).expect("in domain");
+            for (index, id) in [VoxelAnimTypeId(0), VoxelAnimTypeId(1)]
+                .into_iter()
+                .enumerate()
+            {
+                let count = host
+                    .pieces
+                    .iter()
+                    .find_map(|(spawned, count)| (*spawned == id).then_some(*count))
+                    .unwrap_or(0);
+                assert!(
+                    (4..=5).contains(&count),
+                    "seed {seed}: slot {index} threw {count} outside its 4..=5 bounds"
+                );
+            }
         }
     }
 

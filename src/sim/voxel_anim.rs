@@ -982,6 +982,45 @@ mod tests {
         host.receipt
     }
 
+    /// Counts selected pieces per `[VoxelAnims]` type without spending the
+    /// constructor's draws, so the RNG cursor shows only the selector picks.
+    struct SelectionHost<'a> {
+        rng: &'a mut SimRng,
+        pieces: Vec<(VoxelAnimTypeId, i32)>,
+    }
+
+    impl ShpDebrisHost for SelectionHost<'_> {
+        fn rng(&mut self) -> &mut SimRng {
+            self.rng
+        }
+        fn construct_anim(
+            &mut self,
+            _source: ShpDebrisSource,
+            _index: usize,
+        ) -> Result<(), NativeX87Error> {
+            Ok(())
+        }
+    }
+
+    impl VoxelDebrisHost for SelectionHost<'_> {
+        fn voxel_origin(&self) -> IVec3 {
+            IVec3::new(0, 0, 0)
+        }
+        fn construct_voxel(
+            &mut self,
+            type_id: VoxelAnimTypeId,
+            _voxel_type: &VoxelAnimType,
+            _owner_house: Option<InternedId>,
+            _origin: IVec3,
+        ) -> Result<(), NativeX87Error> {
+            match self.pieces.iter_mut().find(|(id, _)| *id == type_id) {
+                Some((_, count)) => *count += 1,
+                None => self.pieces.push((type_id, 1)),
+            }
+            Ok(())
+        }
+    }
+
     #[test]
     fn gsi_05_14_no_debris_without_a_positive_maxdebris_and_no_draw_taken() {
         // `TEST ECX,ECX / JLE` at `0x00702291` sits BEFORE the budget draw, so
@@ -1066,30 +1105,65 @@ mod tests {
     fn phobos_debris_minimums_floor_each_slots_throw() {
         // Phobos `TechnoClass_ReceiveDamage_Debris`
         // (`Misc/Hooks.BugFixes.cpp:167-190`, hook `0x702299`) replaced the
-        // stock `|Next| % (maximum + 1)` pick with
-        // `RandomRanged(min, max(1, maximum))`. `MinDebris=1, MaxDebris=2`
-        // pins a budget of 1 without a draw, and the slot's minimum of 4 sits
-        // above the stock modulo's zero outcome, so every seed must still throw
-        // one piece where the stock arm can draw a zero and throw none.
-        let voxel_type = tire();
-        let types = [Some((VoxelAnimTypeId(0), &voxel_type))];
-        for seed in 0..8u64 {
-            let input = data(2, 1, &types, &[5], &[4], 0, 20);
+        // stock `|Next| % (maximum + 1)` retry loop with one
+        // `RandomRanged(min, max(1, maximum))` pick per bound slot. These
+        // properties are observed through the production loop; a literal
+        // stream fixture would also have to model the constructor's draws.
+        let first = tire();
+        let second = tire();
+        let types = [
+            Some((VoxelAnimTypeId(0), &first)),
+            Some((VoxelAnimTypeId(1), &second)),
+        ];
+        let pieces = |seed: u64, input: &DebrisTypeData<'_>| {
             let mut rng = SimRng::new(seed);
-            let thrown = throw(&input, &mut rng);
-            assert_eq!(
-                thrown.voxels.len(),
-                1,
-                "seed {seed}: the slot's floor always fills the pinned budget"
-            );
-            let mut expected = SimRng::new(seed);
-            let _ = expected.next_range_i32_inclusive(4, 5);
-            assert_eq!(
-                rng.logical_view(),
-                expected.logical_view(),
-                "seed {seed}: one bounded pick per slot"
-            );
+            let mut host = SelectionHost {
+                rng: &mut rng,
+                pieces: Vec::new(),
+            };
+            throw_death_debris(input, None, &mut host).expect("in domain");
+            let draws = host.rng.logical_view().index_a;
+            (host.pieces, draws)
+        };
+
+        // `MinDebris=9, MaxDebris=10` pins a budget of 9 without a draw. Each
+        // of the two bound slots takes exactly one bounded pick from its
+        // authored 4..=5, so each contributes 4..=5 pieces and no slot spends
+        // the stock arm's extra retry draws (a zero raw modulo).
+        let floored = data(10, 9, &types, &[5, 5], &[4], 0, 20);
+        for seed in 0..64u64 {
+            let (counts, draws) = pieces(seed, &floored);
+            assert_eq!(draws, 2, "seed {seed}: one bounded pick per bound slot");
+            for (index, id) in [VoxelAnimTypeId(0), VoxelAnimTypeId(1)]
+                .into_iter()
+                .enumerate()
+            {
+                let count = counts
+                    .iter()
+                    .find_map(|(spawned, count)| (*spawned == id).then_some(*count))
+                    .unwrap_or(0);
+                assert!(
+                    (4..=5).contains(&count),
+                    "seed {seed}: slot {index} threw {count} outside its 4..=5 bounds"
+                );
+            }
         }
+
+        // The unset path keeps the stock raw-modulo arm: the pinned budget of
+        // 9 always drains, and a zero remainder costs an extra raw draw that
+        // the bounded pick cannot produce.
+        let stock = data(10, 9, &types, &[5, 5], &[], 0, 20);
+        let mut retried = 0;
+        for seed in 0..64u64 {
+            let (counts, draws) = pieces(seed, &stock);
+            let total: i32 = counts.iter().map(|(_, count)| *count).sum();
+            assert_eq!(total, 9, "seed {seed}: the stock arm drains the budget");
+            retried += usize::from(draws > 2);
+        }
+        assert!(
+            retried > 0,
+            "a zero stock modulo spends an extra draw instead of a bounded pick"
+        );
     }
 
     #[test]

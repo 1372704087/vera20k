@@ -363,3 +363,77 @@ fn stock_carrier_spawner_fire_reveals_to_its_human_victim() {
     }
     panic!("normal Carrier Attack did not reach the parent Spawner fire handoff");
 }
+
+/// One spawned aircraft with a three-slot spawn manager; slots 0 and 1 are
+/// docked so the row renders two filled and one empty pip.
+#[cfg(feature = "phobos")]
+fn spawn_pips(type_keys: &str) -> Vec<(usize, [i32; 2])> {
+    let rules = RuleSet::from_ini(&crate::sim::arena_fixture::clear_ground_ini(&format!(
+        "[AircraftTypes]\n0=BEAR\n1=SPAWN\n\
+         [BEAR]\nStrength=100\nSpeed=10\nSpawns=SPAWN\nSpawnsNumber=3\n{type_keys}\
+         [SPAWN]\nStrength=50\nSpeed=10\n"
+    )))
+    .expect("spawn pip rules");
+    let mut sim = crate::sim::arena_fixture::rival_arena(&rules, 7);
+    sim.intern_rule_type_ids(&rules);
+    sim.resolve_type_handles(&rules);
+    let owner = sim.interner().get("Americans").unwrap();
+    sim.fog_mut_for_test().reveal_all_for_owner(owner);
+    let id = sim
+        .spawn_object("BEAR", "Americans", 10, 10, 64, &rules)
+        .expect("spawner aircraft");
+    {
+        let manager = sim
+            .entities_mut_for_test()
+            .get_mut(id)
+            .expect("aircraft")
+            .spawn_manager
+            .as_mut()
+            .expect("SpawnsNumber creates the manager");
+        for (slot, state) in manager.slots_mut_for_test().iter_mut().zip([
+            SpawnSlotState::ReadyDocked,
+            SpawnSlotState::Reloading,
+            SpawnSlotState::Regenerating,
+        ]) {
+            slot.set_state_for_test(state);
+        }
+    }
+    let entity = sim.entities().get(id).expect("aircraft");
+    super::ui_overlays::scale_pip_draws(
+        &sim,
+        entity,
+        Some(id),
+        Some(sim.interner().resolve(entity.owner())),
+        &rules,
+    )
+    .into_iter()
+    .map(|pip| (pip.frame, pip.offset_pixels))
+    .collect()
+}
+
+/// Constructor defaults: frames 1/0 at the generic 4x0 mobile step.
+#[cfg(feature = "phobos")]
+#[test]
+fn spawn_pips_default_to_frames_one_and_zero() {
+    assert_eq!(spawn_pips(""), [(1, [0, 10]), (1, [4, 10]), (0, [8, 10])]);
+}
+
+/// The authored frames, size and offset replace the stock row.
+#[cfg(feature = "phobos")]
+#[test]
+fn spawn_pip_keys_replace_the_frames_size_and_anchor() {
+    assert_eq!(
+        spawn_pips(
+            "SpawnsPipFrame=7\nEmptySpawnsPipFrame=3\n\
+             SpawnsPipSize=9,5\nSpawnsPipOffset=2,-1\n"
+        ),
+        [(7, [2, 9]), (7, [11, 14]), (3, [20, 19])]
+    );
+}
+
+/// `ShowSpawnsPips=no` suppresses the row.
+#[cfg(feature = "phobos")]
+#[test]
+fn show_spawns_pips_no_suppresses_the_row() {
+    assert!(spawn_pips("ShowSpawnsPips=no\n").is_empty());
+}

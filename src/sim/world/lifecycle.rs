@@ -2409,6 +2409,20 @@ impl Simulation {
         let foundation = entity.type_facts.foundation().to_owned();
         let hidden_profile = entity.type_facts.building_hidden_occupancy();
         let current_cell = (entity.position.rx(), entity.position.ry());
+        // Phobos `MapClass_PlaceDown_BuildableTerrain` (`0x5684B1`,
+        // `Ext/TerrainType/Hooks.Passable.cpp:145-170`): a successful
+        // PlaceDown removes a buildable Terrain in the origin cell. This is
+        // the PlaceDown owner, so the ordinary production reveal and the
+        // foundation-clearing trigger path both take it exactly once.
+        #[cfg(feature = "phobos")]
+        if let Some(terrain_id) = self.terrain_objects.id_at(current_cell)
+            && self
+                .terrain_objects
+                .get(terrain_id)
+                .is_some_and(|terrain| terrain.can_be_built_on())
+        {
+            let _ = self.retire_non_entity_object(terrain_id, context);
+        }
         let (width, height) = foundation.dimensions();
         let mut intersections = Vec::with_capacity(usize::from(width) * usize::from(height));
         for dy in 0..height {

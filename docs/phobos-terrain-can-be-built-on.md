@@ -20,9 +20,10 @@ both false) and `Ext/TerrainType/Body.h:34` (the per-type Nullable, read in
 
 ## Native body
 
-`Ext/TerrainType/Hooks.Passable.cpp`:
+`Ext/TerrainType/Hooks.Passable.cpp` and `Ext/Unit/Hooks.DeploysInto.cpp`:
 
-- `CellClass_CanThisExistHere_IgnoreSomething` (`0x47C640`): in the ordinary
+- `CellClass_CanThisExistHere_IgnoreSomething` (`0x47C640`,
+  `Ext/Unit/Hooks.DeploysInto.cpp:162-288`): in the ordinary
   arm a buildable Terrain inside the cell is admitted and sets
   `builtOnCanBeBuiltOn`, which also skips the occupation-bit test; a
   non-buildable Terrain still refuses. The LaserFence, LaserFencePost and
@@ -30,7 +31,8 @@ both false) and `Ext/TerrainType/Body.h:34` (the per-type Nullable, read in
 - `BuildingTypeClass_FlushForPlacement_BuildableTerrain` (`0x45EF3A`): a
   buildable Terrain no longer blocks the foundation flush.
 - `MapClass_PlaceDown_BuildableTerrain` (`0x5684B1`): placing a Building on
-  the cell removes the Terrain from the cell and the game.
+  the cell removes the Terrain from the cell and the game. The removal runs
+  only after the placement succeeds.
 - `OverlayClass_Unlimbo_SkipTerrainCheck` (`0x5FD2B6`): the overlay (wall)
   unlimbo skips its Terrain check and removes a buildable Terrain.
 - `MapClass_IsAreaFree` (`0x586780`) with the wrapper at `0x5069DB`: while
@@ -52,13 +54,17 @@ map-only types) resolves the key else the global selected by
   Gate arms admit one too.
 - `build_site::flush_for_placement` continues past a buildable Terrain
   (`0x45EF3A`).
-- `world_spawn::place_building_with_cleared_foundation` retires a buildable
-  Terrain in the origin cell before the mobile-placement clear
-  (`0x5684B1`).
+- `world::lifecycle::mark_entity_put` (the PlaceDown owner) retires a
+  buildable Terrain in the origin cell after the placement succeeds
+  (`0x5684B1`); `clear_mobile_placement_cell` skips it instead of refusing,
+  and any other Terrain still refuses the foundation clear.
+- `world_spawn::wall_unlimbo::unlimbo_constructed_wall` skips its Terrain
+  refusal for a buildable Terrain and removes it (`0x5FD2B6`).
 - `cell_rect::check_occupancy_rect` takes an `ai_build_location` flag; the AI
   site search (`SimSiteWorld::clear`) sets it. There the buildable Terrain
-  stops blocking and zone 0 or zone 1 (`CRUSHABLE`, the enum's second value
-  inferred as `HasFreeSpots`) passes (`0x586780`).
+  stops blocking and zone 0 or zone 5 passes (`0x586780`): native
+  `PassabilityType::HasFreeSpots` is value 5 (`RecalcZoneType` writes
+  `[edi+0x4C],5` at `0x483E1E`), which VERA names `zone_class::BUILDING`.
 
 ## Tests
 
@@ -71,7 +77,5 @@ map-only types) resolves the key else the global selected by
 
 - The laser-fence placement preview (`0x6D57C1`) is presentation and is not
   ported.
-- The overlay unlimbo arm (`0x5FD2B6`) has no VERA overlay-placement caller
-  that checks Terrain; walls are buildings and take the building path above.
-- `HasFreeSpots` is inferred as zone 1 from the passability enum order; no
-  native execution pinned the value.
+- The wall Overlay arm removes a buildable Terrain in `unlimbo_constructed_wall`
+  only; other Overlay unlimbo callers do not perform the 0x5FD2B6 removal.

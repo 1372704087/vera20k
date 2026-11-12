@@ -877,7 +877,9 @@ fn occupancy_blocker_at(
     // Phobos `MapClass_IsAreaFree @ 0x586780` (`Ext/TerrainType/Hooks.Passable
     // .cpp:222-262`): during the AI's building-site search a `CanBeBuiltOn`
     // Terrain stops blocking and the passability byte also admits
-    // `HasFreeSpots` (the enum's second value, VERA's zone 1).
+    // `HasFreeSpots`, which is value 5 in the native `PassabilityType`
+    // (`RecalcZoneType` writes `[edi+0x4C],5` at `0x483E1E`; VERA names that
+    // byte value `zone_class::BUILDING`).
     let mut built_on_terrain = false;
     if let Some(terrain_id) = canonical
         .and_then(|cell| ctx.terrain_object_cells.and_then(|index| index.get(&cell)))
@@ -917,7 +919,7 @@ fn occupancy_blocker_at(
 
     let passable_zone = |zone: u8| {
         if built_on_terrain {
-            zone == zone_class::GROUND || zone == zone_class::CRUSHABLE
+            zone == zone_class::GROUND || zone == zone_class::BUILDING
         } else {
             zone == zone_class::GROUND
         }

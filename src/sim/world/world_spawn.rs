@@ -1670,16 +1670,6 @@ impl Simulation {
                     }
                 }
             }
-            // Phobos `CanBeBuiltOn` (0x5684B1, `Ext/TerrainType/Hooks.Passable.cpp`
-            // :145-170): PlaceDown removes a buildable Terrain in the cell.
-            if let Some(terrain_id) = self.terrain_objects.id_at((at.0 as u16, at.1 as u16))
-                && self
-                    .terrain_objects
-                    .get(terrain_id)
-                    .is_some_and(|terrain| terrain.can_be_built_on())
-            {
-                let _ = self.retire_non_entity_object(terrain_id, context);
-            }
             if !self.clear_mobile_placement_cell(cell, &mut displaced, context) {
                 self.restore_displaced_placement_technos(
                     displaced,
@@ -1797,31 +1787,48 @@ impl Simulation {
         };
         let at = terrain.native_cell_coord(cell);
         loop {
-            let member = match cell {
-                NativeCellIdentity::Real(_) => self
-                    .cell_objects((at.0 as u16, at.1 as u16), MovementLayer::Ground)
-                    .next(),
-                NativeCellIdentity::Dummy => None,
-            };
-            let Some(member) = member else {
+            let mut next_entity = None;
+            if let NativeCellIdentity::Real(_) = cell {
+                for member in
+                    self.cell_objects((at.0 as u16, at.1 as u16), MovementLayer::Ground)
+                {
+                    match member {
+                        CellObjectMember::Entity(id) => {
+                            next_entity = Some(id);
+                            break;
+                        }
+                        // Phobos `CanBeBuiltOn`: a buildable Terrain does not
+                        // block the foundation clear — PlaceDown removes it
+                        // once the placement succeeds. Any other Terrain still
+                        // refuses the cell.
+                        CellObjectMember::Terrain(id) => {
+                            if !self
+                                .terrain_objects
+                                .get(id)
+                                .is_some_and(|terrain| terrain.can_be_built_on())
+                            {
+                                return false;
+                            }
+                        }
+                    }
+                }
+            }
+            let Some(id) = next_entity else {
                 return true;
             };
-            let movable = match member {
-                CellObjectMember::Entity(id) => self
-                    .substrate
-                    .entities
-                    .get(id)
-                    .is_some_and(|entity| {
-                        matches!(
-                            entity.category(),
-                            EntityCategory::Unit
-                                | EntityCategory::Infantry
-                                | EntityCategory::Aircraft
-                        )
-                    })
-                    .then_some(id),
-                CellObjectMember::Terrain(_) => None,
-            };
+            let movable = self
+                .substrate
+                .entities
+                .get(id)
+                .is_some_and(|entity| {
+                    matches!(
+                        entity.category(),
+                        EntityCategory::Unit
+                            | EntityCategory::Infantry
+                            | EntityCategory::Aircraft
+                    )
+                })
+                .then_some(id);
             let Some(id) = movable else {
                 return false;
             };

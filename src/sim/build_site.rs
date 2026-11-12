@@ -413,8 +413,8 @@ fn objects_admit(
     };
     if ty.laser_fence {
         // 0x0047C640..0x0047C69E: no Building, then no Terrain, in the list.
-        // Phobos `CanBeBuiltOn` (`Ext/TerrainType/Hooks.Passable.cpp:182-190`,
-        // same hook `0x47C640`): a buildable Terrain is allowed.
+        // Phobos `CanBeBuiltOn` (`Ext/Unit/Hooks.DeploysInto.cpp:182-190`,
+        // hook `0x47C640`): a buildable Terrain is allowed.
         !members.iter().any(|member| {
             category(member) == Some(EntityCategory::Structure)
                 || (is_terrain(member) && !buildable_terrain(sim, member))
@@ -437,8 +437,13 @@ fn objects_admit(
                     .map(CellObjectMember::Entity)
             })
             .or_else(|| members.iter().find(|member| is_terrain(member)).copied());
+        // Phobos `CanBeBuiltOn` sets `builtOnCanBeBuiltOn` for any buildable
+        // Terrain in the cell, which skips the occupation test for the whole
+        // cell (`Ext/Unit/Hooks.DeploysInto.cpp:196-227`).
+        let built_on_terrain = members.iter().any(|member| buildable_terrain(sim, member));
+        let occupation_admits = built_on_terrain || occupation_clear();
         match blocker {
-            None => occupation_clear(),
+            None => occupation_admits,
             Some(CellObjectMember::Entity(id)) => {
                 sim.substrate.entities.get(id).is_some_and(|e| {
                     e.category() == EntityCategory::Structure
@@ -446,12 +451,12 @@ fn objects_admit(
                             .object_type(e.type_ref(), rules)
                             .is_some_and(|blocker| blocker.laser_fence)
                         && Some(e.owner()) == house
-                }) && occupation_clear()
+                }) && occupation_admits
             }
             Some(CellObjectMember::Terrain(id)) => {
                 // Phobos `CanBeBuiltOn` sets `builtOnCanBeBuiltOn`, which skips
                 // the occupation test for the whole cell
-                // (`Ext/TerrainType/Hooks.Passable.cpp:196-220`).
+                // (`Ext/Unit/Hooks.DeploysInto.cpp:196-220`).
                 #[cfg(feature = "phobos")]
                 if sim
                     .terrain_objects
@@ -477,8 +482,8 @@ fn objects_admit(
         // 0x0047C701..0x0047C866: no Aircraft, no Techno at all (Find_Nearest
         // answers one whenever the list holds any), no Terrain, and neither
         // infantry nor a vehicle holds the cell's occupation bits.
-        // Phobos `CanBeBuiltOn` (0x47C640, `Ext/TerrainType/Hooks.Passable.cpp`
-        // :196-220): a buildable Terrain is admitted and also skips the
+        // Phobos `CanBeBuiltOn` (0x47C640, `Ext/Unit/Hooks.DeploysInto.cpp`
+        // :251-278): a buildable Terrain is admitted and also skips the
         // occupation test; any other member still refuses the cell.
         let built_on_terrain = members.iter().any(|member| buildable_terrain(sim, member));
         members.iter().all(|member| buildable_terrain(sim, member))

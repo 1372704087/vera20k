@@ -2726,7 +2726,18 @@ pub(crate) fn handle_death(
                 // bomb over water, past the debris, KillPassengers and the
                 // death weapon; ordinary water deaths still run them.
                 let low_water_bomb = world.dropped_bomb_water_death_location(dead_id).is_some();
-                if !low_water_bomb {
+                // Phobos `TechnoClass_ReceiveDamage_Debris` (`0x702299`,
+                // `Misc/Hooks.BugFixes.cpp:143`): a Techno still held by a
+                // Transporter skips the whole debris block.
+                #[cfg(feature = "phobos")]
+                let transporter_held = world
+                    .substrate
+                    .entities
+                    .get(dead_id)
+                    .is_some_and(|entity| entity.passenger_role.transporter().is_some());
+                #[cfg(not(feature = "phobos"))]
+                let transporter_held = false;
+                if !low_water_bomb && !transporter_held {
                     throw_debris_for_death(
                         world,
                         obj,

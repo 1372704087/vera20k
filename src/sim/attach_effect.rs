@@ -3241,11 +3241,14 @@ impl Simulation {
     /// Phobos `TechnoExt::ApplyRevengeWeapon` (`src/Ext/Techno/WeaponHelpers.cpp:254`):
     /// once a victim dies from a sourced hit, every active effect carrying
     /// `RevengeWeapon` fires that weapon at the attacker, under the effect's
-    /// house gate and invoker ownership.
+    /// house gate and invoker ownership. The killing warhead's
+    /// `SuppressRevengeWeapons`/`.Types` drop shots before the house gate
+    /// (`:262-264`).
     pub(crate) fn apply_attach_effect_revenge_weapons(
         &mut self,
         victim_id: u64,
         attacker_id: u64,
+        killing_warhead: Option<&crate::rules::warhead_type::WarheadType>,
         rules: &crate::rules::ruleset::RuleSet,
         overlay_registry: Option<&crate::rules::overlay_types::OverlayTypeRegistry>,
         effects: crate::sim::world::FrameEffects<'_>,
@@ -3261,7 +3264,10 @@ impl Simulation {
         let table = rules.attach_effect_types().types();
         let mut shots = Vec::new();
         for (instance, effect) in victim.phobos_attach_effects().active_effects(table) {
-            if effect.revenge_weapon.is_none() {
+            let Some(weapon) = effect.revenge_weapon.as_deref() else {
+                continue;
+            };
+            if killing_warhead.is_some_and(|warhead| warhead.suppresses_revenge_weapon(weapon)) {
                 continue;
             }
             let Some(shot) = instance.revenge_weapon_shot(effect, victim_id, victim_owner) else {
@@ -6017,6 +6023,55 @@ AttachEffect.InitialDelays=3
             health(&sim, attacker),
             993,
             "the revenge weapon hit the killer for 7"
+        );
+    }
+
+    /// Phobos `TechnoExt::ApplyRevengeWeapon`'s `SuppressRevengeWeapons` gate
+    /// (`Ext/Techno/WeaponHelpers.cpp:261-264`): the killing warhead drops
+    /// every revenge weapon, or, with `.Types`, only the ones it names.
+    #[test]
+    fn suppress_revenge_weapons_drops_the_killing_hits_revenge_shots() {
+        let run = |killing: &str| -> i32 {
+            let (mut sim, rules) = arena_scene(
+                &format!(
+                    "[Countries]\n0=Americans\n1=Russians\n[VehicleTypes]\n0=ATTACKER\n1=TARGET\n\
+                     [ATTACKER]\nStrength=1000\nSpeed=6\nArmor=none\nPrimary=KILLW\n\
+                     [TARGET]\nStrength=50\nSpeed=6\nArmor=none\nAttachEffect.AttachTypes=REV\n\
+                     [HIT]\n{ALL_HIT}{killing}\
+                     [KILLW]\nDamage=100\nRange=1\nWarhead=HIT\n\
+                     [REVW]\nDamage=7\nRange=1\nWarhead=HIT\n\
+                     [AttachEffectTypes]\n0=REV\n[REV]\nDuration=-1\nRevengeWeapon=REVW\n"
+                ),
+                29,
+            );
+            let attacker = spawn(&mut sim, &rules, "ATTACKER", "Russians", 20, 20);
+            let victim = spawn(&mut sim, &rules, "TARGET", "Americans", 21, 20);
+            sim.update_phobos_attach_effects(victim, &rules);
+            assert_eq!(attach_count(&sim, victim), 1, "{killing}: attached");
+            let warhead = sim.interner.intern("HIT");
+            let event = direct_hit(victim, 100, attacker, warhead);
+            let _ = sim.commit_direct_damage_receiver(
+                &rules,
+                None,
+                event,
+                crate::sim::world::FrameEffects::empty(),
+            );
+            assert_eq!(health(&sim, victim), 0, "{killing}: the victim died");
+            health(&sim, attacker)
+        };
+        // No key: the stock revenge shot lands.
+        assert_eq!(run(""), 993);
+        // Suppressed outright.
+        assert_eq!(run("SuppressRevengeWeapons=yes\n"), 1000);
+        // A filter that does not name REVW leaves it firing.
+        assert_eq!(
+            run("SuppressRevengeWeapons=yes\nSuppressRevengeWeapons.Types=OTHER\n"),
+            993
+        );
+        // A filter that names it drops it; the comparison ignores case.
+        assert_eq!(
+            run("SuppressRevengeWeapons=yes\nSuppressRevengeWeapons.Types=revw\n"),
+            1000
         );
     }
 

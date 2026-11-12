@@ -328,6 +328,7 @@ pub(super) fn throw_debris_for_death(
         min_debris: object_type.min_debris,
         debris_types: &debris_types,
         debris_maximums: &object_type.debris_maximums,
+        debris_minimums: &object_type.debris_minimums,
         debris_anim_count: object_type.debris_anims.len(),
         metallic_debris_count: rules.general.metallic_debris.len(),
     };

@@ -4641,7 +4641,17 @@ fn emit_warhead_debris(
                     .map(|id| (id, rules.voxel_anim_type(id)))
             })
             .collect();
-        throw_typed_debris(budget, &types, &warhead.debris_maximums, None, &mut host).map(|_| ())
+        // The warhead's own Phobos `DebrisMinimums` is a separate key
+        // (`Ext/WarheadType/Body.cpp:302`), not this TechnoType one.
+        throw_typed_debris(
+            budget,
+            &types,
+            &warhead.debris_maximums,
+            &[],
+            None,
+            &mut host,
+        )
+        .map(|_| ())
     };
     if let Err(error) = result {
         // Preserve earlier synchronous births on unsupported authored launch

@@ -2705,6 +2705,14 @@ pub struct ObjectType {
     /// `Ext/Techno/Hooks.Pips.cpp:286`. Stock draws frame 13.
     ammo_pip_frame: i32,
 
+    /// Phobos `TechnoTypeExt::AmmoPipWrapStartFrame`
+    /// (`Ext/TechnoType/Body.h:239`, `Valueable<int>` seeded 14 at
+    /// `Body.h:668`): the PIPS2 start frame of the wrapped Ammo strip's
+    /// level counter (`Ext/TechnoType/Body.cpp:1004`, consumer
+    /// `Ext/Techno/Hooks.Pips.cpp:249`). VERA's PipWrap arm is dormant, so
+    /// this is stored and read but not yet consumed.
+    ammo_pip_wrap_start_frame: i32,
+
     /// Whether this building absorbs infantry (Yuri Bio Reactor).
     /// Parsed from `InfantryAbsorb=yes` in rules.ini.
     pub infantry_absorb: bool,
@@ -4538,6 +4546,11 @@ impl ObjectType {
     /// Phobos `AmmoPipFrame`: the filled Ammo pip's PIPS2 frame (stock 13).
     pub const fn ammo_pip_frame(&self) -> i32 {
         self.ammo_pip_frame
+    }
+
+    /// Phobos `AmmoPipWrapStartFrame`: the wrapped strip's start frame.
+    pub const fn ammo_pip_wrap_start_frame(&self) -> i32 {
+        self.ammo_pip_wrap_start_frame
     }
 
     /// Building4598A0's current-type query: UnitAbsorb OR InfantryAbsorb.
@@ -6819,6 +6832,12 @@ impl ObjectType {
             ammo_pip_frame: section.read_int("AmmoPipFrame", 13),
             #[cfg(not(feature = "phobos"))]
             ammo_pip_frame: 13,
+            // Phobos `TechnoTypeExt::AmmoPipWrapStartFrame`
+            // (`Ext/TechnoType/Body.cpp:1004`), constructor value 14.
+            #[cfg(feature = "phobos")]
+            ammo_pip_wrap_start_frame: section.read_int("AmmoPipWrapStartFrame", 14),
+            #[cfg(not(feature = "phobos"))]
+            ammo_pip_wrap_start_frame: 14,
             unit_absorb: section.read_bool("UnitAbsorb", false),
             infantry_absorb: section.read_bool("InfantryAbsorb", false),
             grinding: section.read_bool("Grinding", false),

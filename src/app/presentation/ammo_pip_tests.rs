@@ -310,3 +310,22 @@ fn an_authored_ammo_pip_frame_replaces_the_stock_thirteen() {
     assert_eq!(stock_rules.object("RIPU").unwrap().ammo_pip_frame(), 13);
     assert_eq!(frames(&stock_sim, &stock_rules, stock_id, None), [13, 13]);
 }
+
+/// Phobos `AmmoPipWrapStartFrame` (`Ext/TechnoType/Body.cpp:1004`,
+/// constructor 14 at `Body.h:668`, consumer
+/// `Ext/Techno/Hooks.Pips.cpp:249`). VERA's PipWrap arm is dormant, so this
+/// pins the production reader's authored value and constructor default.
+#[cfg(feature = "phobos")]
+#[test]
+fn the_ammo_pip_wrap_start_frame_reads_its_authoring_and_constructor() {
+    let (rules, _, _) = ammo_pip_scene("AmmoPipWrapStartFrame=21\n");
+    assert_eq!(
+        rules.object("RIPU").unwrap().ammo_pip_wrap_start_frame(),
+        21
+    );
+    let (stock, _, _) = ammo_pip_scene("");
+    assert_eq!(
+        stock.object("RIPU").unwrap().ammo_pip_wrap_start_frame(),
+        14
+    );
+}

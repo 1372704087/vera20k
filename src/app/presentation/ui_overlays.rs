@@ -2104,6 +2104,9 @@ pub(crate) fn scale_pip_draws(
         //fill; depleted Ammo emits no empty outline. Draw flags600/noA/Z
         //are owned by the existing per-parent scale replay.
         //Nonzero PipWrap70A421..4E6 remains a separate dormant configuration.
+        // TODO(wrap): use `ammo_pip_wrap_start_frame()` as the wrap arm's
+        // PIPS2 start frame (`Ext/Techno/Hooks.Pips.cpp:249`) once the
+        // `PipWrap` drawing mechanism is ported.
         if object.pip_wrap() != 0 {
             return pips;
         }

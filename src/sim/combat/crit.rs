@@ -857,7 +857,7 @@ fn apply_one(
         world
             .interner
             .object_type(target.type_ref(), rules)
-            .is_some_and(|object| object.is_1x1_with_undeploy()),
+            .is_some_and(|object| object.is_vehicle()),
     ) {
         return false;
     }

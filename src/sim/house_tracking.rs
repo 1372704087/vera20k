@@ -206,7 +206,7 @@ impl TrackingFacts {
             return Self::default();
         };
         let unit_like_building = category == EntityCategory::Structure
-            && (ty.is_1x1_with_undeploy()
+            && (ty.is_vehicle()
                 || ty
                     .undeploys_into
                     .as_deref()

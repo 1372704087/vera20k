@@ -1087,7 +1087,7 @@ pub(super) fn weapon_picking_allows_with(
     ) || !super::crit::techno_eligible(
         entity.category(),
         targeting.can_target,
-        object.is_1x1_with_undeploy(),
+        object.is_vehicle(),
     ) || !super::health_in_threshold(
         entity.health.current(),
         object.strength,

@@ -40,7 +40,7 @@ impl Simulation {
         };
         let victim_owner = victim.owner();
         let victim_category = victim.category();
-        let victim_strange = victim_type.is_1x1_with_undeploy();
+        let victim_strange = victim_type.is_vehicle();
         let suppression = victim_type.phobos_kill_weapon_suppress.clone();
         let victim_coords = crate::sim::movement::ground_pose::object_get_coords(
             victim,

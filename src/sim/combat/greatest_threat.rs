@@ -3110,7 +3110,7 @@ fn vehicle_like(ctx: &ScanContext<'_>, candidate: &GameEntity, obj: &ObjectType)
     super::vehicle_like(
         candidate.category(),
         obj.non_vehicle,
-        obj.is_1x1_with_undeploy(),
+        obj.is_vehicle(),
         || {
             crate::sim::movement::air_movement::is_low_flying(
                 candidate,

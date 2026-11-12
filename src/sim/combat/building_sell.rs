@@ -54,7 +54,7 @@ pub(crate) fn apply(
     let strange = world
         .interner
         .object_type(type_ref, rules)
-        .is_some_and(|object| object.is_1x1_with_undeploy());
+        .is_some_and(|object| object.is_vehicle());
     if extras.building_sell {
         // `if ((pBuilding->CanBeSold() && !pBuilding->IsStrange()) ||
         // this->BuildingSell_IgnoreUnsellable)` (`:271-273`).

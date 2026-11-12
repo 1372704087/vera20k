@@ -611,8 +611,8 @@ pub(crate) struct TargetTypeFacts {
     /// UnitType `+0xE13` and `+0xE1B`.
     pub is_simple_deployer: bool,
     pub non_vehicle: bool,
-    /// [`ObjectType::is_1x1_with_undeploy`], a Building's vt+0x80 answer.
-    pub is_1x1_with_undeploy: bool,
+    /// [`ObjectType::is_vehicle`], a Building's vt+0x80 answer.
+    pub is_vehicle: bool,
     /// Phobos `AllowAirstrike=`, `None` when the key is absent.
     #[cfg(feature = "phobos")]
     pub allow_airstrike: Option<bool>,
@@ -646,7 +646,7 @@ impl Default for TargetTypeFacts {
             organic: false,
             is_simple_deployer: false,
             non_vehicle: false,
-            is_1x1_with_undeploy: false,
+            is_vehicle: false,
             #[cfg(feature = "phobos")]
             allow_airstrike: None,
             #[cfg(feature = "phobos")]
@@ -838,7 +838,7 @@ fn unit(facts: &FireFacts, query: &mut impl FireQuery, check_range: bool) -> Fir
                 || super::vehicle_like(
                     class,
                     facts.target_type.non_vehicle,
-                    facts.target_type.is_1x1_with_undeploy,
+                    facts.target_type.is_vehicle,
                     || query.low_flying(),
                 )
         });

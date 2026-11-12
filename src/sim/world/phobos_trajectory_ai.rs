@@ -1353,7 +1353,7 @@ pub(super) fn through_blocker(
                 let strange = sim
                     .interner
                     .object_type(entity.type_ref(), rules)
-                    .is_some_and(|kind| kind.is_1x1_with_undeploy());
+                    .is_some_and(|kind| kind.is_vehicle());
                 let invisible = sim
                     .interner
                     .object_type(entity.type_ref(), rules)
@@ -1396,7 +1396,7 @@ fn through_allows(
             let strange = sim
                 .interner
                 .object_type(entity.type_ref(), rules)
-                .is_some_and(|kind| kind.is_1x1_with_undeploy());
+                .is_some_and(|kind| kind.is_vehicle());
             if strange {
                 through_vehicles
             } else {

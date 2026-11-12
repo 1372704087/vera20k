@@ -11,6 +11,7 @@ use crate::map::resolved_terrain::NativeCellQuery;
 use crate::rules::ini_parser::IniFile;
 use crate::rules::ruleset::RuleSet;
 use crate::sim::aircraft::drop_payload::{OBSERVED, Observed, drop_payload, paradrop_mission};
+use crate::sim::aircraft::paradrop_mission::paradrop_end_delay;
 use crate::sim::combat::TargetKind;
 use crate::sim::components::NavTargetRef;
 use crate::sim::game_entity::GameEntity;
@@ -1151,6 +1152,51 @@ fn ai_paradrop_mission_replaces_the_ai_passengers_mission() {
         None,
         "stock leaves a human unit's mission alone"
     );
+}
+
+/// Phobos `ParadropEndDelay` (`Ext/AircraftType/Body.cpp:38` over
+/// `[General] ParadropEndDelay` `Ext/Rules/Body.cpp:523`, constructor default
+/// 5; consumer `Ext/Aircraft/Hooks.cpp:1266-1285`): the AircraftType section's
+/// key wins, an aircraft without it takes the global, and a negative value
+/// answers the native `INT32_MAX` (the straight-line off-map arm).
+#[test]
+fn paradrop_end_delay_reads_the_aircraft_key_and_caps_negatives() {
+    let rules = RuleSet::from_ini(&IniFile::from_str(
+        "[General]\nParadropEndDelay=7\nFlightLevel=1500\n\
+         [InfantryTypes]\n[VehicleTypes]\n\
+         [AircraftTypes]\n0=PDPLANE\n1=ORCA\n2=SPYP\n[BuildingTypes]\n\
+         [PDPLANE]\nStrength=400\nSpeed=15\nROT=2\nAmmo=100\nLandable=no\n\
+         Selectable=no\nSpawned=yes\nSight=0\nLocomotor={FLY}\nParadropEndDelay=12\n\
+         [ORCA]\nStrength=200\nSpeed=15\nLocomotor={FLY}\nParadropEndDelay=-1\n\
+         [SPYP]\nStrength=200\nSpeed=15\nLocomotor={FLY}\n",
+    ))
+    .unwrap();
+    assert_eq!(rules.phobos_globals.paradrop_end_delay, 7);
+    let type_delay = |name: &str| rules.object(name).unwrap().phobos_paradrop_end_delay();
+    assert_eq!(type_delay("PDPLANE"), Some(12));
+    assert_eq!(type_delay("ORCA"), Some(-1));
+    assert_eq!(type_delay("SPYP"), None, "an aircraft without the key");
+
+    let (rules, mut sim, _) = paradrop_world(rules);
+    let plane = |sim: &mut Simulation, type_id: &str| {
+        sim.construct_object_limbo_at_height(
+            type_id,
+            "Americans",
+            0,
+            0,
+            0,
+            0,
+            &rules,
+            crate::sim::world::FrameEffects::default(),
+        )
+        .expect("aircraft constructed")
+    };
+    let overflying = plane(&mut sim, "PDPLANE");
+    assert_eq!(paradrop_end_delay(&sim, overflying, &rules), 12);
+    let unset = plane(&mut sim, "SPYP");
+    assert_eq!(paradrop_end_delay(&sim, unset, &rules), 7);
+    let negative = plane(&mut sim, "ORCA");
+    assert_eq!(paradrop_end_delay(&sim, negative, &rules), i32::MAX);
 }
 
 /// Retail rules (the lib suite loads no SHP; the canopy draws nothing).

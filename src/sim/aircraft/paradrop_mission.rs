@@ -132,8 +132,38 @@ pub(super) fn overfly(
     });
     if over_playfield {
         super::drop_payload::drop_payload(sim, id, rules, registry, frame_effects);
+        // Phobos `AircraftClass_Mission_Paradrop_Overfly_Delay`
+        // (`Ext/Aircraft/Hooks.cpp:1266-1285`, hook `0x415A00`): after the
+        // last passenger leaves, the visit's timer is the plane's
+        // `ParadropEndDelay` (its `[General]` fallback); a negative value
+        // becomes `INT32_MAX`, which keeps the plane flying straight off the
+        // map. With passengers left it reads `ParadropDelay`, which VERA has
+        // not ported, so the stock 5 stays.
+        #[cfg(feature = "phobos")]
+        if sim.substrate.entities.get(id).is_none_or(|plane| {
+            !plane
+                .passenger_role
+                .cargo()
+                .is_some_and(|cargo| cargo.count() > 0)
+        }) {
+            return paradrop_end_delay(sim, id, rules);
+        }
     }
     OVERFLY_FRAMES
+}
+
+/// Phobos `ParadropEndDelay.Get(RulesExt::Global()->ParadropEndDelay)` with
+/// the negative special case (`Ext/Aircraft/Hooks.cpp:1278-1282`).
+#[cfg(feature = "phobos")]
+pub(crate) fn paradrop_end_delay(sim: &Simulation, id: u64, rules: &RuleSet) -> i32 {
+    let delay = sim
+        .substrate
+        .entities
+        .get(id)
+        .and_then(|plane| sim.object_type(plane.type_ref(), rules))
+        .and_then(|object| object.phobos_paradrop_end_delay())
+        .unwrap_or(rules.phobos_globals.paradrop_end_delay);
+    if delay < 0 { i32::MAX } else { delay }
 }
 
 /// Overfly's way out (`0x00415A0A..0x00415A33`): the latch cleared, no

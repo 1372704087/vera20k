@@ -1423,6 +1423,17 @@ pub struct ObjectType {
     /// family reaches the reader.
     #[cfg(feature = "phobos")]
     phobos_paradrop_mission: Option<crate::rules::mission_data::MissionType>,
+    /// Phobos `AircraftTypeExt::ParadropEndDelay`
+    /// (`Ext/AircraftType/Body.cpp:38`, `Nullable<int>`, constructor
+    /// `Body.h:29` leaves it unset): the game frames an overflying paradrop
+    /// plane waits after its last passenger leaves; unset takes
+    /// `[General] ParadropEndDelay` (`Ext/Rules/Body.cpp:523`, default 5), and
+    /// a negative value answers `INT32_MAX` so the plane flies straight off
+    /// the map. Consumer: the `0x415A00` timer in
+    /// `aircraft::paradrop_mission::overfly` (`Ext/Aircraft/Hooks.cpp:1268-1285`).
+    /// Only an AircraftType section reaches the Phobos reader.
+    #[cfg(feature = "phobos")]
+    phobos_paradrop_end_delay: Option<i32>,
     /// Ares TechnoTypeExt `VoiceRepair` (ValueableIdx<VocClass>, unset -1):
     /// the attack voice of a repairing weapon (TechnoClass_SelectFiringVoice
     /// 1004B1D0, hook 0x7090A8).
@@ -4766,6 +4777,13 @@ impl ObjectType {
         self.phobos_paradrop_mission
     }
 
+    /// Phobos `AircraftTypeExt::ParadropEndDelay`, see
+    /// [`Self::phobos_paradrop_end_delay`].
+    #[cfg(feature = "phobos")]
+    pub(crate) fn phobos_paradrop_end_delay(&self) -> Option<i32> {
+        self.phobos_paradrop_end_delay
+    }
+
     pub fn voice_attack(&self) -> &[String] {
         &self.voice_attack
     }
@@ -6206,6 +6224,12 @@ impl ObjectType {
                 "AIParadropMission",
                 None,
             ),
+            // `AircraftTypeExt::LoadFromINIFile` (`Ext/AircraftType/Body.cpp:38`)
+            // reads the key in the AircraftType pass only.
+            #[cfg(feature = "phobos")]
+            phobos_paradrop_end_delay: (category == ObjectCategory::Aircraft)
+                .then(|| section.read_phobos_nullable_int("ParadropEndDelay", None))
+                .flatten(),
             voice_capture: None,
             prevent_attack_move: section.read_bool("PreventAttackMove", false),
             voice_die: section

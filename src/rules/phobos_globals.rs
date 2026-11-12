@@ -162,6 +162,11 @@ pub struct PhobosGlobals {
     /// delay for a BuildingType whose `GuardRetryDelay` is unset
     /// (`Ext/Building/Hooks.cpp:1288`).
     pub building_guard_retry_delay: Option<crate::rules::ini_value::PartialIntPair>,
+    /// `[General] ParadropEndDelay=`, default 5 (`Ext/Rules/Body.cpp:523`,
+    /// constructor `Ext/Rules/Body.h:937`): game frames an overflying paradrop
+    /// plane waits after its last passenger, the fallback for an AircraftType's
+    /// own `ParadropEndDelay` (`Ext/Aircraft/Hooks.cpp:1278`).
+    pub paradrop_end_delay: i32,
     /// `[General] Explodes.KillPassengers=`, default **`yes`**
     /// (`Ext/Rules/Body.cpp:470`, constructor `Ext/Rules/Body.h:885`): the
     /// fallback for a type's key; `no` leaves a destroyed object's passengers
@@ -1091,6 +1096,7 @@ impl Default for PhobosGlobals {
             auto_death_allow_limboed: true,
             convert_reset_mind_control: false,
             building_guard_retry_delay: None,
+            paradrop_end_delay: 5,
             explodes_kill_passengers: true,
             explodes_during_buildup: true,
             not_human_random_death_sequence: false,
@@ -1400,6 +1406,16 @@ impl PhobosGlobals {
             "BuildingGuardRetryDelay",
             globals.building_guard_retry_delay,
         );
+        // `Ext/Rules/Body.cpp:521`: `Valueable<Mission>`; a named mission
+        // replaces the constructor's `Hunt`, any other text keeps it
+        // (`Utilities/TemplateDef.h:510-528`).
+        globals.ai_paradrop_mission = general
+            .read_name("AIParadropMission", 0x80)
+            .and_then(crate::rules::mission_data::MissionType::from_map_name)
+            .unwrap_or(globals.ai_paradrop_mission);
+        // `Ext/Rules/Body.cpp:523`: `Valueable<int>`, the same read.
+        globals.paradrop_end_delay =
+            general.read_int("ParadropEndDelay", globals.paradrop_end_delay);
         // `Ext/Rules/Body.cpp:470-471`, both constructed `true`.
         globals.explodes_kill_passengers =
             general.read_bool("Explodes.KillPassengers", globals.explodes_kill_passengers);

@@ -342,7 +342,7 @@ pub(crate) fn spawn_parachuted(
 /// `ParadropMission` (human owner) or `AIParadropMission` (AI owner), else the
 /// matching `[General]` global (`Ext/Techno/Hooks.cpp:1883-1885`).
 #[cfg(feature = "phobos")]
-fn phobos_paradrop_mission(
+pub(crate) fn phobos_paradrop_mission(
     sim: &Simulation,
     rules: &RuleSet,
     rider: &crate::sim::game_entity::GameEntity,

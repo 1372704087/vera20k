@@ -7,6 +7,7 @@ use crate::render::terrain_draw::TerrainPiece;
 
 /// Terrain DrawIt (0x71C1B0): a static type draws frame 1 below 2 health and
 /// frame 0 otherwise; an animated type draws its stage whatever its health.
+#[cfg(not(feature = "phobos"))]
 #[test]
 fn terrain_draw_frame_follows_health_and_stage() {
     assert_eq!(terrain_draw_frame(None, 2), 0);
@@ -15,6 +16,51 @@ fn terrain_draw_frame_follows_health_and_stage() {
     // TerrainAI71C7DD and DrawIt71C208 retain the full Stage. A 514-frame
     // animated spawner reaches256 before its midpoint257 resets the stage.
     assert_eq!(terrain_draw_frame(Some(256), 1), 256);
+}
+
+/// Phobos `TerrainClass_Draw_PickFrame` (0x71C1FE): the type's
+/// `HasDamagedFrames`/`HasCrumblingFrames`/`AnimationLength` select the
+/// frame; an unset key set draws the static frame 0 whatever the health.
+#[cfg(feature = "phobos")]
+#[test]
+fn phobos_terrain_draw_frame_follows_type_keys_and_crumbling() {
+    // (stage, health, strength, has_damaged, has_crumbling, crumbling, anim_len, frames, animated)
+    let frame =
+        |stage, health, strength, damaged, crumbling_frames, crumbling, anim, frames, animated| {
+            terrain_draw_frame(
+                stage,
+                health,
+                strength,
+                0.5,
+                damaged,
+                crumbling_frames,
+                crumbling,
+                anim,
+                frames,
+                animated,
+            )
+        };
+    assert_eq!(frame(None, 1, 100, false, false, false, None, 0, false), 0);
+    assert_eq!(frame(None, 1, 100, true, false, false, None, 0, false), 1);
+    assert_eq!(frame(None, 60, 100, true, false, false, None, 0, false), 0);
+    // Animated: stage + damaged * AnimationLength; a crumbling tree moves to
+    // the next half plus 1.
+    assert_eq!(
+        frame(Some(3), 1, 100, true, false, false, Some(4), 8, true),
+        7
+    );
+    assert_eq!(
+        frame(Some(3), 1, 100, true, true, true, Some(4), 8, true),
+        12
+    );
+    assert_eq!(
+        frame(Some(2), 1, 100, true, true, true, Some(4), 8, false),
+        3
+    );
+    assert_eq!(
+        frame(Some(256), 1, 100, false, false, false, None, 0, true),
+        256
+    );
 }
 
 #[test]

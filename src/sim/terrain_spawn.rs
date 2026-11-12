@@ -93,6 +93,50 @@ impl TerrainAnimationState {
         self.type_ref
     }
 
+    /// The seeded SHP frame count. The rules asset catalog supplies it in
+    /// production; a fixture may seed the state directly.
+    #[cfg(feature = "phobos")]
+    pub(crate) fn frame_count(&self) -> u16 {
+        self.frame_count as u16
+    }
+
+    /// `TerrainClass::Start_To_Crumble @ 0x0071C8E0`: Stage resets to 0 at
+    /// rate 2. A non-animated tree has no seeded state; this one only feeds
+    /// the crumble sequence.
+    #[cfg(feature = "phobos")]
+    pub(crate) fn new_crumbling(type_ref: InternedId, frame_count: u16, binary_frame: u32) -> Self {
+        let mut state = Self::new(
+            type_ref,
+            NativeF32Bits::POSITIVE_ZERO,
+            2,
+            frame_count,
+            binary_frame,
+        );
+        state.current_frame = 0;
+        state.rate = 2;
+        state.timer = CdTimer::started(binary_frame as i32, 2);
+        state
+    }
+
+    #[cfg(feature = "phobos")]
+    pub(crate) fn start_crumble(&mut self, binary_frame: u32) {
+        self.current_frame = 0;
+        self.rate = 2;
+        self.timer.start(binary_frame as i32, 2);
+    }
+
+    /// One retained Stage step for the crumble sequence.
+    #[cfg(feature = "phobos")]
+    pub(crate) fn advance_crumble(&mut self, binary_frame: u32) -> bool {
+        let now = binary_frame as i32;
+        if self.rate == 0 || !self.timer.expired(now) {
+            return false;
+        }
+        self.current_frame = self.current_frame.wrapping_add(1);
+        self.timer.start(now, self.rate);
+        true
+    }
+
     /// Terrain DrawIt71C208 reads this retained Stage value directly.
     pub fn current_frame(&self) -> i32 {
         self.current_frame
@@ -109,8 +153,15 @@ impl TerrainAnimationState {
         binary_frame: u32,
         is_animated: bool,
         spawns_tiberium: bool,
+        cycle: i32,
+        reset_without_spawner: bool,
         rng: &mut SimRng,
     ) -> bool {
+        let cycle = if cycle < 0 {
+            i32::from(self.frame_count) / 2
+        } else {
+            cycle
+        };
         let now = binary_frame as i32;
         if is_animated
             && self.rate == 0
@@ -125,18 +176,19 @@ impl TerrainAnimationState {
         }
         self.current_frame = self.current_frame.wrapping_add(1);
         self.timer.start(now, self.rate);
-        if is_animated && spawns_tiberium && self.current_frame == i32::from(self.frame_count) / 2 {
+        if is_animated && self.current_frame == cycle && (spawns_tiberium || reset_without_spawner)
+        {
             self.current_frame = 0;
             self.rate = 0;
             self.timer.start(now, 0);
-            return true;
+            return spawns_tiberium;
         }
         false
     }
 
     #[cfg(any(test, feature = "test-support"))]
     pub(crate) fn advance_for_test(&mut self, binary_frame: u32, rng: &mut SimRng) {
-        self.tick(binary_frame, true, true, rng);
+        self.tick(binary_frame, true, true, -1, false, rng);
     }
 }
 
@@ -155,6 +207,12 @@ pub(crate) fn tick_terrain_object_ai(
         .objects()
         .get(&stable_id)
         .is_some_and(|terrain| terrain.is_live());
+    // Phobos `TerrainClass_AI_Crumbling` (0x71C812) precedes the IsAnimated
+    // block and returns from the AI on both of its reached arms.
+    #[cfg(feature = "phobos")]
+    if tick_terrain_crumble(sim, stable_id, rules, overlay_registry, effects)? {
+        return Ok(());
+    }
     tick_terrain_animation(sim, stable_id, rules, overlay_registry, effects)?;
     // Ares 3.0 TerrainClass_Update_ForestFire (1004F530, hook 0x71C7C2)
     // follows the IsAnimated draw. VERA runs it after the whole stage step:
@@ -165,6 +223,70 @@ pub(crate) fn tick_terrain_object_ai(
         sim.ares_spread_forest_fire(stable_id, rules);
     }
     Ok(())
+}
+
+/// Phobos `TerrainClass_AI_Crumbling` (`0x71C812`,
+/// `Ext/TerrainType/Hooks.cpp:80-131`): only a crumbling object enters. A
+/// `HasDamagedFrames=` type above zero health clears the damaged-redraw
+/// latch (and leaves Logic when it is neither animated nor flammable); the
+/// lethal arm plays the destroy effects and removes the tree once
+/// `currentStage + 1 == Frames / 2`, otherwise advances the stage at rate 2.
+/// Both reached arms return from the AI, skipping the IsAnimated block.
+#[cfg(feature = "phobos")]
+fn tick_terrain_crumble(
+    sim: &mut crate::sim::world::Simulation,
+    stable_id: u64,
+    rules: &RuleSet,
+    overlay_registry: Option<&OverlayTypeRegistry>,
+    effects: FrameEffects<'_>,
+) -> Result<bool, RuntimeOverlayError> {
+    if !sim.terrain_objects.is_crumbling(stable_id) {
+        return Ok(false);
+    }
+    let Some(type_ref) = sim
+        .terrain_objects
+        .objects()
+        .get(&stable_id)
+        .filter(|terrain| terrain.is_live())
+        .map(TerrainObjectState::type_ref)
+    else {
+        return Ok(false);
+    };
+    let name = sim.interner.resolve(type_ref).to_string();
+    let Some(terrain_type) = rules.terrain_object_type_case_insensitive(&name) else {
+        return Ok(false);
+    };
+    let health = sim.terrain_objects.objects()[&stable_id].health();
+    if terrain_type.has_damaged_frames && health > 0 {
+        if !terrain_type.is_animated && !terrain_type.is_flammable {
+            sim.terrain_remove_from_logic(stable_id);
+        }
+        sim.terrain_objects.set_crumbling(stable_id, false);
+        return Ok(false);
+    }
+    let frames = i32::from(rules.terrain_display_frame_count(&name).unwrap_or(0));
+    let damaged = i32::from(terrain_type.has_damaged_frames);
+    let animation_length = terrain_type
+        .animation_length
+        .unwrap_or(frames / (2 * (damaged + 1)));
+    let stage = sim
+        .terrain_objects
+        .animation_current_frame(stable_id)
+        .unwrap_or(0);
+    let current_stage = stage
+        + if terrain_type.is_animated {
+            animation_length * (damaged + 1)
+        } else {
+            damaged
+        };
+    if current_stage + 1 == frames / 2 {
+        sim.terrain_play_destroy_effects(stable_id, rules);
+        sim.terrain_crumble_finish(stable_id, rules, overlay_registry, effects);
+        return Ok(true);
+    }
+    sim.terrain_objects
+        .advance_crumble(stable_id, sim.session.binary_frame());
+    Ok(true)
 }
 
 /// TerrainClass::AI71C730's IsAnimated draw, stage step and ore emission.
@@ -202,6 +324,29 @@ fn tick_terrain_animation(
         || sim.terrain_objects.spawning_cells().contains(&cell),
         |ty| ty.spawns_tiberium,
     );
+    // Phobos `TerrainClass_AI_Animated` (0x71C84D): the cycle is
+    // `AnimationLength`, else `Frames / (2 * (HasDamagedFrames + 1))`, and
+    // every animated type resets (only a spawner spreads ore).
+    #[cfg(feature = "phobos")]
+    let (cycle, reset_without_spawner) = terrain_type.map_or((-1, false), |ty| {
+        let frames = rules
+            .terrain_display_frame_count(sim.interner.resolve(type_ref))
+            .map(i32::from)
+            .or_else(|| {
+                sim.terrain_objects
+                    .animations()
+                    .get(&stable_id)
+                    .map(|animation| i32::from(animation.frame_count()))
+            })
+            .unwrap_or(0);
+        let damaged = i32::from(ty.has_damaged_frames);
+        (
+            ty.animation_length.unwrap_or(frames / (2 * (damaged + 1))),
+            true,
+        )
+    });
+    #[cfg(not(feature = "phobos"))]
+    let (cycle, reset_without_spawner) = (-1, false);
     let fired = {
         let Some((spawner, _, _)) = sim.terrain_objects.animation_with_indexes_mut(stable_id)
         else {
@@ -211,6 +356,8 @@ fn tick_terrain_animation(
             sim.session.binary_frame(),
             is_animated,
             spawns_tiberium,
+            cycle,
+            reset_without_spawner,
             &mut sim.scenario_rng,
         )
     };
@@ -598,6 +745,47 @@ pub fn seed_terrain_animations(
 ) -> usize {
     construct_terrain_objects(sim, terrain_objects, rules, snow_theater);
     seed_terrain_spawner_animation(&sim.interner, &mut sim.terrain_objects, &sim.session, rules)
+}
+
+/// Phobos `TerrainTypeExt::PlayDestroyEffects`
+/// (`Ext/TerrainType/Body.cpp:17-21`): `DestroySound` at the terrain's
+/// coordinate, then a `DestroyAnim` there.
+#[cfg(feature = "phobos")]
+impl crate::sim::world::Simulation {
+    pub(crate) fn terrain_play_destroy_effects(&mut self, stable_id: u64, rules: &RuleSet) {
+        let Some(terrain) = self.terrain_objects.get(stable_id) else {
+            return;
+        };
+        let name = self.interner.resolve(terrain.type_ref()).to_string();
+        let coords = terrain.world_coord();
+        let Some(terrain_type) = rules.terrain_object_type_case_insensitive(&name) else {
+            return;
+        };
+        let world = crate::sim::anim_class::AnimWorldCoord {
+            x: coords.x,
+            y: coords.y,
+            z: coords.z,
+        };
+        if let Some(sound) = &terrain_type.destroy_sound {
+            self.sound_events
+                .emit(crate::sim::world::SimSoundEvent::voc_at_world_coord(
+                    sound.clone(),
+                    world,
+                ));
+        }
+        if let Some(anim) = &terrain_type.destroy_anim {
+            let (rx, ry, sub_x, sub_y, z) = world.to_cell_sub_z();
+            let descriptor = crate::sim::components::AnimClassSpawnDescriptor::new(
+                self.interner.intern(anim),
+                rx,
+                ry,
+                sub_x,
+                sub_y,
+                z,
+            );
+            let _ = self.spawn_anim_at_world(rules, descriptor, world);
+        }
+    }
 }
 
 #[cfg(test)]
@@ -2466,6 +2654,128 @@ mod tests {
             sim.overlay_grid.as_ref().unwrap().cell(2, 2).overlay_id,
             None,
             "same-cell resource clearing occurs after the immediate Terrain Recalc"
+        );
+    }
+    /// Phobos `TerrainClass_TakeDamage_NowDead_Add` (`0x71BB2C`) and
+    /// `TerrainClass_AI_Crumbling` (`0x71C812`): a `HasCrumblingFrames=`
+    /// tree stays alive, plays `CrumblingSound` and its crumble Stage, then
+    /// plays `PlayDestroyEffects` and is removed.
+    #[cfg(feature = "phobos")]
+    #[test]
+    fn phobos_crumbling_tree_keeps_alive_then_destroys_and_removes() {
+        use crate::sim::world::SimSoundEvent;
+
+        let ini = IniFile::from_str(
+            "[InfantryTypes]\n[VehicleTypes]\n[AircraftTypes]\n[BuildingTypes]\n\
+             [TerrainTypes]\n0=TREE\n\
+             [TREE]\nStrength=100\nIsAnimated=no\nSpawnsTiberium=no\n",
+        );
+        let mut rules = RuleSet::from_ini(&ini).expect("crumble rules");
+        let mut terrain_type = rules
+            .terrain_object_type_case_insensitive("TREE")
+            .expect("tree type")
+            .clone();
+        terrain_type.has_crumbling_frames = true;
+        terrain_type.crumbling_sound = Some("TreeCrumble".to_string());
+        terrain_type.destroy_sound = Some("TreeDestroy".to_string());
+        // 8 SHP frames with AnimationLength 4: the crumble completes at stage 3.
+        terrain_type.animation_length = Some(4);
+        rules.install_map_terrain_type(terrain_type);
+        rules.set_terrain_spawner_frame_count_for_test("TREE", 8);
+
+        let mut sim = crate::sim::world::Simulation::new();
+        sim.install_resolved_terrain_for_new_map(resolved_grid(8, 8));
+        assert_eq!(
+            construct_terrain_objects(
+                &mut sim,
+                &[crate::map::overlay::TerrainObject {
+                    rx: 4,
+                    ry: 4,
+                    name: "TREE".to_string(),
+                }],
+                &rules,
+                false,
+            ),
+            1
+        );
+        let id = sim.terrain_objects.id_at((4, 4)).expect("tree");
+        sim.terrain_start_crumble(id, &rules);
+        assert!(sim.terrain_objects.is_crumbling(id));
+        assert!(
+            sim.sound_events.iter().any(|event| matches!(
+                event,
+                SimSoundEvent::VocAt { sound_id, .. } if sound_id == "TreeCrumble"
+            )),
+            "CrumblingSound plays once at the crumble start"
+        );
+
+        let mut removed = false;
+        for frame in 0..12 {
+            sim.session.set_binary_frame_for_test(frame);
+            tick_terrain_object_ai(&mut sim, id, &rules, None, FrameEffects::default())
+                .expect("terrain AI");
+            if sim
+                .terrain_objects
+                .objects()
+                .get(&id)
+                .is_some_and(|terrain| !terrain.is_live())
+            {
+                removed = true;
+                break;
+            }
+        }
+        assert!(removed, "the crumble sequence removes the tree");
+        assert!(
+            sim.sound_events.iter().any(|event| matches!(
+                event,
+                SimSoundEvent::VocAt { sound_id, .. } if sound_id == "TreeDestroy"
+            )),
+            "PlayDestroyEffects plays DestroySound once"
+        );
+    }
+
+    /// `HasDamagedFrames=` above zero health clears the damaged-redraw latch
+    /// (`0x71C812`) without removing the tree.
+    #[cfg(feature = "phobos")]
+    #[test]
+    fn phobos_has_damaged_frames_clears_the_redraw_latch_while_alive() {
+        let ini = IniFile::from_str(
+            "[InfantryTypes]\n[VehicleTypes]\n[AircraftTypes]\n[BuildingTypes]\n\
+             [TerrainTypes]\n0=TREE\n\
+             [TREE]\nStrength=100\nIsAnimated=no\nSpawnsTiberium=no\n",
+        );
+        let mut rules = RuleSet::from_ini(&ini).expect("damaged rules");
+        let mut terrain_type = rules
+            .terrain_object_type_case_insensitive("TREE")
+            .expect("tree type")
+            .clone();
+        terrain_type.has_damaged_frames = true;
+        rules.install_map_terrain_type(terrain_type);
+
+        let mut sim = crate::sim::world::Simulation::new();
+        sim.install_resolved_terrain_for_new_map(resolved_grid(8, 8));
+        construct_terrain_objects(
+            &mut sim,
+            &[crate::map::overlay::TerrainObject {
+                rx: 4,
+                ry: 4,
+                name: "TREE".to_string(),
+            }],
+            &rules,
+            false,
+        );
+        let id = sim.terrain_objects.id_at((4, 4)).expect("tree");
+        sim.terrain_objects.set_crumbling(id, true);
+        sim.session.set_binary_frame_for_test(0);
+        tick_terrain_object_ai(&mut sim, id, &rules, None, FrameEffects::default())
+            .expect("terrain AI");
+        assert!(!sim.terrain_objects.is_crumbling(id));
+        assert!(
+            sim.terrain_objects
+                .objects()
+                .get(&id)
+                .is_some_and(|terrain| terrain.is_live()),
+            "the tree stays on the map"
         );
     }
 }

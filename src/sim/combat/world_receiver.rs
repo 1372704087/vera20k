@@ -1388,6 +1388,27 @@ pub(crate) fn commit_terrain(
         }
     }
 
+    // Phobos `TerrainClass_TakeDamage_NowDead_Add` (0x71BB2C): a
+    // `HasCrumblingFrames=` tree keeps playing its crumble sequence; every
+    // other type plays `PlayDestroyEffects` before the stock UnInit.
+    #[cfg(feature = "phobos")]
+    {
+        let crumbles = {
+            let type_name = world
+                .terrain_objects
+                .objects()
+                .get(&lethal.stable_id)
+                .map(|terrain| world.interner.resolve(terrain.type_ref()).to_string());
+            type_name
+                .and_then(|name| rules.terrain_object_type_case_insensitive(&name))
+                .is_some_and(|terrain_type| terrain_type.has_crumbling_frames)
+        };
+        if crumbles {
+            world.terrain_start_crumble(lethal.stable_id, rules);
+            return (effects, under_attack_events);
+        }
+        world.terrain_play_destroy_effects(lethal.stable_id, rules);
+    }
     world.terrain_lethal_uninit(lethal, &mut run.finalizing_terrain, uninit_context);
     (effects, under_attack_events)
 }

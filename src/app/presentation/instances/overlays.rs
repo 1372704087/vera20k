@@ -1278,13 +1278,41 @@ pub(crate) fn build_overlay_instances(
         let is_animated = terrain_type.is_some_and(|terrain_type| terrain_type.is_animated);
         let spawns_tiberium = terrain_type.is_some_and(|terrain_type| terrain_type.spawns_tiberium);
         // Terrain DrawIt71C208 selects the Stage written by Terrain AI.
-        // Wall-clock presentation cannot advance or restart a spawner.
+        // Wall-clock presentation cannot advance or restart a spawner; a
+        // Phobos crumbling non-animated tree also carries a crumble Stage.
+        #[cfg(feature = "phobos")]
+        let stage = (is_animated || obj.is_crumbling()).then(|| {
+            sim.terrain_objects()
+                .animations()
+                .get(&obj.stable_id())
+                .map_or(0, |animation| animation.current_frame())
+        });
+        #[cfg(not(feature = "phobos"))]
         let stage = is_animated.then(|| {
             sim.terrain_objects()
                 .animations()
                 .get(&obj.stable_id())
                 .map_or(0, |animation| animation.current_frame())
         });
+        #[cfg(feature = "phobos")]
+        let frame = terrain_draw_frame(
+            stage,
+            obj.health(),
+            terrain_type.map_or(1, |terrain_type| terrain_type.strength),
+            state
+                .rules()
+                .map_or(0.5, |rules| rules.general.condition_yellow),
+            terrain_type.is_some_and(|terrain_type| terrain_type.has_damaged_frames),
+            terrain_type.is_some_and(|terrain_type| terrain_type.has_crumbling_frames),
+            obj.is_crumbling(),
+            terrain_type.and_then(|terrain_type| terrain_type.animation_length),
+            state
+                .rules()
+                .and_then(|rules| rules.terrain_display_frame_count(name))
+                .map_or(0, i32::from),
+            is_animated,
+        );
+        #[cfg(not(feature = "phobos"))]
         let frame = terrain_draw_frame(stage, obj.health());
         let (body, shadow) = atlas.terrain_pieces(name, frame);
         if body.is_none() && shadow.is_none() {
@@ -1370,6 +1398,45 @@ pub(crate) fn build_overlay_instances(
 /// draws the pending placement object only under the map-editor flag
 /// 0x00A8ED6B (test at 0x006D5297; set only by Parse_Command_Line), so it
 /// has no port.
+#[cfg(feature = "phobos")]
+#[allow(clippy::too_many_arguments)]
+fn terrain_draw_frame(
+    stage: Option<i32>,
+    health: i32,
+    strength: i32,
+    condition_yellow: f64,
+    has_damaged_frames: bool,
+    has_crumbling_frames: bool,
+    is_crumbling: bool,
+    animation_length: Option<i32>,
+    frame_count: i32,
+    is_animated: bool,
+) -> i32 {
+    use crate::util::native_x87::MaskedX87Ordering::{Equal, Less, Unordered};
+    let damaged = has_damaged_frames
+        && matches!(
+            crate::sim::combat::Health::new(health).compare_ratio(strength, condition_yellow),
+            Less | Equal | Unordered
+        );
+    let stage = stage.unwrap_or(0);
+    if is_animated {
+        let anim_length =
+            animation_length.unwrap_or(frame_count / (2 * (i32::from(has_damaged_frames) + 1)));
+        if has_crumbling_frames && is_crumbling {
+            anim_length * (i32::from(has_damaged_frames) + 1) + 1 + stage
+        } else {
+            stage + i32::from(damaged) * anim_length
+        }
+    } else if has_crumbling_frames && is_crumbling {
+        1 + stage
+    } else if damaged {
+        1
+    } else {
+        0
+    }
+}
+
+#[cfg(not(feature = "phobos"))]
 fn terrain_draw_frame(stage: Option<i32>, health: i32) -> i32 {
     // Original71C208 keeps the whole signed Stage; frame bounds belong to
     // the image/atlas, not the cell overlay-data byte's0..255 domain.

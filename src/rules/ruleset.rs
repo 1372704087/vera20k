@@ -12208,6 +12208,12 @@ impl RuleSet {
         self.terrain_assets.frame_count(name)
     }
 
+    /// The type's SHP total frames for the draw/AI frame math
+    /// (`AnimationLength`/`HasDamagedFrames`/crumbling).
+    pub fn terrain_display_frame_count(&self, name: &str) -> Option<u16> {
+        self.terrain_assets.display_frame_count(name)
+    }
+
     /// Load every ObjectType `AlphaImage=` SHP the folded rules name
     /// ([`crate::rules::alpha_image_assets`]).
     pub fn bind_alpha_images(

@@ -79,6 +79,12 @@ pub struct TerrainObjectState {
     #[cfg(feature = "ares")]
     #[serde(default)]
     on_fire: bool,
+    /// Phobos `IsCrumbling`: a lethal hit on a `HasCrumblingFrames=` tree
+    /// keeps it alive to play its crumble sequence
+    /// (`Ext/TerrainType/Hooks.cpp:80-131`, `:251-305`).
+    #[cfg(feature = "phobos")]
+    #[serde(default)]
+    is_crumbling: bool,
 }
 
 impl std::hash::Hash for TerrainObjectState {
@@ -98,6 +104,8 @@ impl std::hash::Hash for TerrainObjectState {
         if self.on_fire {
             b"ares-terrain-on-fire-v1".hash(state);
         }
+        #[cfg(feature = "phobos")]
+        self.is_crumbling.hash(state);
     }
 }
 
@@ -155,6 +163,8 @@ impl TerrainObjectState {
             lifecycle,
             #[cfg(feature = "ares")]
             on_fire: false,
+            #[cfg(feature = "phobos")]
+            is_crumbling: false,
         }
     }
 
@@ -257,6 +267,8 @@ impl TerrainObjectState {
             lifecycle: TerrainObjectLifecycle::Live,
             #[cfg(feature = "ares")]
             on_fire: false,
+            #[cfg(feature = "phobos")]
+            is_crumbling: false,
         }
     }
 
@@ -466,6 +478,18 @@ impl TerrainObjectState {
     #[cfg(feature = "ares")]
     pub(crate) const fn on_fire(&self) -> bool {
         self.on_fire
+    }
+
+    /// Phobos `IsCrumbling`: the tree is playing its crumble sequence. Read
+    /// by the Terrain draw frame selection.
+    #[cfg(feature = "phobos")]
+    pub const fn is_crumbling(&self) -> bool {
+        self.is_crumbling
+    }
+
+    #[cfg(feature = "phobos")]
+    pub(crate) fn set_crumbling(&mut self, value: bool) {
+        self.is_crumbling = value;
     }
 }
 
@@ -766,6 +790,64 @@ impl TerrainObjectStore {
 
     pub(crate) fn seed_animation(&mut self, stable_id: u64, animation: TerrainAnimationState) {
         self.animations.insert(stable_id, animation);
+    }
+
+    /// Phobos `IsCrumbling` for the damage and AI owners.
+    #[cfg(feature = "phobos")]
+    pub(crate) fn is_crumbling(&self, stable_id: u64) -> bool {
+        self.objects
+            .get(&stable_id)
+            .is_some_and(|terrain| terrain.is_crumbling())
+    }
+
+    #[cfg(feature = "phobos")]
+    pub(crate) fn set_crumbling(&mut self, stable_id: u64, value: bool) {
+        if let Some(terrain) = self.objects.get_mut(&stable_id) {
+            terrain.set_crumbling(value);
+        }
+    }
+
+    /// `TerrainClass::Start_To_Crumble @ 0x0071C8E0`: Stage resets to 0 at
+    /// rate 2. A type without an animation entry (a non-animated tree) gets
+    /// one; an animated state is rewound in place.
+    #[cfg(feature = "phobos")]
+    pub(crate) fn start_crumble_animation(
+        &mut self,
+        stable_id: u64,
+        frame_count: u16,
+        binary_frame: u32,
+    ) {
+        if let Some(animation) = self.animations.get_mut(&stable_id) {
+            animation.start_crumble(binary_frame);
+            return;
+        }
+        let Some(type_ref) = self
+            .objects
+            .get(&stable_id)
+            .map(TerrainObjectState::type_ref)
+        else {
+            return;
+        };
+        self.animations.insert(
+            stable_id,
+            TerrainAnimationState::new_crumbling(type_ref, frame_count, binary_frame),
+        );
+    }
+
+    /// One Stage step of the crumble sequence (rate 2).
+    #[cfg(feature = "phobos")]
+    pub(crate) fn advance_crumble(&mut self, stable_id: u64, binary_frame: u32) -> bool {
+        self.animations
+            .get_mut(&stable_id)
+            .is_some_and(|animation| animation.advance_crumble(binary_frame))
+    }
+
+    /// Terrain DrawIt71C208's retained Stage value, when the type has one.
+    #[cfg(feature = "phobos")]
+    pub(crate) fn animation_current_frame(&self, stable_id: u64) -> Option<i32> {
+        self.animations
+            .get(&stable_id)
+            .map(TerrainAnimationState::current_frame)
     }
 
     /// The TerrainClass AI leaf's view: the instance's animation to advance, beside
@@ -1793,18 +1875,30 @@ TemperateOccupationBits=7
                 .unwrap()
                 .raw_occupation_bits(false)
         };
-        let keyed = build("", "IsPassable=yes
-", "");
+        let keyed = build(
+            "",
+            "IsPassable=yes
+",
+            "",
+        );
         assert_eq!(bits(&keyed, "TREE"), 0, "type key");
         let stock = build("", "", "");
         assert_eq!(bits(&stock, "TREE"), 7);
         assert_eq!(bits(&stock, "ROCK"), 7);
-        let tibtree = build("Tibtree.IsPassable=yes
-", "", "");
+        let tibtree = build(
+            "Tibtree.IsPassable=yes
+",
+            "",
+            "",
+        );
         assert_eq!(bits(&tibtree, "TREE"), 0, "tiberium tree global");
         assert_eq!(bits(&tibtree, "ROCK"), 7, "ordinary terrain untouched");
-        let terrain = build("Terrain.IsPassable=yes
-", "", "");
+        let terrain = build(
+            "Terrain.IsPassable=yes
+",
+            "",
+            "",
+        );
         assert_eq!(bits(&terrain, "ROCK"), 0, "ordinary global");
         assert_eq!(bits(&terrain, "TREE"), 7, "tiberium tree untouched");
         let explicit_no = build(
@@ -1817,9 +1911,7 @@ Tibtree.IsPassable=yes
         );
         assert_eq!(bits(&explicit_no, "TREE"), 7, "explicit no beats globals");
 
-        let terrain_type = keyed
-            .terrain_object_type_case_insensitive("TREE")
-            .unwrap();
+        let terrain_type = keyed.terrain_object_type_case_insensitive("TREE").unwrap();
         let mut interner = StringInterner::default();
         let type_ref = interner.intern("TREE");
         let terrain = TerrainObjectState::new(1, type_ref, (1, 1), terrain_type, false, None);

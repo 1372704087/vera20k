@@ -124,6 +124,40 @@ pub struct TerrainObjectType {
     #[cfg(feature = "phobos")]
     #[serde(default = "PhobosSpawnsTiberium::ctor")]
     pub spawns_tiberium_ext: PhobosSpawnsTiberium,
+    /// Phobos `DestroyAnim=` (`ValueableIdx<AnimTypeClass>`;
+    /// `Ext/TerrainType/Body.cpp:72`): the anim `PlayDestroyEffects`
+    /// constructs at the death coordinate.
+    #[cfg(feature = "phobos")]
+    #[serde(default)]
+    pub destroy_anim: Option<String>,
+    /// Phobos `DestroySound=` (`ValueableIdx<VocClass>`; `:73`): the voice
+    /// `PlayDestroyEffects` plays at the death coordinate.
+    #[cfg(feature = "phobos")]
+    #[serde(default)]
+    pub destroy_sound: Option<String>,
+    /// Phobos `HasDamagedFrames=` (`Valueable<bool>`, false; `:80`): the SHP
+    /// carries a damaged half, so the animation cycle uses
+    /// `Frames / (2 * (HasDamagedFrames + 1))` and the damaged draw frame
+    /// moves to the second half.
+    #[cfg(feature = "phobos")]
+    #[serde(default)]
+    pub has_damaged_frames: bool,
+    /// Phobos `HasCrumblingFrames=` (`Valueable<bool>`, false; `:81`): a
+    /// lethal hit keeps the tree for its crumble sequence
+    /// (`Ext/TerrainType/Hooks.cpp:80-131`, `:251-305`).
+    #[cfg(feature = "phobos")]
+    #[serde(default)]
+    pub has_crumbling_frames: bool,
+    /// Phobos `CrumblingSound=` (`ValueableIdx<VocClass>`; `:82`): played
+    /// when a tree with `HasCrumblingFrames=` starts crumbling.
+    #[cfg(feature = "phobos")]
+    #[serde(default)]
+    pub crumbling_sound: Option<String>,
+    /// Phobos `AnimationLength=` (`Nullable<int>`; `:83`): overrides the
+    /// per-cycle frame count; unset keeps `Frames / (2 * (HasDamagedFrames+1))`.
+    #[cfg(feature = "phobos")]
+    #[serde(default)]
+    pub animation_length: Option<i32>,
     /// TerrainType+2B8 is null after71DAF1, independently of index+298.
     /// ReadINI71DF96 and saved Load71E22D bind that index's static list.
     #[serde(default = "legacy_bound_terrain_field")]
@@ -220,6 +254,18 @@ impl TerrainObjectType {
             shape_requested: image.theater() || !image.shp_loads().is_empty(),
             #[cfg(feature = "phobos")]
             spawns_tiberium_ext: PhobosSpawnsTiberium::ctor(),
+            #[cfg(feature = "phobos")]
+            destroy_anim: None,
+            #[cfg(feature = "phobos")]
+            destroy_sound: None,
+            #[cfg(feature = "phobos")]
+            has_damaged_frames: false,
+            #[cfg(feature = "phobos")]
+            has_crumbling_frames: false,
+            #[cfg(feature = "phobos")]
+            crumbling_sound: None,
+            #[cfg(feature = "phobos")]
+            animation_length: None,
         };
         read_state.project_into(&mut terrain, image);
         terrain
@@ -431,6 +477,24 @@ pub(crate) struct TerrainTypeReadState {
     #[cfg(feature = "phobos")]
     #[serde(default = "PhobosSpawnsTiberium::ctor")]
     spawns_tiberium_ext: PhobosSpawnsTiberium,
+    #[cfg(feature = "phobos")]
+    #[serde(default)]
+    destroy_anim: Option<String>,
+    #[cfg(feature = "phobos")]
+    #[serde(default)]
+    destroy_sound: Option<String>,
+    #[cfg(feature = "phobos")]
+    #[serde(default)]
+    has_damaged_frames: bool,
+    #[cfg(feature = "phobos")]
+    #[serde(default)]
+    has_crumbling_frames: bool,
+    #[cfg(feature = "phobos")]
+    #[serde(default)]
+    crumbling_sound: Option<String>,
+    #[cfg(feature = "phobos")]
+    #[serde(default)]
+    animation_length: Option<i32>,
 }
 
 impl TerrainTypeReadState {
@@ -447,6 +511,18 @@ impl TerrainTypeReadState {
             legal_target: false,
             #[cfg(feature = "phobos")]
             spawns_tiberium_ext: PhobosSpawnsTiberium::ctor(),
+            #[cfg(feature = "phobos")]
+            destroy_anim: None,
+            #[cfg(feature = "phobos")]
+            destroy_sound: None,
+            #[cfg(feature = "phobos")]
+            has_damaged_frames: false,
+            #[cfg(feature = "phobos")]
+            has_crumbling_frames: false,
+            #[cfg(feature = "phobos")]
+            crumbling_sound: None,
+            #[cfg(feature = "phobos")]
+            animation_length: None,
         }
     }
 
@@ -523,9 +599,17 @@ impl TerrainTypeReadState {
         terrain.shape_requested = image.theater() || !image.shp_loads().is_empty();
         terrain.radar_color_read_passes.clone_from(&self.reads);
         #[cfg(feature = "phobos")]
-        terrain
-            .spawns_tiberium_ext
-            .clone_from(&self.spawns_tiberium_ext);
+        {
+            terrain
+                .spawns_tiberium_ext
+                .clone_from(&self.spawns_tiberium_ext);
+            terrain.destroy_anim.clone_from(&self.destroy_anim);
+            terrain.destroy_sound.clone_from(&self.destroy_sound);
+            terrain.has_damaged_frames = self.has_damaged_frames;
+            terrain.has_crumbling_frames = self.has_crumbling_frames;
+            terrain.crumbling_sound.clone_from(&self.crumbling_sound);
+            terrain.animation_length = self.animation_length;
+        }
     }
 
     /// The `TerrainTypeExt::LoadFromINI @ 0x0071E0A6` half of this ReadINI pass.
@@ -536,6 +620,15 @@ impl TerrainTypeReadState {
         find_particle: impl FnMut(&str) -> Option<String>,
     ) {
         self.spawns_tiberium_ext.read_pass(section, find_particle);
+        // `TerrainTypeExt::LoadFromINI` (`Ext/TerrainType/Body.cpp:71-83`).
+        self.destroy_anim = section.read_name("DestroyAnim", 2048).map(str::to_owned);
+        self.destroy_sound = section.read_name("DestroySound", 2048).map(str::to_owned);
+        self.has_damaged_frames = section.read_bool("HasDamagedFrames", self.has_damaged_frames);
+        self.has_crumbling_frames =
+            section.read_bool("HasCrumblingFrames", self.has_crumbling_frames);
+        self.crumbling_sound = section.read_name("CrumblingSound", 2048).map(str::to_owned);
+        self.animation_length =
+            section.read_phobos_nullable_int("AnimationLength", self.animation_length);
     }
 
     fn has_occupy_list(&self) -> bool {
@@ -562,6 +655,27 @@ impl TerrainTypeReadState {
 mod tests {
     use super::*;
     use crate::rules::ini_parser::IniFile;
+
+    /// Phobos `TerrainTypeExt::LoadFromINI` (`Ext/TerrainType/Body.cpp:71-83`):
+    /// the six destroy/crumble/damaged keys read from the type's section.
+    #[cfg(feature = "phobos")]
+    #[test]
+    fn phobos_destroy_and_crumbling_keys_read() {
+        let ini = IniFile::from_str(
+            "[TREE]\nDestroyAnim=DBRIS1\nDestroySound=TreeSnd\n\
+             HasDamagedFrames=yes\nHasCrumblingFrames=yes\n\
+             CrumblingSound=CrumbleSnd\nAnimationLength=7\n",
+        );
+        let section = ini.section_or_empty("TREE");
+        let mut state = TerrainTypeReadState::new();
+        state.read_phobos_pass(&section, |_| None);
+        assert_eq!(state.destroy_anim.as_deref(), Some("DBRIS1"));
+        assert_eq!(state.destroy_sound.as_deref(), Some("TreeSnd"));
+        assert!(state.has_damaged_frames);
+        assert!(state.has_crumbling_frames);
+        assert_eq!(state.crumbling_sound.as_deref(), Some("CrumbleSnd"));
+        assert_eq!(state.animation_length, Some(7));
+    }
 
     #[test]
     fn parse_tibtre_section_defaults() {

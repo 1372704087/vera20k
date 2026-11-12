@@ -1415,6 +1415,13 @@ pub struct ObjectType {
     /// The same retained reader stores at713109. Capture708DC0 falls to
     /// Enter709020 for -1; registered scalars queue without a Main draw.
     voice_capture: Option<String>,
+    /// Phobos `AircraftTypeExt::VoicePickup` (`src/Ext/AircraftType/Body.cpp:23`,
+    /// `NullableIdx<VocClass>`, constructor `:38` leaves it unset): the
+    /// AircraftType section's scalar entry that replaces VoiceMove for a
+    /// `Carryall=` aircraft ordered onto an object. Only an AircraftType
+    /// section reaches the Phobos reader.
+    #[cfg(feature = "phobos")]
+    phobos_voice_pickup: Option<String>,
     /// Ares TechnoTypeExt `VoiceRepair` (ValueableIdx<VocClass>, unset -1):
     /// the attack voice of a repairing weapon (TechnoClass_SelectFiringVoice
     /// 1004B1D0, hook 0x7090A8).
@@ -2397,6 +2404,19 @@ pub struct ObjectType {
     /// Parsed from `ExitCoord=X,Y,Z` in rules.ini. 256 leptons = 1 cell.
     /// Used by spawn logic to place newly built units near the correct factory exit.
     pub exit_coord: Option<(i32, i32, i32)>,
+    /// Phobos `BuildingTypeExt::BarracksExitCell`
+    /// (`Ext/BuildingType/Body.h:90`, `Nullable<Point2D>`, read at
+    /// `Ext/BuildingType/Body.cpp:240`): a cell offset from the building's
+    /// map coords where an infantry product leaves, replacing the flag,
+    /// offered-cell and foundation search. Only a building reads it.
+    barracks_exit_cell: Option<(i32, i32)>,
+    /// Phobos `BuildingTypeExt::SellBuildupLength`
+    /// (`Ext/BuildingType/Body.h:65`, `Valueable<int>`, read at
+    /// `Ext/BuildingType/Body.cpp:220`, constructed 23 at
+    /// `Ext/BuildingType/Body.h:197`): the construction stage at which an
+    /// archive-less `UndeploysInto=` sale completes (hook `0x4511D6`). Only a
+    /// building reads it.
+    sell_buildup_length: i32,
 
     // -- Cursor / interaction capability flags --
     // These drive which cursor is shown when hovering this unit/building.
@@ -4701,6 +4721,13 @@ impl ObjectType {
         self.voice_capture.as_deref()
     }
 
+    /// Phobos `AircraftTypeExt::VoicePickup`, see
+    /// [`Self::phobos_voice_pickup`].
+    #[cfg(feature = "phobos")]
+    pub(crate) fn phobos_voice_pickup(&self) -> Option<&str> {
+        self.phobos_voice_pickup.as_deref()
+    }
+
     pub fn voice_attack(&self) -> &[String] {
         &self.voice_attack
     }
@@ -4783,6 +4810,15 @@ impl ObjectType {
                 turret_count,
                 weapon_count,
             );
+            // `AircraftTypeExt::LoadFromINIFile` (`Ext/AircraftType/Body.cpp:23`)
+            // reads the key in the AircraftType pass only, so the same reader
+            // bound against every family leaves a non-aircraft section unset.
+            self.phobos_voice_pickup = if self.category == ObjectCategory::Aircraft {
+                section
+                    .and_then(|section| sounds.read_rules_reference(section, "VoicePickup", None))
+            } else {
+                None
+            };
         }
         #[cfg(feature = "ares")]
         {
@@ -5061,6 +5097,19 @@ impl ObjectType {
     /// Native BuildingType+16E6 classification, independent from Factory=.
     pub fn yuri_barracks(&self) -> bool {
         self.yuri_barracks
+    }
+
+    /// Phobos `BuildingTypeExt::BarracksExitCell`: the authored infantry exit
+    /// offset, `None` when the type leaves it unset. Consumed by
+    /// `BuildingClass::GetDockCellForObject`'s hooked head (0x44EFD8).
+    pub const fn barracks_exit_cell(&self) -> Option<(i32, i32)> {
+        self.barracks_exit_cell
+    }
+
+    /// Phobos `BuildingTypeExt::SellBuildupLength`: the stage at which an
+    /// archive-less `UndeploysInto=` sale completes, 23 when unset.
+    pub const fn sell_buildup_length(&self) -> i32 {
+        self.sell_buildup_length
     }
 
     /// Native TechnoType virtual+BC (717800), used by Fly takeoff4CF9F2
@@ -6127,6 +6176,8 @@ impl ObjectType {
             voice_enter: None,
             #[cfg(feature = "ares")]
             ares_voice_repair: None,
+            #[cfg(feature = "phobos")]
+            phobos_voice_pickup: None,
             voice_capture: None,
             prevent_attack_move: section.read_bool("PreventAttackMove", false),
             voice_die: section
@@ -6633,6 +6684,29 @@ impl ObjectType {
             exit_coord: section
                 .read_coord3_value("ExitCoord")
                 .map(|[x, y, z]| (x, y, z)),
+            // Phobos `BuildingTypeExt::BarracksExitCell`
+            // (`Ext/BuildingType/Body.cpp:240`), a BuildingType-only key. A
+            // partial read updates a pair already set; `<default>` clears it.
+            #[cfg(feature = "phobos")]
+            barracks_exit_cell: if category == ObjectCategory::Building {
+                section
+                    .read_phobos_nullable_int_pair("BarracksExitCell", None)
+                    .map(|[x, y]| (x, y))
+            } else {
+                None
+            },
+            #[cfg(not(feature = "phobos"))]
+            barracks_exit_cell: None,
+            // Phobos `BuildingTypeExt::SellBuildupLength`
+            // (`Ext/BuildingType/Body.cpp:220`), a BuildingType-only key.
+            #[cfg(feature = "phobos")]
+            sell_buildup_length: if category == ObjectCategory::Building {
+                section.read_int("SellBuildupLength", 23)
+            } else {
+                23
+            },
+            #[cfg(not(feature = "phobos"))]
+            sell_buildup_length: 23,
 
             // Cursor / interaction capability flags. An InfantryType's
             // Engineer, C4, Infiltrate and Agent start at the constructor's

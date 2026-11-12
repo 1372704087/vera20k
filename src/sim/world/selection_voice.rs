@@ -133,6 +133,19 @@ impl Simulation {
                 human_player,
             );
         }
+        // Phobos `TechnoClass_ResponseMove_Pickup`
+        // (`src/Ext/Techno/Hooks.cpp:1370-1397`, hook `0x00708FC0`, size 5):
+        // the type's `VoicePickup` replaces the whole VoiceMove choice for a
+        // `Carryall=` aircraft that has a used radio link
+        // (`RadioClass::HasAnyLink @ 0x0065AE30`) and whose Destination is a
+        // Foot. QueueVoice708D90 then takes the registered scalar without a
+        // Main draw, as Harvest/Enter/Capture scalars do.
+        #[cfg(feature = "phobos")]
+        if voice_field == "VoiceMove"
+            && let Some(sound) = self.carryall_pickup_voice(entity, object, target)
+        {
+            return Self::queue_voice_request(Some(sound), voices_enabled, human_player);
+        }
         let scalar = match voice_field {
             "VoiceMove" => None,
             "VoiceHarvest" => object.voice_harvest(),
@@ -179,6 +192,40 @@ impl Simulation {
             .object_type(foot.type_ref(), rules)?
             .phobos_voice_enter_grinder
             .as_deref()
+    }
+
+    /// Phobos `TechnoClass_ResponseMove_Pickup` (`Ext/Techno/Hooks.cpp:1370-1397`):
+    /// the AircraftType's `VoicePickup` when the actor is a `Carryall=` aircraft
+    /// that already holds a radio link (`RadioClass::HasAnyLink @ 0x0065AE30`,
+    /// the retained RadioLinks store) and the committed Destination is a Foot
+    /// (`generic_cast<FootClass*>`: Infantry, Unit or Aircraft, never a
+    /// Building). `target` is that Destination: the Move click's object, which
+    /// the native click handler installs before QueueMegaMission asks for the
+    /// voice. Every other arm falls through to the stock VoiceMove list.
+    #[cfg(feature = "phobos")]
+    fn carryall_pickup_voice<'a>(
+        &self,
+        entity: &crate::sim::game_entity::GameEntity,
+        object: &'a crate::rules::object_type::ObjectType,
+        target: Option<crate::sim::combat::TargetKind>,
+    ) -> Option<&'a str> {
+        use crate::map::entities::EntityCategory;
+        if entity.category() != EntityCategory::Aircraft
+            || !object.carryall
+            || entity.radio_contacts.is_empty()
+        {
+            return None;
+        }
+        let crate::sim::combat::TargetKind::Entity(destination) = target? else {
+            return None;
+        };
+        let destination = self.entities().get(destination)?;
+        matches!(
+            destination.category(),
+            EntityCategory::Infantry | EntityCategory::Unit | EntityCategory::Aircraft
+        )
+        .then(|| object.phobos_voice_pickup())
+        .flatten()
     }
 
     /// VoiceAttack7090A0 through the existing SelectWeapon/GetWeapon,

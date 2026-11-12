@@ -935,6 +935,18 @@ pub(crate) fn building_dock_cell(
     };
     let published = |cell: (i16, i16)| (cell.0 as u16, cell.1 as u16);
 
+    // Phobos `BuildingClass_FindExitCell_BarracksExitCell` @ 0x44EFD8
+    // (`Ext/Building/Hooks.cpp:794-822`): a set `BarracksExitCell` replaces
+    // this whole search with the producer's map coords plus the authored
+    // offset. That cell must be legal and admit the mover, else the hook jumps
+    // to the call's failure tail (0x44F13B) and no flag, offered or foundation
+    // cell is tried.
+    #[cfg(feature = "phobos")]
+    if let Some((dx, dy)) = object.barracks_exit_cell() {
+        let cell = relative(dx as i16, dy as i16);
+        return admits(cell, EntryQueryMode::CheckLocomotor).then(|| published(cell));
+    }
+
     //44EFD8/44F051/44F0CA: flags alone choose the preferred cell; there is
     //no Infantry RTTI condition. A refused preferred cell tries the next flag.
     for (flag, dx, dy) in [
@@ -1969,6 +1981,37 @@ mod tests {
                 expected
             );
         }
+    }
+
+    /// Phobos `BuildingClass_FindExitCell_BarracksExitCell` @ 0x44EFD8
+    /// (`Ext/Building/Hooks.cpp:794-822`): a set offset replaces the whole
+    /// search. The producer stands at (14,14) with `GDIBarracks=yes`, whose
+    /// stock preferred cell is (15,16).
+    #[cfg(feature = "phobos")]
+    #[test]
+    fn barracks_exit_cell_replaces_the_stock_cell_search() {
+        // (17,15): the authored offset, not the GDIBarracks (15,16).
+        let (sim, rules) = factory_exit_fixture("GDIBarracks=yes\nBarracksExitCell=3,1\n");
+        assert_eq!(
+            building_dock_cell(&sim, DEPOT, 1, (0, 0), &rules, None),
+            Some((17, 15))
+        );
+
+        // A blocked offset cell answers the empty cell: the stock preferred
+        // cell is free and the hook never falls back to it.
+        let (mut sim, rules) = factory_exit_fixture("GDIBarracks=yes\nBarracksExitCell=3,1\n");
+        spawn_exit_query_building(&mut sim, &rules, 90, "GAPOWR", 17, 15);
+        assert_eq!(
+            building_dock_cell(&sim, DEPOT, 1, (0, 0), &rules, None),
+            None
+        );
+
+        // The offset cell is bounds-checked before the mover query.
+        let (sim, rules) = factory_exit_fixture("GDIBarracks=yes\nBarracksExitCell=-100,-100\n");
+        assert_eq!(
+            building_dock_cell(&sim, DEPOT, 1, (0, 0), &rules, None),
+            None
+        );
     }
 
     #[test]

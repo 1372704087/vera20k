@@ -1051,3 +1051,62 @@ fn phobos_multi_weapon_voice_uses_the_slot_and_is_secondary() {
         "IsSecondary(slot 2) chooses VoiceSecondaryWeaponAttack"
     );
 }
+
+/// Phobos `TechnoClass_ResponseMove_Pickup` (`Ext/Techno/Hooks.cpp:1370-1397`,
+/// hook `0x00708FC0`): `VoicePickup` (`Ext/AircraftType/Body.cpp:23`) replaces
+/// the VoiceMove choice for a `Carryall=` aircraft with a used radio link whose
+/// Destination is a Foot, and the registered scalar queues with no Main draw.
+#[cfg(feature = "phobos")]
+#[test]
+fn carryall_voice_pickup_replaces_move_only_for_a_linked_foot_destination() {
+    use crate::map::entities::EntityCategory;
+    use crate::sim::combat::TargetKind;
+
+    let ini = IniFile::from_str(
+        "[AircraftTypes]\n0=CARG\n[CARG]\nStrength=200\nCarryall=yes\nVoiceMove=Move\n\
+         VoicePickup=Pickup\n[VehicleTypes]\n0=MTNK\n[MTNK]\nStrength=300\n\
+         VoicePickup=Pickup\n",
+    );
+    let mut rules = RuleSet::from_ini(&ini).unwrap();
+    let sounds = SoundRegistry::from_ini(&IniFile::from_str("[SoundList]\n0=Move\n1=Pickup\n"));
+    rules.bind_type_sound_references(&ini, &sounds);
+    // An AircraftType-only reader: a Vehicle section keeps the field unset.
+    assert_eq!(rules.object("MTNK").unwrap().phobos_voice_pickup(), None);
+    assert_eq!(
+        rules.object("CARG").unwrap().phobos_voice_pickup(),
+        Some("Pickup")
+    );
+
+    let mut sim = crate::sim::arena_fixture::rival_arena(&rules, 23);
+    let plane = sim
+        .spawn_object("CARG", "Americans", 8, 10, 0, &rules)
+        .unwrap();
+    let vehicle = sim
+        .spawn_object("MTNK", "Americans", 10, 10, 0, &rules)
+        .unwrap();
+    let pickup = Some(TargetKind::Entity(vehicle));
+
+    // No used radio link (RadioClass::HasAnyLink @ 0x0065AE30): VoiceMove.
+    assert_eq!(
+        sim.order_voice_request(&rules, plane, "VoiceMove", pickup, true),
+        Some("Move")
+    );
+    sim.entities_mut_for_test()
+        .get_mut(plane)
+        .unwrap()
+        .mark_live_contact_with(vehicle);
+    let (sound, draws) =
+        trace_draws(|| sim.order_voice_request(&rules, plane, "VoiceMove", pickup, true));
+    assert_eq!(sound, Some("Pickup"));
+    assert!(draws.is_empty(), "a registered scalar spends no Main draw");
+    // A cell Destination is not a FootClass, so the list stands.
+    assert_eq!(
+        sim.order_voice_request(&rules, plane, "VoiceMove", None, true),
+        Some("Move")
+    );
+    // A disabled voice request still rejects before either arm.
+    assert_eq!(
+        sim.order_voice_request(&rules, plane, "VoiceMove", pickup, false),
+        None
+    );
+}

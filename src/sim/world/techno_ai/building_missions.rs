@@ -253,12 +253,12 @@ pub(super) fn update_animation(sim: &mut Simulation, id: u64, rules: &RuleSet) {
     let has_turret = entity
         .building_upgrades()
         .has_turret(object, rules, &sim.interner);
-    let archive_less_sale =
+    let undeploy_stage =
         crate::sim::production::archive_less_sale(rules.into(), &object.id, entity);
     let now = sim.session.binary_frame() as i32;
     let options = sim.session.game_options();
     if let Some(entity) = sim.substrate.entities.get_mut(id) {
-        entity.advance_building_body(now, archive_less_sale, has_turret, options);
+        entity.advance_building_body(now, undeploy_stage, has_turret, options);
     }
     // Phobos BuildingClass_AnimationAI_TurretAnim (0x451242): AnimationAI
     // runs once per frame, so GetTurretFrame is called exactly once here.

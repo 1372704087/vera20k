@@ -10414,9 +10414,25 @@ impl RuleSet {
     /// Starting-rank callers: Infantry517CE7, Unit735604/746827,
     /// Aircraft413F98. With Ares, Building Init_Managers442D1B reaches
     ///100236D0 and its retained VeteranBuildings list with the same gates.
+    ///
+    /// Phobos `BuildingClass_Init_CountryBuildingVeteran`
+    /// (`Ext/HouseType/Hooks.cpp:59-84`, hook `0x00442D1B`) adds the country's
+    /// `VeteranDefenses` list for a `BuildCat=Combat` building; the Ares
+    /// membership above still runs, so the two are additive.
     pub fn country_starts_veteran(&self, country: &str, object: &ObjectType) -> bool {
-        self.country_rules(country)
-            .is_some_and(|rules| rules.veteran_types.contains(object.category, &object.id))
+        self.country_rules(country).is_some_and(|rules| {
+            if rules.veteran_types.contains(object.category, &object.id) {
+                return true;
+            }
+            #[cfg(feature = "phobos")]
+            {
+                return object.category == crate::rules::object_type::ObjectCategory::Building
+                    && object.build_cat == Some(crate::rules::object_type::BuildCategory::Combat)
+                    && rules.veteran_types.contains_defense(&object.id);
+            }
+            #[cfg(not(feature = "phobos"))]
+            false
+        })
     }
 
     pub fn country_multiplay(&self, id: &str) -> bool {

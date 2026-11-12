@@ -761,7 +761,8 @@ impl Simulation {
             }
             _ => 0,
         };
-        self.temporal_warp_per_step(attacker, rules).wrapping_add(rest)
+        self.temporal_warp_per_step(attacker, rules)
+            .wrapping_add(rest)
     }
 
     /// `Owner->GetWeapon(Owner->SelectWeapon(0))->Damage` (vtable `+0x2E4`
@@ -851,9 +852,7 @@ impl Simulation {
                 )
                 .and_then(|weapon| weapon.warhead.clone())
             })();
-            let warhead = warhead_name
-                .as_deref()
-                .and_then(|name| rules.warhead(name));
+            let warhead = warhead_name.as_deref().and_then(|name| rules.warhead(name));
             let (apply_multiplier, apply_versus) = match warhead {
                 Some(warhead) => (
                     warhead
@@ -871,8 +870,8 @@ impl Simulation {
             if !apply_multiplier && !apply_versus {
                 return warp;
             }
-            let target = Self::temporal_link(&self.substrate, attacker)
-                .and_then(|link| link.target);
+            let target =
+                Self::temporal_link(&self.substrate, attacker).and_then(|link| link.target);
             let mut multiplier = 1.0_f64;
             if apply_multiplier {
                 if let Some(entity) = self.substrate.entities.get(attacker) {
@@ -922,8 +921,7 @@ impl Simulation {
                 }
                 if let (Some(warhead), Some(target)) = (warhead.as_ref(), target)
                     && let Some(target_entity) = self.substrate.entities.get(target)
-                    && let Some(target_object) =
-                        self.entity_object_type(target_entity, rules)
+                    && let Some(target_object) = self.entity_object_type(target_entity, rules)
                 {
                     warp = crate::sim::combat::damage::kernel::apply_warhead_damage(
                         warp,

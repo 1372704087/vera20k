@@ -1,8 +1,9 @@
 # Phobos dot-key families (package 45 batch)
 
-Nine small families ported as one batch (task 45, G1's three area/scatter
-keys are **not** in this batch and remain open). Per-key Phobos reads cite
-`Ext/...` relative to the Phobos source root; consumers cite the hook address.
+Twelve small families ported on this branch (task 45, G2-G6 in the batch
+commit and G1's three area/scatter keys in the two follow-up commits). Per-key
+Phobos reads cite `Ext/...` relative to the Phobos source root; consumers
+cite the hook address.
 
 ## CrashSpin.Multiplier
 
@@ -140,8 +141,10 @@ stands within `(BombSight << 8)` of the carrier. VERA: the `seen_by` mask in
 `Damage.DealtByInvoker`, `Damage.ApplyOncePerLoop`, `FallingDownDamage`,
 `FallingDownDamage.AllowEMP`, `FallingDownDamage.Water`, `Wake`,
 `Wake.Grapple`, `Wake.Sinking`, `WarpAway`, `WarpOutWeapon`,
-`ChargeTurret.Delays`, `IvanBomb.Visibility` — re-run
-`phobos_chain_analysis_v2.py` after integrating.
+`ChargeTurret.Delays`, `IvanBomb.Visibility`, `CellSpread.Cylinder`,
+`Temporal.ApplyMultiplier`, `Temporal.ApplyVersus`,
+`Arcing.AllowElevationInaccuracy` — re-run `phobos_chain_analysis_v2.py`
+after integrating.
 
 ## Temporal.ApplyMultiplier / .ApplyVersus (G1.3)
 
@@ -200,3 +203,28 @@ delta, degenerate guard, lobber branch). RESIDUAL: the EMP cannon site
 (`0x44D46E`, `building_missile.rs`) does not fold the fix yet — its
 target-Z reconstruction needs the native Mission_Missile stack; the homing
 pass-through also keeps the stock velocity (the corpus tests pin it).
+
+## Regression tests
+
+- `778ba3ed8`: `phobos_charge_turret_delays_override_the_progress_and_expire`,
+  `a_powered_down_vat_exits_no_clone_unless_powered_is_no`,
+  `crash::phobos_spin_multiplier_tests::the_multiplier_scales_the_whole_double_product`,
+  `phobos_crash_spin_zero_multiplier_skips_the_spin_and_its_draws`.
+- `955a2394c`: `launch::arcing_fix_tests::the_fix_aims_at_the_scattered_delta`.
+- Close-out reader tests for G1 (all `#[cfg(feature = "phobos")]`):
+  `the_g1_combat_damage_gates_construct_and_read_from_their_own_section`
+  (`rules/phobos_globals_tests.rs`),
+  `the_g1_warhead_gates_default_and_keep_an_explicit_no` (`rules/warhead_type.rs`),
+  `the_arcing_elevation_inaccuracy_nullable_reads_yes_no_and_unset`
+  (`rules/projectile_type.rs`). The three cover constructor defaults, the
+  `[CombatDamage]` section ownership, and the `Nullable` `Some(false)` state
+  that lets a warhead refuse a `yes` global.
+
+TEST DEBT carried forward (no production-path integration test yet):
+`Damage.DealtByInvoker` / `Damage.ApplyOncePerLoop` (the ares-style anim
+damage test is `cfg(not(phobos))`), the wake overrides, warp-away/warp-out,
+the ivan icon mask, radio-link sync-owner, and the falling-damage tier
+packet (a map fixture is needed to drive the landing receiver commit). The
+G1 `Temporal.Apply*` gates and `CellSpread.Cylinder` have reader-level
+coverage only; their per-step warp fold and planar-distance behaviour are
+not yet pinned by a sim test.

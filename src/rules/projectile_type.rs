@@ -956,6 +956,27 @@ mod tests {
             "the constructor value is yes"
         );
     }
+
+    /// Package 45 G1.2 `Arcing.AllowElevationInaccuracy` (`Ext/BulletType/
+    /// Body.cpp:53`): a `Nullable<bool>` whose unset state defers to the
+    /// `[CombatDamage]` global (default yes). Refusing it enables
+    /// `BulletExt::ApplyArcingFix`.
+    #[cfg(feature = "phobos")]
+    #[test]
+    fn the_arcing_elevation_inaccuracy_nullable_reads_yes_no_and_unset() {
+        let ini = IniFile::from_str(
+            "[YES]\nArcing.AllowElevationInaccuracy=yes\n\
+             [NO]\nArcing.AllowElevationInaccuracy=no\n\
+             [UNSET]\nFixtureOnly=1\n",
+        );
+        let read = |id: &str| {
+            ProjectileType::from_ini_section(id, ini.section(id).unwrap(), None)
+                .phobos_arcing_allow_elevation_inaccuracy
+        };
+        assert_eq!(read("YES"), Some(true));
+        assert_eq!(read("NO"), Some(false));
+        assert_eq!(read("UNSET"), None);
+    }
 }
 
 #[cfg(test)]

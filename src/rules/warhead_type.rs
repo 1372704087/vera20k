@@ -1473,4 +1473,37 @@ AffectsInvokerOnly.Reverse=yes
         assert!(set.health_check());
         assert!(set.veterancy_check());
     }
+
+    /// Package 45 G1 warhead gates through the production reader
+    /// (`Ext/WarheadType/Body.cpp:190-191,408`): `CellSpread.Cylinder` is a
+    /// `Valueable<bool>` (default no), the two `Temporal.Apply*` are
+    /// `Nullable<bool>`. An explicit `no` must stay `Some(false)` so a
+    /// warhead can refuse a `yes` `[CombatDamage]` global.
+    #[cfg(feature = "phobos")]
+    #[test]
+    fn the_g1_warhead_gates_default_and_keep_an_explicit_no() {
+        let ini = IniFile::from_str(
+            "[PLAIN]\nFixtureOnly=1\n\
+             [SET]\nCellSpread.Cylinder=yes\nTemporal.ApplyMultiplier=yes\n\
+             Temporal.ApplyVersus=yes\n\
+             [OFF]\nCellSpread.Cylinder=no\nTemporal.ApplyMultiplier=no\n\
+             Temporal.ApplyVersus=no\n",
+        );
+        let read = |id: &str| WarheadType::from_ini_section(id, ini.section(id).unwrap());
+
+        let plain = read("PLAIN");
+        assert!(!plain.phobos_cell_spread_cylinder);
+        assert_eq!(plain.phobos_temporal_apply_multiplier, None);
+        assert_eq!(plain.phobos_temporal_apply_versus, None);
+
+        let set = read("SET");
+        assert!(set.phobos_cell_spread_cylinder);
+        assert_eq!(set.phobos_temporal_apply_multiplier, Some(true));
+        assert_eq!(set.phobos_temporal_apply_versus, Some(true));
+
+        let off = read("OFF");
+        assert!(!off.phobos_cell_spread_cylinder);
+        assert_eq!(off.phobos_temporal_apply_multiplier, Some(false));
+        assert_eq!(off.phobos_temporal_apply_versus, Some(false));
+    }
 }

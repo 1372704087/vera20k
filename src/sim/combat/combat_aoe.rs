@@ -653,10 +653,10 @@ impl AoECollector {
                     i32::from(impact_rx as i16),
                     i32::from(impact_ry as i16),
                 );
-            #[cfg(feature = "phobos")]
-            let cylinder = warhead.phobos_cell_spread_cylinder;
-            #[cfg(not(feature = "phobos"))]
-            let cylinder = false;
+                #[cfg(feature = "phobos")]
+                let cylinder = warhead.phobos_cell_spread_cylinder;
+                #[cfg(not(feature = "phobos"))]
+                let cylinder = false;
                 for entity_id in entities.airborne_in_query_order(
                     &center,
                     cell_spread::whole_cells(cell_spread),
@@ -686,7 +686,7 @@ impl AoECollector {
                         air_source_admitted,
                         rules,
                         interner,
-                    cylinder,
+                        cylinder,
                     );
                 }
             }
@@ -706,7 +706,6 @@ impl AoECollector {
             merge_building_damage: warhead
                 .phobos_extras
                 .merges_building_damage(rules.phobos_globals.merge_building_damage),
-            #[cfg(feature = "phobos")]
             #[cfg(feature = "phobos")]
             cylinder: warhead.phobos_cell_spread_cylinder,
             #[cfg(feature = "phobos")]
@@ -1354,9 +1353,15 @@ fn push_airborne_aoe_damage(
     let impact_point = impact.world_point(impact_rx, impact_ry);
     let (impact_x, impact_y) = (impact_point.x, impact_point.y);
     let raw_distance_leptons = if cylinder {
-        distance_3d_leptons([impact_x, impact_y, target.z], [target.x, target.y, target.z])
+        distance_3d_leptons(
+            [impact_x, impact_y, target.z],
+            [target.x, target.y, target.z],
+        )
     } else {
-        distance_3d_leptons([impact_x, impact_y, impact.z_leptons], [target.x, target.y, target.z])
+        distance_3d_leptons(
+            [impact_x, impact_y, impact.z_leptons],
+            [target.x, target.y, target.z],
+        )
     };
     if i64::from(raw_distance_leptons) > spread_leptons {
         return;

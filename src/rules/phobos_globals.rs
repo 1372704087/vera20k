@@ -205,6 +205,12 @@ pub struct PhobosGlobals {
     /// AI-owned paradropped `FootClass` (`Ext/Techno/Hooks.cpp:1885`).
     #[serde(default = "default_ai_paradrop_mission")]
     pub ai_paradrop_mission: MissionType,
+    /// `[General] AircraftWeapon.KickOutPassengers=` (`Valueable<bool>`,
+    /// true; `Ext/Rules/Body.cpp:272`, `Body.h:190,714`): the fallback for a
+    /// weapon's `KickOutPassengers` in `AircraftClass::Fire_At`'s passenger
+    /// drop (`AircraftClass_Fire_KickOutPassengers @ 0x415EEE`).
+    #[serde(default = "true_bool")]
+    pub aircraft_weapon_kick_out_passengers: bool,
     /// `[General] ArtImageSwap=`, default `no` (`Phobos.INI.cpp:262`):
     /// Phobos' ART `Image=` redirect for TechnoTypes. VERA's body SHP source
     /// already applies that redirect, so the SHP UnitType turret file name
@@ -912,6 +918,7 @@ impl Default for PhobosGlobals {
             sink_speed: 5,
             paradrop_mission: MissionType::Guard,
             ai_paradrop_mission: MissionType::Hunt,
+            aircraft_weapon_kick_out_passengers: true,
             keep_range_early_stop: 0,
             parasite_grapple_anim: None,
             parasite_allow_water_exit: None,
@@ -1267,6 +1274,10 @@ impl PhobosGlobals {
             2048,
             globals.ai_paradrop_mission,
             |current, value| MissionType::from_map_name(value).unwrap_or(current),
+        );
+        globals.aircraft_weapon_kick_out_passengers = general.read_bool(
+            "AircraftWeapon.KickOutPassengers",
+            globals.aircraft_weapon_kick_out_passengers,
         );
         globals.keep_range_early_stop =
             general.read_ares_int("KeepRange.EarlyStopFrame", globals.keep_range_early_stop);

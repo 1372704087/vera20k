@@ -364,6 +364,27 @@ impl FireAtHost for AircraftFireAt<'_, '_, '_, '_> {
             .is_some_and(|cargo| !cargo.is_empty())
     }
 
+    /// Phobos `AircraftClass_Fire_KickOutPassengers` (`0x415EEE`,
+    /// `Ext/Aircraft/Hooks.cpp:455-474`): `GetWeapon(weaponIdx)` is the
+    /// selected weapon's `KickOutPassengers`, else
+    /// `[General] AircraftWeapon.KickOutPassengers=`; no selected weapon
+    /// keeps the stock drop.
+    #[cfg(feature = "phobos")]
+    fn kick_out_passengers(&mut self) -> bool {
+        let strike = &mut *self.strike;
+        let Some((_, Some(shot))) =
+            live_shot_for(strike.world, strike.rules, strike.id(), self.aim)
+        else {
+            return true;
+        };
+        shot.selected.weapon.phobos_kick_out_passengers.unwrap_or(
+            strike
+                .rules
+                .phobos_globals
+                .aircraft_weapon_kick_out_passengers,
+        )
+    }
+
     fn drop_payload(&mut self) {
         let strike = &mut *self.strike;
         crate::sim::aircraft::drop_payload::drop_payload(

@@ -653,6 +653,49 @@ fn a_fighter_that_drops_its_last_ammo_with_a_passenger_leaves() {
     assert_eq!(crate::sim::aircraft::attack_state(aircraft), Some(10));
 }
 
+/// Phobos `AircraftClass_Fire_KickOutPassengers` (`0x415EEE`,
+/// `Ext/Aircraft/Hooks.cpp:455-474`): the firing weapon's
+/// `KickOutPassengers`, else `[General] AircraftWeapon.KickOutPassengers=`,
+/// keeps the stock drop when yes; no skips it (SkipKickOutPassengers
+/// `0x415F08`) and lets the shot fire.
+#[cfg(feature = "phobos")]
+#[test]
+fn phobos_kick_out_passengers_gates_the_fire_drop() {
+    let run = |input: Value| {
+        let (mut sim, rules) = fixture(&input);
+        let fired = dispatch(&mut sim, &rules).len();
+        let aircraft = sim.substrate.entities.get(1).unwrap();
+        (aircraft.passenger_role.cargo().unwrap().is_empty(), fired)
+    };
+    let (dropped, fired) = run(serde_json::json!({"burst": 1, "passenger": true}));
+    assert_eq!((dropped, fired), (true, 0), "the default keeps the drop");
+
+    let weapon_off = serde_json::json!({
+        "burst": 1,
+        "passenger": true,
+        "gun_ini": "KickOutPassengers=no\n",
+    });
+    let (dropped, fired) = run(weapon_off);
+    assert_eq!((dropped, fired), (false, 1), "the weapon key no fires");
+
+    let global_off = serde_json::json!({
+        "burst": 1,
+        "passenger": true,
+        "extra_ini": "[General]\nAircraftWeapon.KickOutPassengers=no\n",
+    });
+    let (dropped, fired) = run(global_off);
+    assert_eq!((dropped, fired), (false, 1), "the global no fires");
+
+    let weapon_on = serde_json::json!({
+        "burst": 1,
+        "passenger": true,
+        "gun_ini": "KickOutPassengers=yes\n",
+        "extra_ini": "[General]\nAircraftWeapon.KickOutPassengers=no\n",
+    });
+    let (dropped, fired) = run(weapon_on);
+    assert_eq!((dropped, fired), (true, 0), "the weapon key yes drops");
+}
+
 /// `0x0041631F..0x00416595`: a shot by a human player's aircraft flying at
 /// 1500 leptons over shrouded flat ground. IsShrouded (`0x00586360`) asks
 /// the Cell its height raises the Location onto, 7 cells up the map, and

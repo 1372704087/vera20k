@@ -566,3 +566,13 @@ fn paradrop_mission_globals_default_and_read() {
     let invalid = read("[General]\nParadropMission=Wibble\n");
     assert_eq!(invalid.paradrop_mission, MissionType::Guard);
 }
+
+/// `[General] AircraftWeapon.KickOutPassengers` (`Valueable<bool>`, true).
+#[test]
+fn aircraft_weapon_kick_out_passengers_defaults_and_reads() {
+    assert!(PhobosGlobals::default().aircraft_weapon_kick_out_passengers);
+    assert!(
+        !read("[General]\nAircraftWeapon.KickOutPassengers=no\n")
+            .aircraft_weapon_kick_out_passengers
+    );
+}

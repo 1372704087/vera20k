@@ -40,6 +40,11 @@ pub struct PhobosWeaponExtras {
     /// scanner may auto-target an enemy building that is unarmed or poses no
     /// threat (`Ext/Techno/Hooks.cpp:1848-1858`).
     pub attack_no_threat_buildings: Option<bool>,
+    /// `TurretRecoil.Suppress=` (`Body.cpp:138`, `Valueable<bool>` default
+    /// `false`, `Ext/WeaponType/Body.h:68,163`): the fired weapon skips the
+    /// unit recoil record (`Ext/Techno/Hooks.Firing.cpp:820-833`, hook
+    /// `0x6FF0DD`).
+    pub turret_recoil_suppress: bool,
     /// `ChargeTurret.Delays=` (`Body.cpp:135`, `ValueableVector<int>`,
     /// `Body.h:65`, default empty `:160`): per-burst-shot charge delays for a
     /// charge turret — the just-fired shot's list item overrides the saved
@@ -58,6 +63,7 @@ impl PhobosWeaponExtras {
             visual_scatter: section.read_ares_bool("VisualScatter", false),
             attack_no_threat_buildings: section
                 .read_phobos_nullable_bool("AttackNoThreatBuildings", None),
+            turret_recoil_suppress: section.read_bool("TurretRecoil.Suppress", false),
             charge_turret_delays: section
                 .read_ares_int_list("ChargeTurret.Delays")
                 .unwrap_or_default(),

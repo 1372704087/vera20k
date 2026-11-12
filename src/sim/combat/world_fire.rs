@@ -2759,7 +2759,17 @@ pub(super) fn emit_admitted_fire(
         } else {
             obj.has_turret
         };
-        entity.fire_voxel_recoil(has_turret);
+        // Phobos `TechnoClass_FireAt_TurretRecoil` (`0x6FF0DD`,
+        // `Ext/Techno/Hooks.Firing.cpp:820-833`): a weapon with
+        // `TurretRecoil.Suppress=yes` skips the whole vanilla recoil arm, so
+        // the entity's recoil state stays clear.
+        #[cfg(feature = "phobos")]
+        let recoil_suppressed = weapon.phobos_extras.turret_recoil_suppress;
+        #[cfg(not(feature = "phobos"))]
+        let recoil_suppressed = false;
+        if !recoil_suppressed {
+            entity.fire_voxel_recoil(has_turret);
+        }
     }
     // FireAt6FF15F..6FF1A7: a UseFireParticles weapon with no live +304
     // system builds its AttachedParticleSystem as the Spark arm below does.
@@ -4560,6 +4570,10 @@ mod welding_native_tests;
 #[cfg(all(test, feature = "phobos"))]
 #[path = "world_fire_bunker_tests.rs"]
 mod world_fire_bunker_tests;
+
+#[cfg(all(test, feature = "phobos"))]
+#[path = "phobos_turret_recoil_tests.rs"]
+mod phobos_turret_recoil_tests;
 
 /// Ares 3.0 InfantryClass_UpdateFiringState_Heal (1004E420, hook 0x520731):
 /// a healing infantryman keeps a damaged vehicle as its target, where the

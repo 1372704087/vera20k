@@ -42,6 +42,29 @@ pub(crate) struct PhobosClientSettings {
     /// `LowDeployPriority=yes` techno from a multi-object deploy when the
     /// selection also holds one that is not low priority.
     pub(crate) priority_deploy_filtering: bool,
+    /// `[Phobos] TypeSelectUseIFVMode=`, default `yes`
+    /// (`Phobos.INI.cpp:95`): a type-selection click enters IFV mode instead of
+    /// a plain move/select.
+    pub(crate) type_select_use_ifv_mode: bool,
+    /// `[Phobos] MessageDisplayInCenter=`, default `no`
+    /// (`Phobos.INI.cpp:98`): the center-message layout switch.
+    pub(crate) message_display_in_center: bool,
+    /// `[Phobos] SaveGameOnScenarioStart=`, default `yes`
+    /// (`Phobos.INI.cpp:106`): a campaign/mission start writes a save before
+    /// play begins.
+    pub(crate) save_game_on_scenario_start: bool,
+    /// `[Phobos] HideLaserTrailEffects=`, default `no`
+    /// (`Phobos.INI.cpp:73` static, read `:112`): suppresses laser-trail
+    /// drawing; the read default overrides the static `true`.
+    pub(crate) hide_laser_trail_effects: bool,
+    /// `[Phobos] ShowGameTime=`, default `no` (`Phobos.INI.cpp:116`): draws the
+    /// elapsed-game-time clock.
+    pub(crate) show_game_time: bool,
+    /// `[Phobos] CampaignDefaultGameSpeed=`, engine speed index
+    /// (`6 - ReadInteger(4)` at `Phobos.INI.cpp:120`): 2 when the computed
+    /// index leaves 0..=6 (`:121-124`), i.e. the stock `GS4` forced when speed
+    /// control is off.
+    pub(crate) campaign_default_game_speed: i32,
 }
 
 impl Default for PhobosClientSettings {
@@ -58,6 +81,12 @@ impl Default for PhobosClientSettings {
             show_harvester_counter: true,
             show_weeds_counter: true,
             priority_deploy_filtering: true,
+            type_select_use_ifv_mode: true,
+            message_display_in_center: false,
+            save_game_on_scenario_start: true,
+            hide_laser_trail_effects: false,
+            show_game_time: false,
+            campaign_default_game_speed: 2,
         }
     }
 }
@@ -99,6 +128,23 @@ pub(crate) fn read(settings_dir: &Path) -> PhobosClientSettings {
             "PriorityDeployFiltering",
             defaults.priority_deploy_filtering,
         ),
+        type_select_use_ifv_mode: section
+            .read_bool("TypeSelectUseIFVMode", defaults.type_select_use_ifv_mode),
+        message_display_in_center: section
+            .read_bool("MessageDisplayInCenter", defaults.message_display_in_center),
+        save_game_on_scenario_start: section.read_bool(
+            "SaveGameOnScenarioStart",
+            defaults.save_game_on_scenario_start,
+        ),
+        hide_laser_trail_effects: section
+            .read_bool("HideLaserTrailEffects", defaults.hide_laser_trail_effects),
+        show_game_time: section.read_bool("ShowGameTime", defaults.show_game_time),
+        // `Phobos.INI.cpp:120-124`: index `6 - key`, then the same 0..=6 guard
+        // that forces the stock `GS4` speed 2 when the read leaves the range.
+        campaign_default_game_speed: {
+            let speed = 6 - section.read_int("CampaignDefaultGameSpeed", 4);
+            if (0..=6).contains(&speed) { speed } else { 2 }
+        },
     }
 }
 
@@ -134,7 +180,9 @@ mod tests {
             "[Phobos]\nShowPlacementPreview=no\nDigitalDisplay.Enable=yes\n\
              SuperWeaponSidebar.RequiredSignificance=2\nShowFlashOnSelecting=yes\n\
              ShowPowerPlantEnhancerRange=yes\nShowPowerDelta=no\nShowHarvesterCounter=no\n\
-             ShowWeedsCounter=no\nPriorityDeployFiltering=no\n",
+             ShowWeedsCounter=no\nPriorityDeployFiltering=no\nTypeSelectUseIFVMode=no\n\
+             MessageDisplayInCenter=yes\nSaveGameOnScenarioStart=no\n\
+             HideLaserTrailEffects=yes\nShowGameTime=yes\nCampaignDefaultGameSpeed=4\n",
         );
         assert_eq!(
             read(&dir),
@@ -148,8 +196,26 @@ mod tests {
                 show_harvester_counter: false,
                 show_weeds_counter: false,
                 priority_deploy_filtering: false,
+                type_select_use_ifv_mode: false,
+                message_display_in_center: true,
+                save_game_on_scenario_start: false,
+                hide_laser_trail_effects: true,
+                show_game_time: true,
+                campaign_default_game_speed: 2,
             }
         );
+        std::fs::remove_dir_all(dir).unwrap();
+    }
+
+    /// `Phobos.INI.cpp:120-124`: the stored value is `6 - key`; a key that
+    /// leaves the 0..=6 range (here 7 gives -1) falls back to speed 2.
+    #[test]
+    fn campaign_default_game_speed_inverts_the_key_and_clamps() {
+        let dir = profile_with("[Phobos]\nCampaignDefaultGameSpeed=0\n");
+        assert_eq!(read(&dir).campaign_default_game_speed, 6);
+        std::fs::remove_dir_all(dir).unwrap();
+        let dir = profile_with("[Phobos]\nCampaignDefaultGameSpeed=7\n");
+        assert_eq!(read(&dir).campaign_default_game_speed, 2);
         std::fs::remove_dir_all(dir).unwrap();
     }
 }

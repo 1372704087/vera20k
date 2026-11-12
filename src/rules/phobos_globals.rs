@@ -230,6 +230,12 @@ pub struct PhobosGlobals {
     /// of the railgun/blast-wave ambient damage.
     #[serde(default)]
     pub ambient_damage_ignore_target: bool,
+    /// `[General] ApplyModifiersOnNegativeDamage=`, default `no`
+    /// (`Ext/Rules/Body.cpp:492`, constructor `Ext/Rules/Body.h:907`): the
+    /// fallback for an unset warhead key; a negative packet keeps the stock
+    /// early-out at `0x4891AF` unless this or the type key is set.
+    #[serde(default)]
+    pub apply_modifiers_on_negative_damage: bool,
     /// `[General] ForceWeapon.InRange.TechnoOnly=`, default **`yes`**
     /// (`Ext/Rules/Body.h:674`): the per-type fallback for the in-range
     /// force-weapon gate.
@@ -822,6 +828,7 @@ impl Default for PhobosGlobals {
             amphibious_enter: false,
             amphibious_unload: false,
             ambient_damage_ignore_target: false,
+            apply_modifiers_on_negative_damage: false,
             force_weapon_in_range_techno_only: true,
             force_weapon_in_range_apply_range_modifiers: false,
             force_aa_weapon_in_range_apply_range_modifiers: false,
@@ -1040,6 +1047,12 @@ impl PhobosGlobals {
         globals.ambient_damage_ignore_target = general.read_bool(
             "AmbientDamage.IgnoreTarget",
             globals.ambient_damage_ignore_target,
+        );
+        // `Ext/Rules/Body.cpp:492`: the negative-damage modifier fallback,
+        // constructed false.
+        globals.apply_modifiers_on_negative_damage = general.read_bool(
+            "ApplyModifiersOnNegativeDamage",
+            globals.apply_modifiers_on_negative_damage,
         );
         // `Ext/Rules/Body.cpp:418`: the AnimType ART key's `[General]`
         // fallback, constructed true.

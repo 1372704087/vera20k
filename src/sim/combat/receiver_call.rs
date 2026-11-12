@@ -652,6 +652,7 @@ pub(super) fn resolve_receive_damage_with_input(
         distance_leptons,
         scenario_no_damage,
         rules.combat_damage.max_damage,
+        warhead.apply_modifiers_on_negative_damage(rules),
     );
     // Ares TechnoClass_ReceiveDamage_IronCurtainFlash (10053B50, hook
     // 0x701A5C): `IronCurtain.Flash=` (default `[AudioVisual]

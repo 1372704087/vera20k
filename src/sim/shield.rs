@@ -749,6 +749,7 @@ fn shield_stage(
                         event.distance_leptons,
                         sim.session.no_damage(),
                         rules.combat_damage.max_damage,
+                        false,
                     )
                 } else {
                     -crate::sim::combat::damage::kernel::apply_warhead_damage(
@@ -759,6 +760,7 @@ fn shield_stage(
                         event.distance_leptons,
                         sim.session.no_damage(),
                         rules.combat_damage.max_damage,
+                        false,
                     )
                 };
                 // Phobos `ShieldClass::ReceiveDamage`, installed at `0x701900+0x6`:

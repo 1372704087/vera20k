@@ -2709,6 +2709,7 @@ impl Simulation {
             event.distance_leptons,
             self.session.no_damage(),
             rules.combat_damage.max_damage,
+            warhead.apply_modifiers_on_negative_damage(rules),
         );
         if total < target.health.current() {
             return false;

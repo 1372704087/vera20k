@@ -127,6 +127,7 @@ fn shared_kernel_matches_every_representable_native_invocation() {
             distance,
             row.input.scenario_flags & 0x20 != 0,
             row.input.rules_max_damage,
+            false,
         );
         assert_eq!(actual, row.result_i32, "{}", row.input.name);
         compared += 1;
@@ -218,10 +219,37 @@ fn parser_admitted_percent_overflow_uses_native_masked_kernel() {
                 0,
                 false,
                 i32::MAX,
+                false,
             );
             assert_eq!(actual, expected, "PAM={authored}, spread={spread}");
         }
     }
+}
+
+/// Phobos `ApplyModifiersOnNegativeDamage` (`Ext/WarheadType/Hooks.cpp:334-360`,
+/// hooks `0x4891AF`/`0x48922D`): the armed negative packet skips the stock
+/// distance<8 bypass and the zero floor, so Verses scales a heal; unarmed
+/// packets keep the raw near value or zero far away.
+#[cfg(feature = "phobos")]
+#[test]
+fn negative_damage_modifiers_skip_the_stock_early_out_and_zero_floor() {
+    let run = |damage: i32, distance: i32, armed: bool| {
+        apply_warhead_damage(
+            damage,
+            0.0,
+            1.0,
+            NativeF64Bits::from_bits(0.5f64.to_bits()),
+            distance,
+            false,
+            i32::MAX,
+            armed,
+        )
+    };
+    assert_eq!(run(-100, 7, false), -100, "stock near bypass");
+    assert_eq!(run(-100, 8, false), 0, "stock far zeroes");
+    assert_eq!(run(-100, 8, true), -50, "armed scales by Verses");
+    assert_eq!(run(-100, 7, true), -50, "armed skips the distance test");
+    assert_eq!(run(100, 8, true), 50, "positive packets unchanged");
 }
 
 #[test]
@@ -235,6 +263,7 @@ fn native_binary32_spill_can_change_distance_zero_damage() {
             0,
             false,
             i32::MAX,
+            false,
         )
     };
     assert_eq!(run(1.0), 16_777_216);

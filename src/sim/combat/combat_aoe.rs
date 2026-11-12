@@ -5103,6 +5103,7 @@ mod tests {
                 adjacent.distance_leptons,
                 false,
                 rules.combat_damage.max_damage,
+                false,
             ),
             75,
             "the captured per-object distance produces the exact shared-kernel falloff at commit"

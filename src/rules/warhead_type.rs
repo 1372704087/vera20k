@@ -452,6 +452,12 @@ pub struct WarheadType {
     /// (`Ext/WarheadType/Detonate.cpp:51-80`).
     #[cfg(feature = "phobos")]
     pub create_gap: i32,
+    /// Phobos `ApplyModifiersOnNegativeDamage=` (`Body.cpp:185`,
+    /// `Nullable<bool>`): a negative packet runs the falloff/Verses kernel
+    /// instead of the stock early-out; `None` inherits `[General]`
+    /// (`Ext/WarheadType/Hooks.cpp:334-360`, hooks `0x4891AF`/`0x48922D`).
+    #[cfg(feature = "phobos")]
+    pub phobos_apply_modifiers_on_negative_damage: Option<bool>,
     /// Phobos `Reveal=` (`Body.cpp:157`, default 0, cells): a positive value
     /// reveals that radius to the firing house; negative reveals the whole
     /// map for it (`Ext/WarheadType/Detonate.cpp:82-100`).
@@ -729,6 +735,24 @@ impl WarheadType {
         self.affects_veterancy != crate::rules::phobos_airburst::AffectedVeterancy::ALL
     }
 
+    /// Phobos `ApplyModifiersOnNegativeDamage` (`Ext/WarheadType/Hooks.cpp:334`):
+    /// the weapon type's override, else `[General]`.
+    pub fn apply_modifiers_on_negative_damage(
+        &self,
+        rules: &crate::rules::ruleset::RuleSet,
+    ) -> bool {
+        #[cfg(feature = "phobos")]
+        {
+            self.phobos_apply_modifiers_on_negative_damage
+                .unwrap_or(rules.phobos_globals.apply_modifiers_on_negative_damage)
+        }
+        #[cfg(not(feature = "phobos"))]
+        {
+            let _ = rules;
+            false
+        }
+    }
+
     pub(crate) fn ares_rules(&self) -> Option<&crate::rules::ares_warhead::AresWarheadRules> {
         self.ares.as_ref()
     }
@@ -979,6 +1003,9 @@ impl WarheadType {
                 .read_phobos_nullable_bool("ApplyPerTargetEffectsOnDetonate", None),
             #[cfg(feature = "phobos")]
             create_gap: section.read_int("CreateGap", 0),
+            #[cfg(feature = "phobos")]
+            phobos_apply_modifiers_on_negative_damage: section
+                .read_phobos_nullable_bool("ApplyModifiersOnNegativeDamage", None),
             #[cfg(feature = "phobos")]
             reveal: section.read_int("Reveal", 0),
             #[cfg(feature = "phobos")]

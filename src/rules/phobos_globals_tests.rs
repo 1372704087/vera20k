@@ -29,6 +29,51 @@ fn the_force_weapon_globals_default_and_read_from_general() {
     assert!(set.force_aa_weapon_in_range_apply_range_modifiers);
 }
 
+/// `[General] ApplyModifiersOnNegativeDamage=` (`Ext/Rules/Body.cpp:492`,
+/// constructor false `Body.h:907`) is the fallback for the warhead
+/// `Nullable` key (`Ext/WarheadType/Body.cpp:185`, hooks `0x4891AF`).
+#[test]
+fn the_negative_damage_modifier_fallback() {
+    assert!(!PhobosGlobals::default().apply_modifiers_on_negative_damage);
+    assert!(
+        read("[General]
+ApplyModifiersOnNegativeDamage=yes
+")
+            .apply_modifiers_on_negative_damage
+    );
+    assert!(
+        !read("[CombatDamage]
+ApplyModifiersOnNegativeDamage=yes
+")
+            .apply_modifiers_on_negative_damage
+    );
+    #[cfg(feature = "phobos")]
+    {
+        let rules = crate::rules::ruleset::RuleSet::from_ini(&IniFile::from_str(
+            "[Warheads]
+0=KEYED
+1=UNSET
+             [KEYED]
+ApplyModifiersOnNegativeDamage=yes
+[UNSET]
+",
+        ))
+        .unwrap();
+        assert!(
+            rules
+                .warhead("KEYED")
+                .unwrap()
+                .apply_modifiers_on_negative_damage(&rules)
+        );
+        assert!(
+            !rules
+                .warhead("UNSET")
+                .unwrap()
+                .apply_modifiers_on_negative_damage(&rules)
+        );
+    }
+}
+
 /// `[General] AnimCraterDestroyTiberium=` (`Ext/Rules/Body.cpp:418`,
 /// constructor `Ext/Rules/Body.h:844`) defaults yes and is the fallback for an
 /// AnimType's unset art `Crater.DestroyTiberium=` (`Ext/AnimType/Body.cpp:126`).

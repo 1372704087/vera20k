@@ -686,6 +686,7 @@ pub(crate) fn can_affect_target(
             0,
             world.session.no_damage(),
             rules.combat_damage.max_damage,
+            warhead.apply_modifiers_on_negative_damage(rules),
         ) != 0
     }
 }

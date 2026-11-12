@@ -1054,6 +1054,7 @@ impl TerrainObjectStore {
                 distance_leptons,
                 scenario_no_damage,
                 rules.combat_damage.max_damage,
+                warhead.apply_modifiers_on_negative_damage(rules),
             )
         };
         *raw_damage = resolved_damage;

@@ -1363,6 +1363,12 @@ fn emit_resolved_order_voice(state: &mut AppState, speaker_id: u64, queued: &[Co
             target_ry,
             ..
         } => Some(TargetKind::Cell(*target_rx, *target_ry)),
+        // A Move click over an object commits that object as the actor's
+        // Destination (`Simulation::object_move_click`); Phobos'
+        // TechnoClass_ResponseMove_Pickup reads it back through
+        // `pAircraft->Destination` (`Ext/Techno/Hooks.cpp:1376`). VoiceAttack
+        // keeps the attack arms above; VoiceMove ignores it otherwise.
+        Command::MoveToObject { target_id, .. } => Some(TargetKind::Entity(*target_id)),
         _ => None,
     };
     emit_entity_order_voice(state, speaker_id, voice_field, target);

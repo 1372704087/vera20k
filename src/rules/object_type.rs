@@ -1360,6 +1360,13 @@ pub struct ObjectType {
     /// The same retained reader stores at713109. Capture708DC0 falls to
     /// Enter709020 for -1; registered scalars queue without a Main draw.
     voice_capture: Option<String>,
+    /// Phobos `AircraftTypeExt::VoicePickup` (`src/Ext/AircraftType/Body.cpp:23`,
+    /// `NullableIdx<VocClass>`, constructor `:38` leaves it unset): the
+    /// AircraftType section's scalar entry that replaces VoiceMove for a
+    /// `Carryall=` aircraft ordered onto an object. Only an AircraftType
+    /// section reaches the Phobos reader.
+    #[cfg(feature = "phobos")]
+    phobos_voice_pickup: Option<String>,
     /// Ares TechnoTypeExt `VoiceRepair` (ValueableIdx<VocClass>, unset -1):
     /// the attack voice of a repairing weapon (TechnoClass_SelectFiringVoice
     /// 1004B1D0, hook 0x7090A8).
@@ -4635,6 +4642,13 @@ impl ObjectType {
         self.voice_capture.as_deref()
     }
 
+    /// Phobos `AircraftTypeExt::VoicePickup`, see
+    /// [`Self::phobos_voice_pickup`].
+    #[cfg(feature = "phobos")]
+    pub(crate) fn phobos_voice_pickup(&self) -> Option<&str> {
+        self.phobos_voice_pickup.as_deref()
+    }
+
     pub fn voice_attack(&self) -> &[String] {
         &self.voice_attack
     }
@@ -4717,6 +4731,15 @@ impl ObjectType {
                 turret_count,
                 weapon_count,
             );
+            // `AircraftTypeExt::LoadFromINIFile` (`Ext/AircraftType/Body.cpp:23`)
+            // reads the key in the AircraftType pass only, so the same reader
+            // bound against every family leaves a non-aircraft section unset.
+            self.phobos_voice_pickup = if self.category == ObjectCategory::Aircraft {
+                section
+                    .and_then(|section| sounds.read_rules_reference(section, "VoicePickup", None))
+            } else {
+                None
+            };
         }
         #[cfg(feature = "ares")]
         {
@@ -6034,6 +6057,8 @@ impl ObjectType {
             voice_enter: None,
             #[cfg(feature = "ares")]
             ares_voice_repair: None,
+            #[cfg(feature = "phobos")]
+            phobos_voice_pickup: None,
             voice_capture: None,
             prevent_attack_move: section.read_bool("PreventAttackMove", false),
             voice_die: section

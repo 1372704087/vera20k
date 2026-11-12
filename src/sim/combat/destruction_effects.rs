@@ -510,16 +510,25 @@ impl Simulation {
         let Some(object) = self.object_type(entity.type_ref(), rules) else {
             return false;
         };
+        let water_and_not_warping = self.resolved_terrain.as_ref().is_some_and(|terrain| {
+            terrain
+                .cell(entity.position.rx(), entity.position.ry())
+                .is_some_and(|cell| cell.land_type == LandType::Water.as_index())
+        }) && !entity.is_warping_in();
+        // Phobos `UnitClass_ReceiveDamage_Sinkable` (`0x737DE2`,
+        // `Ext/Unit/Hooks.Sinking.cpp:13-23`): the type's `Sinkable` (else the
+        // `[General]` nullable, else the stock type-property gate) decides
+        // whether the water/warp checks are reached; `no` keeps the unit out
+        // of the sinking path entirely while `yes` skips the type properties.
+        #[cfg(feature = "phobos")]
+        if let Some(configured) = object.phobos_sinkable.or(rules.phobos_globals.sinkable) {
+            return configured && water_and_not_warping;
+        }
         object.naval
             && !object.underwater
             && !object.organic
             && object.weight >= rules.general.ship_sinking_weight
-            && self.resolved_terrain.as_ref().is_some_and(|terrain| {
-                terrain
-                    .cell(entity.position.rx(), entity.position.ry())
-                    .is_some_and(|cell| cell.land_type == LandType::Water.as_index())
-            })
-            && !entity.is_warping_in()
+            && water_and_not_warping
     }
 
     /// `UnitClass::Death_Explosion @ 0x00738680`: one `Explosion=` anim and

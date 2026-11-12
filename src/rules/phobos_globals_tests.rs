@@ -538,3 +538,15 @@ CrushSlowdownMultiplier=0.5
     assert_eq!(set.ai_guard_area_targeting_delay, Some(45));
     assert_eq!(f64::from_bits(set.crush_slowdown_multiplier.bits()), 0.5);
 }
+
+/// `[General] Sinkable` (`Nullable<bool>`, unset) and `SinkSpeed`
+/// (`Valueable<int>`, 5).
+#[test]
+fn sinkable_and_sink_speed_default_and_read() {
+    let defaults = PhobosGlobals::default();
+    assert_eq!(defaults.sinkable, None);
+    assert_eq!(defaults.sink_speed, 5);
+    let set = read("[General]\nSinkable=yes\nSinkSpeed=2\n");
+    assert_eq!(set.sinkable, Some(true));
+    assert_eq!(set.sink_speed, 2);
+}

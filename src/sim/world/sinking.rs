@@ -189,6 +189,28 @@ impl Simulation {
         {
             return false;
         }
+        // Phobos `UnitClass_Update_SinkSpeed` (`0x7364DC`,
+        // `Ext/Unit/Hooks.Sinking.cpp:3-11`): a UnitType's nullable
+        // `SinkSpeed`, else `[General] SinkSpeed=` (default 5), replaces the
+        // stock five-lepton step. The native hook rewrites EDX after the
+        // stock `add edx, -5`, leaving the total at the configured value;
+        // Aircraft keep the stock step (UnitClass hook only).
+        let sink_speed = {
+            #[cfg(feature = "phobos")]
+            {
+                if entity.category() == EntityCategory::Unit {
+                    self.object_type(entity.type_ref(), rules)
+                        .and_then(|object| object.phobos_sink_speed)
+                        .unwrap_or(rules.phobos_globals.sink_speed)
+                } else {
+                    5
+                }
+            }
+            #[cfg(not(feature = "phobos"))]
+            {
+                5
+            }
+        };
         let mut coord = position_world_coord(&entity.position);
         let floor = ground_surface_z_at(
             [coord.x, coord.y],
@@ -197,7 +219,7 @@ impl Simulation {
             None,
         )
         .unwrap_or(0);
-        coord.z = coord.z.wrapping_sub(5);
+        coord.z = coord.z.wrapping_sub(sink_speed);
         // Unit7364E3/Aircraft414DF8 call vt+1B4, Foot SetLocation4DB810. The fatal
         // receiver's Mark(UP) makes its unmarked arm4DB868 applicable; a
         // Chrono Warp's sink leaves the hull marked, so it takes the marked

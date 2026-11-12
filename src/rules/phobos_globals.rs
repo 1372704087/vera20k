@@ -67,6 +67,11 @@ fn read_double_bits(section: &IniSection, key: &str, current: NativeF64Bits) -> 
     )
 }
 
+/// `[General] SinkSpeed=`'s constructor value (`Ext/Rules/Body.h:901`).
+fn default_sink_speed() -> i32 {
+    5
+}
+
 /// `[General] CrushSlowdownMultiplier=`'s constructor value, 0.2
 /// (`Ext/Rules/Body.h:715`; the same binary64 as the stock Drive/Ship cap).
 fn crush_slowdown_default() -> NativeF64Bits {
@@ -166,6 +171,16 @@ pub struct PhobosGlobals {
     /// Drive/Ship crush slowdown (`0x4B1150`, `0x6A0813`).
     #[serde(default = "crush_slowdown_default")]
     pub crush_slowdown_multiplier: NativeF64Bits,
+    /// `[General] Sinkable=` (`Nullable<bool>`, unset; `Ext/Rules/Body.cpp:
+    /// 484`, `Body.h:394,899`): the fallback for a UnitType's `Sinkable`;
+    /// unset keeps the stock type-property gate.
+    #[serde(default)]
+    pub sinkable: Option<bool>,
+    /// `[General] SinkSpeed=` (`Valueable<int>`, default 5;
+    /// `Ext/Rules/Body.cpp:486`, `Body.h:396,901`): leptons per frame a unit
+    /// sinks. A UnitType's nullable overrides it (`0x7364DC`).
+    #[serde(default = "default_sink_speed")]
+    pub sink_speed: i32,
     /// `[General] ArtImageSwap=`, default `no` (`Phobos.INI.cpp:262`):
     /// Phobos' ART `Image=` redirect for TechnoTypes. VERA's body SHP source
     /// already applies that redirect, so the SHP UnitType turret file name
@@ -884,6 +899,8 @@ impl Default for PhobosGlobals {
             art_image_swap: false,
             ai_guard_area_targeting_delay: None,
             crush_slowdown_multiplier: crush_slowdown_default(),
+            sinkable: None,
+            sink_speed: 5,
             keep_range_early_stop: 0,
             parasite_grapple_anim: None,
             parasite_allow_water_exit: None,
@@ -1235,6 +1252,8 @@ impl PhobosGlobals {
             "CrushSlowdownMultiplier",
             globals.crush_slowdown_multiplier,
         );
+        globals.sinkable = general.read_phobos_nullable_bool("Sinkable", globals.sinkable);
+        globals.sink_speed = general.read_int("SinkSpeed", globals.sink_speed);
         globals.keep_range_early_stop =
             general.read_ares_int("KeepRange.EarlyStopFrame", globals.keep_range_early_stop);
         globals.parasite_allow_water_exit = general.read_phobos_nullable_bool(

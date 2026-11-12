@@ -29,6 +29,7 @@
 //! - Part of rules/ — no dependencies on sim/, render/, ui/, etc.
 
 use crate::rules::ini_parser::{IniFile, IniSection};
+use crate::rules::mission_data::MissionType;
 use crate::rules::phobos_shields::AffectedHouse;
 use crate::util::native_x87::NativeF64Bits;
 
@@ -70,6 +71,18 @@ fn read_double_bits(section: &IniSection, key: &str, current: NativeF64Bits) -> 
 /// `[General] SinkSpeed=`'s constructor value (`Ext/Rules/Body.h:901`).
 fn default_sink_speed() -> i32 {
     5
+}
+
+/// `[General] ParadropMission=`'s constructor value, `Guard`
+/// (`Ext/Rules/Body.h:934`).
+fn default_paradrop_mission() -> MissionType {
+    MissionType::Guard
+}
+
+/// `[General] AIParadropMission=`'s constructor value, `Hunt`
+/// (`Ext/Rules/Body.h:935`).
+fn default_ai_paradrop_mission() -> MissionType {
+    MissionType::Hunt
 }
 
 /// `[General] CrushSlowdownMultiplier=`'s constructor value, 0.2
@@ -181,6 +194,17 @@ pub struct PhobosGlobals {
     /// sinks. A UnitType's nullable overrides it (`0x7364DC`).
     #[serde(default = "default_sink_speed")]
     pub sink_speed: i32,
+    /// `[General] ParadropMission=` (`Valueable<Mission>`, Guard;
+    /// `Ext/Rules/Body.cpp:520`, `Body.h:431,934`): the mission a
+    /// human-owned paradropped `FootClass` queues after SpawnParachuted; a
+    /// TechnoType's nullable overrides it (`Ext/Techno/Hooks.cpp:1883`).
+    #[serde(default = "default_paradrop_mission")]
+    pub paradrop_mission: MissionType,
+    /// `[General] AIParadropMission=` (`Valueable<Mission>`, Hunt;
+    /// `Ext/Rules/Body.cpp:521`, `Body.h:432,935`): the same for an
+    /// AI-owned paradropped `FootClass` (`Ext/Techno/Hooks.cpp:1885`).
+    #[serde(default = "default_ai_paradrop_mission")]
+    pub ai_paradrop_mission: MissionType,
     /// `[General] ArtImageSwap=`, default `no` (`Phobos.INI.cpp:262`):
     /// Phobos' ART `Image=` redirect for TechnoTypes. VERA's body SHP source
     /// already applies that redirect, so the SHP UnitType turret file name
@@ -886,6 +910,8 @@ impl Default for PhobosGlobals {
             crush_slowdown_multiplier: crush_slowdown_default(),
             sinkable: None,
             sink_speed: 5,
+            paradrop_mission: MissionType::Guard,
+            ai_paradrop_mission: MissionType::Hunt,
             keep_range_early_stop: 0,
             parasite_grapple_anim: None,
             parasite_allow_water_exit: None,
@@ -1230,6 +1256,18 @@ impl PhobosGlobals {
         );
         globals.sinkable = general.read_phobos_nullable_bool("Sinkable", globals.sinkable);
         globals.sink_speed = general.read_int("SinkSpeed", globals.sink_speed);
+        globals.paradrop_mission = general.read_string_with(
+            "ParadropMission",
+            2048,
+            globals.paradrop_mission,
+            |current, value| MissionType::from_map_name(value).unwrap_or(current),
+        );
+        globals.ai_paradrop_mission = general.read_string_with(
+            "AIParadropMission",
+            2048,
+            globals.ai_paradrop_mission,
+            |current, value| MissionType::from_map_name(value).unwrap_or(current),
+        );
         globals.keep_range_early_stop =
             general.read_ares_int("KeepRange.EarlyStopFrame", globals.keep_range_early_stop);
         globals.parasite_allow_water_exit = general.read_phobos_nullable_bool(

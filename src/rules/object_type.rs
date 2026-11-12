@@ -936,6 +936,15 @@ pub struct ObjectType {
     /// (`UnitClass_Update_SinkSpeed @ 0x7364DC`).
     #[cfg(feature = "phobos")]
     pub phobos_sink_speed: Option<i32>,
+    /// Phobos `ParadropMission`/`AIParadropMission` (`Nullable<Mission>`,
+    /// unset; `Ext/TechnoType/Body.cpp:1171-1172`, `Body.h:411-412`): the
+    /// mission a human- or AI-controlled `FootClass` queues after
+    /// `FootClass_Paradrop` replaces the stock `SpawnParachuted` (vtable
+    /// 0x7EB140/0x7F5D58, `Ext/Techno/Hooks.cpp:1869-1893`).
+    #[cfg(feature = "phobos")]
+    pub phobos_paradrop_mission: Option<crate::rules::mission_data::MissionType>,
+    #[cfg(feature = "phobos")]
+    pub phobos_ai_paradrop_mission: Option<crate::rules::mission_data::MissionType>,
     /// Phobos `BunkerROFMultMultiplier` (`Nullable<float>`, unset;
     /// `Ext/BuildingType/Body.cpp:250`, `Body.h:99`): the per-bunker ROF
     /// multiplier (`TechnoClass_RearmDelay_BuildingBunkerROFMult @ 0x6FD1C7`),
@@ -5867,6 +5876,16 @@ impl ObjectType {
             phobos_sinkable: section.read_phobos_nullable_bool("Sinkable", None),
             #[cfg(feature = "phobos")]
             phobos_sink_speed: section.read_phobos_nullable_int("SinkSpeed", None),
+            #[cfg(feature = "phobos")]
+            phobos_paradrop_mission: section
+                .read_string_with("ParadropMission", 2048, None, |current, value| {
+                    crate::rules::mission_data::MissionType::from_map_name(value).or(current)
+                }),
+            #[cfg(feature = "phobos")]
+            phobos_ai_paradrop_mission: section
+                .read_string_with("AIParadropMission", 2048, None, |current, value| {
+                    crate::rules::mission_data::MissionType::from_map_name(value).or(current)
+                }),
             #[cfg(feature = "phobos")]
             phobos_bunker_rof_multiplier: section
                 .read_phobos_nullable_double("BunkerROFMultMultiplier", None)

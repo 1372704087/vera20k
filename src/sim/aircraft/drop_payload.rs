@@ -300,19 +300,35 @@ pub(crate) fn spawn_parachuted(
     let Some(rider) = sim.substrate.entities.get(passenger) else {
         return Ok(());
     };
-    if rider.category() != EntityCategory::Infantry {
-        return Ok(());
-    }
     let human = sim.owner_is_human(rider.owner());
-    let mission = MissionId::from_known(if human {
-        MissionType::Guard
-    } else {
-        MissionType::Hunt
-    });
+    let infantry = rider.category() == EntityCategory::Infantry;
+    // Phobos `FootClass_Paradrop` (`Ext/Techno/Hooks.cpp:1869-1893`) replaces
+    // both the Infantry (0x7EB140) and Unit (0x7F5D58) `SpawnParachuted`
+    // vtable entries: the mission comes from the type's
+    // `ParadropMission`/`AIParadropMission`, else the `[General]` value
+    // (Guard/Hunt), and a Unit queues it too. Stock only Infantry reaches
+    // the queue arm.
+    #[cfg(feature = "phobos")]
+    let mission = phobos_paradrop_mission(sim, rules, rider, human);
+    #[cfg(not(feature = "phobos"))]
+    let mission = {
+        if !infantry {
+            return Ok(());
+        }
+        MissionId::from_known(if human {
+            MissionType::Guard
+        } else {
+            MissionType::Hunt
+        })
+    };
     #[cfg(any(test, feature = "test-support"))]
     observe(Observed::Queue(passenger, mission));
     if let Some(rider) = sim.substrate.entities.get_mut(passenger) {
         crate::sim::mission::authority::queue_entity_mission_deferred(rider, mission);
+    }
+    #[cfg(feature = "phobos")]
+    if !infantry {
+        return Ok(());
     }
     #[cfg(any(test, feature = "test-support"))]
     observe(Observed::DoAction(passenger, DO_PARADROP, true));
@@ -320,6 +336,31 @@ pub(crate) fn spawn_parachuted(
         log::debug!("paradrop passenger {passenger} Do_Action: {cause}");
     }
     Ok(())
+}
+
+/// Phobos `FootClass_Paradrop`'s mission selector: the TechnoType's
+/// `ParadropMission` (human owner) or `AIParadropMission` (AI owner), else the
+/// matching `[General]` global (`Ext/Techno/Hooks.cpp:1883-1885`).
+#[cfg(feature = "phobos")]
+fn phobos_paradrop_mission(
+    sim: &Simulation,
+    rules: &RuleSet,
+    rider: &crate::sim::game_entity::GameEntity,
+    human: bool,
+) -> MissionId {
+    let type_mission = sim.object_type(rider.type_ref(), rules).and_then(|object| {
+        if human {
+            object.phobos_paradrop_mission
+        } else {
+            object.phobos_ai_paradrop_mission
+        }
+    });
+    let fallback = if human {
+        rules.phobos_globals.paradrop_mission
+    } else {
+        rules.phobos_globals.ai_paradrop_mission
+    };
+    MissionId::from_known(type_mission.unwrap_or(fallback))
 }
 
 /// `ObjectClass::Paradrop @ 0x005F5940` at `landing`, in order:
@@ -1475,5 +1516,105 @@ mod tests {
                 assert_eq!(chute_sounds(&sim).len(), 1);
             }
         }
+    }
+
+    /// Phobos `FootClass_Paradrop` (`Ext/Techno/Hooks.cpp:1869-1893`, the
+    /// 0x7EB140/0x7F5D58 vtable replacements): the mission is the type's
+    /// `ParadropMission`/`AIParadropMission`, else `[General]
+    /// ParadropMission` (Guard) / `AIParadropMission` (Hunt). The replaced
+    /// Unit virtual queues it too, while the Paradrop action stays
+    /// Infantry-only.
+    #[cfg(feature = "phobos")]
+    #[test]
+    fn phobos_paradrop_mission_reads_type_then_general() {
+        use crate::sim::house_state::HouseState;
+
+        fn mission_rules(general: &str, e1: &str) -> RuleSet {
+            let ini = IniFile::from_str(&format!(
+                "[General]\n{general}\
+                 [InfantryTypes]\n0=E1\n\
+                 [VehicleTypes]\n0=HTNK\n\
+                 [AircraftTypes]\n0=PDPLANE\n\
+                 [BuildingTypes]\n\
+                 [Warheads]\n0=SHOTWH\n\
+                 [E1]\nName=GI\nStrength=100\nSize=1\n{e1}\
+                 [HTNK]\nName=Rhino\nStrength=800\nSpeed=4\nSpeedType=Track\n\
+                 MovementZone=Normal\n\
+                 [PDPLANE]\nName=Paradrop Plane\nStrength=400\nAmmo=100\n\
+                 [SHOTWH]\nVerses=100%,100%,100%,100%,100%,100%,100%,100%,100%,100%,100%\n\
+                 InfDeath=1\n"
+            ));
+            RuleSet::from_ini_with_fixed_art_for_test(&ini, &IniFile::empty())
+                .expect("mission rules should parse")
+        }
+
+        fn queued_after_drop(rules: &RuleSet, human: bool, unit: bool) -> MissionId {
+            let mut sim = Simulation::new();
+            let owner = sim.interner.intern("Americans");
+            sim.houses
+                .register(HouseState::new(owner, 0, None, false, 0, 10));
+            if human {
+                sim.houses
+                    .get_mut(&owner)
+                    .unwrap()
+                    .set_is_human_for_test(true);
+            }
+            insert_loaded_paradrop_pair(&mut sim, 1, 2);
+            if unit {
+                let htnk = sim.interner.intern("HTNK");
+                let passenger = sim.substrate.entities.get_mut(2).unwrap();
+                passenger.set_type_ref_for_test(htnk);
+                passenger.set_category_for_test(EntityCategory::Unit);
+            }
+            drop_payload(
+                &mut sim,
+                1,
+                rules,
+                None,
+                crate::sim::world::FrameEffects::default(),
+            );
+            let passenger = sim.substrate.entities.get(2).unwrap();
+            assert!(!passenger.lifecycle.in_limbo(), "the passenger dropped");
+            passenger.mission.queued()
+        }
+
+        let defaults = mission_rules("", "");
+        assert_eq!(
+            queued_after_drop(&defaults, true, false),
+            MissionId::from_known(MissionType::Guard)
+        );
+        assert_eq!(
+            queued_after_drop(&defaults, false, false),
+            MissionId::from_known(MissionType::Hunt)
+        );
+
+        let general = mission_rules("ParadropMission=Move\nAIParadropMission=Area Guard\n", "");
+        assert_eq!(
+            queued_after_drop(&general, true, false),
+            MissionId::from_known(MissionType::Move)
+        );
+        assert_eq!(
+            queued_after_drop(&general, false, false),
+            MissionId::from_known(MissionType::AreaGuard)
+        );
+
+        let typed = mission_rules(
+            "ParadropMission=Move\nAIParadropMission=Area Guard\n",
+            "ParadropMission=Patrol\nAIParadropMission=Sleep\n",
+        );
+        assert_eq!(
+            queued_after_drop(&typed, true, false),
+            MissionId::from_known(MissionType::Patrol),
+            "the type key overrides the global"
+        );
+        assert_eq!(
+            queued_after_drop(&typed, false, false),
+            MissionId::from_known(MissionType::Sleep)
+        );
+        assert_eq!(
+            queued_after_drop(&typed, true, true),
+            MissionId::from_known(MissionType::Move),
+            "a Unit passenger queues the global mission too"
+        );
     }
 }

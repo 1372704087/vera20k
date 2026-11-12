@@ -550,3 +550,19 @@ fn sinkable_and_sink_speed_default_and_read() {
     assert_eq!(set.sinkable, Some(true));
     assert_eq!(set.sink_speed, 2);
 }
+
+/// `[General] ParadropMission` (Guard) and `AIParadropMission` (Hunt), read
+/// through the same mission-name table as map `MISSION=`; an unknown name
+/// keeps the constructor value (`Ext/Rules/Body.h:934-935`).
+#[test]
+fn paradrop_mission_globals_default_and_read() {
+    use crate::rules::mission_data::MissionType;
+    let defaults = PhobosGlobals::default();
+    assert_eq!(defaults.paradrop_mission, MissionType::Guard);
+    assert_eq!(defaults.ai_paradrop_mission, MissionType::Hunt);
+    let set = read("[General]\nParadropMission=Move\nAIParadropMission=Area Guard\n");
+    assert_eq!(set.paradrop_mission, MissionType::Move);
+    assert_eq!(set.ai_paradrop_mission, MissionType::AreaGuard);
+    let invalid = read("[General]\nParadropMission=Wibble\n");
+    assert_eq!(invalid.paradrop_mission, MissionType::Guard);
+}

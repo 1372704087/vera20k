@@ -27,8 +27,9 @@
 //!   (`superweapon::launch_sw`) are ported here.
 //! - `CanAffectTarget`'s `AffectsAbovePercent`/`AffectsBelowPercent`,
 //!   `AffectsVeterancy` and `AffectsInvokerOnly` gates are unread and pass.
-//! - `CellSpread.Cylinder` has no VERA reader yet, so the pass collects with
-//!   the spherical distance the AoE cylinder hooks also leave unported.
+//! - The pass's `getCellSpreadItemsExt` walk carries the warhead's
+//!   `CellSpread.Cylinder` flag; in the helper that flag alters only the
+//!   ground-Structure cell-center and aircraft distances.
 //! - `Crit.Warhead`'s full detonation creates a projectile with no
 //!   `Projectile=` type, so the default bullet type's `Cluster` is not read.
 //! - `Crit.ExtraDamage.ApplyFirepowerMult` reads the owner's live multiplier;
@@ -1236,14 +1237,14 @@ fn detonation_targets(
     intended_target: Option<u64>,
 ) -> Vec<u64> {
     if warhead.cell_spread_f64 > 0.0 {
-        // `CellSpread.Cylinder` stays unread, matching the unported AoE
-        // cylinder hooks.
+        // `getCellSpreadItemsExt(..., includeInAir = true,
+        // CellSpread_Cylinder)` (`Ext/WarheadType/Detonate.cpp:174-175`).
         return super::phobos_airburst::cell_spread_technos(
             world,
             rules,
             impact,
             warhead.cell_spread_f64,
-            false,
+            warhead.phobos_cell_spread_cylinder,
         );
     }
     intended_target

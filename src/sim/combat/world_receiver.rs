@@ -820,8 +820,8 @@ pub(crate) fn apply_area_damage_in_run(
 /// Phobos `MapClass_DamageArea_DamageUnderGround` (`0x4899DA`,
 /// `Ext/Bullet/Hooks.DetonateLogics.cpp:933-975`): for an
 /// `AffectsUnderground` warhead, walk the Underground-layer technos and call
-/// ReceiveDamage directly within `CellSpread * 256` leptons (3D distance;
-/// `CellSpread.Cylinder` is not read yet), skipping dead, Iron-Curtined,
+/// ReceiveDamage directly within `CellSpread * 256` leptons (3D distance, or
+/// planar when `CellSpread.Cylinder` is set), skipping dead, Iron-Curtined,
 /// off-map and limbo objects. Returns whether any object was hit.
 #[cfg(feature = "phobos")]
 #[allow(clippy::too_many_arguments)]
@@ -867,7 +867,12 @@ fn apply_underground_area_damage(
             let dx = f64::from(coords.x.wrapping_sub(impact.x));
             let dy = f64::from(coords.y.wrapping_sub(impact.y));
             let dz = f64::from(coords.z.wrapping_sub(impact.z));
-            let distance = (dx * dx + dy * dy + dz * dz).sqrt();
+            // `CellSpread.Cylinder`: `{dx, dy, 0}.Magnitude()` drops the height.
+            let distance = if warhead.phobos_cell_spread_cylinder {
+                (dx * dx + dy * dy).sqrt()
+            } else {
+                (dx * dx + dy * dy + dz * dz).sqrt()
+            };
             (distance <= spread).then_some((entity.stable_id(), distance as i32))
         })
         .collect();

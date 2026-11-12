@@ -258,3 +258,39 @@ fn a_delayed_fire_weapon_keeps_its_burst_cadence() {
         );
     }
 }
+
+/// Phobos `SetChargeTurretDelay` (`Ext/Techno/Hooks.Firing.cpp:936-976`) at
+/// both FireAt rearm sites (`0x6FE4A4`/`0x6FF29E`): after the pre-GetROF
+/// `INC [Techno+0x3B8]` (`0x6FF27C`, `0x6FE492`), each burst shot picks its
+/// own `ChargeTurret.Delays` item, so the saved `+0x2F8` charge denominator
+/// differs shot to shot.
+#[cfg(feature = "phobos")]
+#[test]
+fn each_burst_shot_picks_its_own_charge_turret_delay_item() {
+    let (mut sim, rules, firer, target) = arena(
+        "VehicleTypes",
+        "ChargeTurret.Delays=40,20,80\n",
+        "IsChargeTurret=yes\n",
+    );
+    for (shot, expected) in [40, 20, 80].into_iter().enumerate() {
+        // The mid-burst gap (ROF 40 / Burst 3) has to elapse first.
+        sim.session
+            .set_binary_frame_for_test(100 + shot as u32 * 20);
+        assert_eq!(
+            visit(&mut sim, &rules, firer, target, "VehicleTypes"),
+            1,
+            "shot {shot}"
+        );
+        let entity = sim.entities().get(firer).expect("firer");
+        assert_eq!(
+            entity.charge_turret_delay_for_test(),
+            expected,
+            "shot {shot}"
+        );
+        assert_eq!(
+            entity.weapon_burst.index(),
+            (shot as i32 + 1).rem_euclid(3),
+            "shot {shot}"
+        );
+    }
+}

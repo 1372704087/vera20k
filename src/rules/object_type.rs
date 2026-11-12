@@ -5516,14 +5516,10 @@ impl ObjectType {
                 .then(|| section.read_name("Wake.Sinking", 0x31).map(str::to_owned))
                 .flatten(),
             #[cfg(feature = "phobos")]
-            phobos_warp_away: if category == ObjectCategory::Building {
-                Vec::new()
-            } else {
-                section
-                    .read_list("WarpAway", 0x800)
-                    .map(|tokens| tokens.into_iter().map(str::to_owned).collect())
-                    .unwrap_or_default()
-            },
+            phobos_warp_away: section
+                .read_list("WarpAway", 0x800)
+                .map(|tokens| tokens.into_iter().map(str::to_owned).collect())
+                .unwrap_or_default(),
             #[cfg(feature = "phobos")]
             phobos_adjacent: crate::rules::phobos_adjacent::PhobosAdjacent::from_section(section),
             #[cfg(feature = "phobos")]

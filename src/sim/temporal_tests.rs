@@ -3336,3 +3336,58 @@ fn no_rearm_temporal_holds_the_held_target_timers() {
     assert_eq!(counted.rearm_timer.remaining(51), 89);
     assert_eq!(counted.ammo_reload_timer().remaining(51), 69);
 }
+
+/// Phobos `WarpPerStep::TemporalClassFake::_GetWarpPerStep`
+/// (`Ext/Techno/Hooks.cpp:2346-2388`): every extension sits inside
+/// `if (const auto pWarhead = pWeapon->Warhead)`, so a weapon that resolves
+/// no warhead keeps its raw `Damage=` even when the globals read yes; a
+/// warhead with `Temporal.ApplyMultiplier=yes` scales it by the attacker's
+/// firepower before the target-dependent factors.
+#[cfg(feature = "phobos")]
+#[test]
+fn warp_per_step_needs_a_resolved_warhead_for_the_extension() {
+    use crate::util::native_x87::NativeF64Bits;
+    let armed = rules_from(
+        &RULES.replace(
+            "OpenToppedWarpDistance=7\n",
+            "OpenToppedWarpDistance=7\nTemporal.ApplyMultiplier=yes\n",
+        )
+        .replace(
+            "[ChronoBeam]\nTemporal=yes\n",
+            "[ChronoBeam]\nTemporal=yes\nTemporal.ApplyMultiplier=yes\n",
+        ),
+        ART,
+    );
+    // The same rules with weapon 0's `Warhead=` removed: no warhead pointer.
+    let unarmed = rules_from(
+        &RULES
+            .replace(
+                "OpenToppedWarpDistance=7\n",
+                "OpenToppedWarpDistance=7\nTemporal.ApplyMultiplier=yes\n",
+            )
+            .replace(
+                "[NeutronRifle]\nDamage=8\nROF=120\nRange=5\nProjectile=InvisibleMedium\nWarhead=ChronoBeam\n",
+                "[NeutronRifle]\nDamage=8\nROF=120\nRange=5\nProjectile=InvisibleMedium\n",
+            ),
+        ART,
+    );
+    let run = |rules: &RuleSet| {
+        let mut sim = sim(11);
+        let tank = spawn(&mut sim, rules, "HTNK", "Americans", 12, 10);
+        let cleg = spawn(&mut sim, rules, "CLEG", "Russians", 10, 10);
+        chain(&mut sim, tank, &[cleg], 4000);
+        sim.substrate
+            .entities
+            .get_mut(cleg)
+            .unwrap()
+            .crate_multipliers
+            .set_firepower_multiplier_for_test(NativeF64Bits::from_bits(1.5f64.to_bits()));
+        sim.temporal_warp_per_step(cleg, rules)
+    };
+    assert_eq!(run(&armed), 12, "8 x 1.5 through the warhead's key");
+    assert_eq!(
+        run(&unarmed),
+        8,
+        "a weapon with no warhead keeps its raw Damage"
+    );
+}

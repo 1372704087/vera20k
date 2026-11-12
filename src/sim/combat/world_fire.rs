@@ -2244,6 +2244,14 @@ pub(super) fn emit_admitted_fire(
         );
         if let Some(entity) = world.substrate.entities.get_mut(snap.stable_id) {
             entity.rearm_after_fire(binary_frame as i32, rof);
+            // Phobos `SetChargeTurretDelay`'s other FireAt rearm site
+            // (`0x6FE4A4`, `0x6FE489` increments before GetROF).
+            #[cfg(feature = "phobos")]
+            entity.phobos_set_charge_turret_delay(
+                binary_frame as i32,
+                if weapon.burst > 1 { burst.index() } else { 0 },
+                &weapon.phobos_extras.charge_turret_delays,
+            );
             entity.weapon_burst.complete_shot(weapon.burst.max(1));
         }
         let weapon_id = world.interner.intern(selected.weapon_id);
@@ -2862,13 +2870,13 @@ pub(super) fn emit_admitted_fire(
         #[cfg(not(feature = "ares"))]
         let rearm = fireat_rearm_frames(rof, entity.berserk.is_active());
         entity.rearm_after_fire(binary_frame as i32, rearm);
-        // Phobos `SetChargeTurretDelay` hooks the same rearm sites
-        // (`0x6FE4A4`/`0x6FF29E`); the just-fired shot's list item (0-based
-        // `CurrentBurstIndex - 1`) overrides the charge denominator.
+        // Phobos `SetChargeTurretDelay` hooks this rearm site (`0x6FF29E`);
+        // the just-fired shot's list item (`CurrentBurstIndex - 1`, `0x6FF27C`
+        // increments before GetROF) overrides the charge denominator.
         #[cfg(feature = "phobos")]
         {
             let burst_index = if weapon.burst > 1 {
-                entity.weapon_burst.index().wrapping_sub(1)
+                entity.weapon_burst.index()
             } else {
                 0
             };

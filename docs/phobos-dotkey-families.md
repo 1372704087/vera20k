@@ -91,7 +91,8 @@ and every override name is bound in `rules/effect_asset_catalog.rs`.
 ## WarpAway (TechnoType) / WarpOutWeapon
 
 `WarpAway` is the time-erase anim list (`ValueableVector<AnimTypeClass*>`,
-`Ext/TechnoType/Body.cpp:861`), not the teleport departure: hook `0x71A8BD`
+`Ext/TechnoType/Body.cpp:861`; `TechnoTypeExt` applies to every TechnoType, so
+buildings read it too), not the teleport departure: hook `0x71A8BD`
 (`Ext/Techno/Hooks.cpp:1476-1490`) replaces the `[General] WarpAway=` single
 anim with `CreateRandomAnim`'s one Scenario pick owned by the target, ahead of
 the Ares warhead `Temporal.WarpAway=`. `WarpOutWeapon` (`Read<true>`,
@@ -115,11 +116,17 @@ FireAt rearm sites `0x6FE4A4`/`0x6FF29E`): the just-fired burst shot's item
 overrides the saved `+2F8` charge denominator and starts the ext
 `ChargeTurretTimer`; an item `<= 0` keeps the native value. The real rearm
 timer keeps the native duration, and the turret progress prefers the ext
-timer until it expires (`Ext/Techno/Hooks.cpp:241-244`). VERA:
+timer until it expires (`Ext/Techno/Hooks.cpp:241-244`). The native
+`CurrentBurstIndex` has already been incremented for the shot at both rearm
+sites (`0x6FF27C`, `0x6FE492`), so the item is the retained VERA index before
+`complete_shot`. VERA:
 `PhobosWeaponExtras::charge_turret_delays`,
 `GameEntity::phobos_set_charge_turret_delay`,
 `TurretSelection::phobos_charge_turret_timer` and the `update_charge_turret`
-read. Test: `phobos_charge_turret_delays_override_the_progress_and_expire`.
+read; both FireAt rearm sites (including the DiskLaser early return) call the
+setter. Tests:
+`phobos_charge_turret_delays_override_the_progress_and_expire`,
+`each_burst_shot_picks_its_own_charge_turret_delay_item`.
 
 ## IvanIconVisibility (+ IvanBomb.Visibility)
 
@@ -154,11 +161,13 @@ WarheadType `Nullable<bool>` pair (`Ext/WarheadType/Body.cpp:190-191`,
 _GetWarpPerStep` (`Ext/Techno/Hooks.cpp:2338-2392`, LJMP `0x71AB10` replaces
 `GetWarpPerStep`/`SumChainDamage`): each chain member's per-step warp starts
 at its weapon's raw `Damage=`; `Multiplier` rescales by the attacker's
-firepower multiplier (`(int)` truncation) and divides the final product by the
-target's armor multiplier; `Versus` multiplies the deployed
-(`Damage.Deployed=`, the Ares warhead key) or crawling (`ProneDamage=`) factor
-and folds the packet through the Verses kernel with distance `0`
-(`MapClass::GetTotalDamage`). VERA: `WarheadType::phobos_temporal_apply_*` +
+firepower multiplier (`(int)` truncation); the target-dependent factors — the
+armor division, the deployed/crawling factor, the Verses fold and the final
+product — need a live target and `warpPerStep > 0`; `Versus` multiplies the
+deployed (`Damage.Deployed=`, the Ares warhead key) or crawling
+(`ProneDamage=`) factor and folds the packet through the Verses kernel with
+distance `0` (`MapClass::GetTotalDamage`). Every extension also needs a
+resolved warhead pointer. VERA: `WarheadType::phobos_temporal_apply_*` +
 `PhobosGlobals::temporal_apply_*`, the per-member fold in
 `temporal.rs::temporal_warp_per_step` (chain walker moved to `&mut`).
 RESIDUALS: `GetCurrentArmorMultiplier` is approximated by
@@ -175,10 +184,14 @@ victim's, so every ground/deck, airborne and terrain distance test keeps only
 the planar separation, and the building center record's two-Level vertical
 allowance sees a zero difference (always admits). VERA: `WarheadType::
 phobos_cell_spread_cylinder`, resolved once onto the `AoECollector` and
-threaded through the three `push_*_aoe_damage` distance sites. RESIDUAL: the
-key's underground collection (`Ext/Bullet/Hooks.DetonateLogics.cpp:942-986`)
-needs the `ScenarioExt::UndergroundTracker`, which VERA has no counterpart for
-(recorded with the AffectsUnderground residuals).
+threaded through the three `push_*_aoe_damage` distance sites; the
+`AffectsUnderground` walk's per-victim distance uses the planar arm when the
+key is set (`world_receiver.rs::apply_underground_area_damage`), and the
+warhead's per-target `DetonateOnOneUnit` pass carries the flag into
+`getCellSpreadItemsExt` (`crit.rs::detonation_targets`), where it alters the
+ground-Structure and aircraft distances. RESIDUAL: the underground walk visits
+VERA's underground-layer entities rather than the native
+`ScenarioExt::UndergroundTracker` membership (same set by construction).
 
 ## Arcing.AllowElevationInaccuracy (G1.2)
 
@@ -198,11 +211,14 @@ VERA: `ProjectileType::phobos_arcing_allow_elevation_inaccuracy` +
 `launch.rs::apply_arcing_fix` applied at the end of `fireat_launch` (the
 velocity is stored to binary64 bits, folded, and handed to
 `ProjectileVelocity::from_native`); the world_fire caller resolves the key
-per projectile. Test: `launch::arcing_fix_tests` (aims at the scattered
-delta, degenerate guard, lobber branch). RESIDUAL: the EMP cannon site
-(`0x44D46E`, `building_missile.rs`) does not fold the fix yet — its
-target-Z reconstruction needs the native Mission_Missile stack; the homing
-pass-through also keeps the stock velocity (the corpus tests pin it).
+per projectile, and the EMP cannon's status 2 (`0x44D46E`,
+`building_missile.rs::emp_shot`) folds the same kernel over the vt+0x300
+source and the target cell's ground coordinate. Test:
+`launch::arcing_fix_tests` (aims at the scattered delta, degenerate guard,
+lobber branch) and
+`building_missile::arcing::the_emp_shell_folds_the_arcing_fix_when_elevation_inaccuracy_is_refused`.
+RESIDUAL: the homing pass-through keeps the stock velocity (the corpus tests
+pin it).
 
 ## Regression tests
 
@@ -219,12 +235,18 @@ pass-through also keeps the stock velocity (the corpus tests pin it).
   (`rules/projectile_type.rs`). The three cover constructor defaults, the
   `[CombatDamage]` section ownership, and the `Nullable` `Some(false)` state
   that lets a warhead refuse a `yes` global.
+- Package 45 critic follow-up: `each_burst_shot_picks_its_own_charge_turret_delay_item`
+  (`sim/combat/burst_no_delay_tests.rs`),
+  `warp_per_step_needs_a_resolved_warhead_for_the_extension`
+  (`sim/temporal_tests.rs`),
+  `the_emp_shell_folds_the_arcing_fix_when_elevation_inaccuracy_is_refused`
+  (`sim/world/techno_ai/building_missile.rs`).
 
 TEST DEBT carried forward (no production-path integration test yet):
 `Damage.DealtByInvoker` / `Damage.ApplyOncePerLoop` (the ares-style anim
 damage test is `cfg(not(phobos))`), the wake overrides, warp-away/warp-out,
 the ivan icon mask, radio-link sync-owner, and the falling-damage tier
 packet (a map fixture is needed to drive the landing receiver commit). The
-G1 `Temporal.Apply*` gates and `CellSpread.Cylinder` have reader-level
-coverage only; their per-step warp fold and planar-distance behaviour are
-not yet pinned by a sim test.
+G1 `Temporal.ApplyMultiplier` firepower walk has a production test; its
+armor/versus target factors still need an AttachEffect armor fixture, and the
+`CellSpread.Cylinder` planar arms have reader-level coverage only.

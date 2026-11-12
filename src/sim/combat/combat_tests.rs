@@ -5418,20 +5418,10 @@ fn a_building_with_no_die_sound_falls_back_to_the_global_building_die_sound() {
     }
 }
 
-/// `BuildingClass::ReceiveDamage @ 0x00442230`: the global
-/// `[AudioVisual] BuildingDamageSound` (`Rules+0x714`) is a **damage-state**
-/// cue, not a per-hit one.
-///
-/// `0x00442476 JMP [EAX*4 + 0x00442C18]` indexes the four-entry table
-/// `{0x004426AC, 0x004426C8, 0x004424A2, 0x0044247D}` with `result - 2`;
-/// entry 0 (result 2, the `Strength >> 1` crossing) falls through into entry 1
-/// (result 3, the `Strength * Rules+0x1708` crossing) and both reach
-/// `0x004426D2 CMP [type+0x538],-1`, so a type with its own `DamageSound=`
-/// takes `JNZ 0x0044270B` and the global never plays. Results 1 (no crossing)
-/// and 4 (dead) leave the arm unvisited, and `0x0044242C MOV AL,[ESI+0x90]`
-/// (`ObjectClass::IsAlive`) skips the whole dispatch for a corpse.
-#[test]
-fn a_struck_building_sounds_the_global_damage_cue_only_on_a_state_crossing() {
+/// Rules shared by the building damage-cue tests. `CADIS`/`CADMG` are the
+/// Phobos `DisableDamageSound` rows; the stock rows keep each cue owner
+/// reachable.
+fn building_damage_sound_rules() -> RuleSet {
     let ini = IniFile::from_str(
         "\
 [General]\nFlightLevel=500\n\n\
@@ -5458,112 +5448,152 @@ DisableDamageSound=yes\n\n\
             "[SoundList]\n0=BuildingDamaged\n1=BuildingMetalDamaged\n",
         )),
     );
-    // Authored receiver inputs exercise the integration; these health values
-    // and coordinates are not claimed as executed native receiver goldens.
-    let coordinate = crate::sim::components::DriveCoord {
+    rules
+}
+
+/// `hit` covers the integration receiver inputs with authored health values
+/// and coordinates; these are not claimed as executed native receiver goldens.
+const BUILDING_DAMAGE_CUE_COORD: crate::sim::components::DriveCoord =
+    crate::sim::components::DriveCoord {
         x: 1057,
         y: 1859,
         z: 42,
     };
 
-    // One `commit_damage_events` transaction: entity 1 (MTNK) hits entity 2
-    // for `damage`. `victim_type`/`victim_category` shape the receiver.
-    let hit = |victim_type: &str,
-               victim_category: EntityCategory,
-               damage: i32,
-               ignore_defenses: bool|
-     -> (Vec<SimSoundEvent>, i32) {
-        // `GameEntity::test_default` interns through the thread-local test
-        // interner, and `test_interner()` snapshots it — so the entities must
-        // exist before the snapshot or their type ids resolve to whatever the
-        // clone happens to hold at that index.
-        let mut entities = EntityStore::new();
-        let mut attacker = GameEntity::test_default(1, "MTNK", "Americans", 10, 10);
-        attacker.lifecycle.set_in_limbo_for_test(false);
-        attacker.set_in_playfield(true);
-        entities.insert(attacker);
-        let mut victim = GameEntity::test_default(2, victim_type, "Soviet", 4, 7);
-        victim.set_category_for_test(victim_category);
-        victim.health = Health::new(100);
-        victim.position.put_location(coordinate);
-        victim.lifecycle.set_in_limbo_for_test(false);
-        victim.set_in_playfield(true);
-        entities.insert(victim);
+/// One `commit_damage_events` transaction: entity 1 (MTNK) hits entity 2 for
+/// `damage`. `victim_type`/`victim_category` shape the receiver.
+fn building_damage_sound_hit(
+    rules: &RuleSet,
+    victim_type: &str,
+    victim_category: EntityCategory,
+    damage: i32,
+    ignore_defenses: bool,
+) -> (Vec<SimSoundEvent>, i32) {
+    // `GameEntity::test_default` interns through the thread-local test
+    // interner, and `test_interner()` snapshots it — so the entities must
+    // exist before the snapshot or their type ids resolve to whatever the
+    // clone happens to hold at that index.
+    let mut entities = EntityStore::new();
+    let mut attacker = GameEntity::test_default(1, "MTNK", "Americans", 10, 10);
+    attacker.lifecycle.set_in_limbo_for_test(false);
+    attacker.set_in_playfield(true);
+    entities.insert(attacker);
+    let mut victim = GameEntity::test_default(2, victim_type, "Soviet", 4, 7);
+    victim.set_category_for_test(victim_category);
+    victim.health = Health::new(100);
+    victim.position.put_location(BUILDING_DAMAGE_CUE_COORD);
+    victim.lifecycle.set_in_limbo_for_test(false);
+    victim.set_in_playfield(true);
+    entities.insert(victim);
 
-        let mut interner = test_interner();
-        let allies = interner.intern("Americans");
-        let soviet = interner.intern("Soviet");
-        let warhead_ref = interner.intern("PlainWH");
+    let mut interner = test_interner();
+    let allies = interner.intern("Americans");
+    let soviet = interner.intern("Soviet");
+    let warhead_ref = interner.intern("PlainWH");
 
-        let mut houses = computer_houses(&[soviet, allies]);
-        let mut occupancy = OccupancyGrid::new();
-        let mut main_rng = SimRng::new(11);
-        let mut scenario_rng = SimRng::new(13);
-        let mut handled_deaths = Vec::new();
-        let mut hooks = None;
-        let mut collected: Vec<SimSoundEvent> = Vec::new();
-        let mut sound_sink: Option<&mut Vec<SimSoundEvent>> = Some(&mut collected);
+    let mut houses = computer_houses(&[soviet, allies]);
+    let mut occupancy = OccupancyGrid::new();
+    let mut main_rng = SimRng::new(11);
+    let mut scenario_rng = SimRng::new(13);
+    let mut handled_deaths = Vec::new();
+    let mut hooks = None;
+    let mut collected: Vec<SimSoundEvent> = Vec::new();
+    let mut sound_sink: Option<&mut Vec<SimSoundEvent>> = Some(&mut collected);
 
-        let records = [EntityDamageEvent::direct_receiver(
-            2,
-            damage,
-            0,
-            1,
-            Some(allies),
-            warhead_ref,
-            ReceiverCallFlags {
+    let records = [EntityDamageEvent::direct_receiver(
+        2,
+        damage,
+        0,
+        1,
+        Some(allies),
+        warhead_ref,
+        ReceiverCallFlags {
+            ignore_defenses,
+            arg6: false,
+        },
+    )];
+    let _ = commit_damage_events(
+        &records,
+        &mut entities,
+        &mut occupancy,
+        rules,
+        &mut interner,
+        &mut houses,
+        &HouseAllianceMap::new(),
+        &mut main_rng,
+        &mut scenario_rng,
+        &mut handled_deaths,
+        None,
+        None,
+        None,
+        100,
+        &mut hooks,
+        &mut sound_sink,
+    );
+    let hp = entities.get(2).map_or(0, |victim| victim.health.current());
+    (collected, hp)
+}
+
+/// `[AudioVisual] BuildingDamageSound` requests in `sounds`.
+fn global_building_damage_cues(
+    sounds: &[SimSoundEvent],
+) -> Vec<crate::sim::components::DriveCoord> {
+    sounds
+        .iter()
+        .filter_map(|sound| match sound {
+            SimSoundEvent::VocAtCoord {
+                sound_id,
+                coordinate,
+                flags: 0,
+            } if sound_id == "BuildingDamaged" => Some(*coordinate),
+            _ => None,
+        })
+        .collect()
+}
+
+/// A building type's own `DamageSound=` requests in `sounds`.
+fn type_building_damage_cues(sounds: &[SimSoundEvent]) -> Vec<crate::sim::components::DriveCoord> {
+    sounds
+        .iter()
+        .filter_map(|sound| match sound {
+            SimSoundEvent::VocAtCoord {
+                sound_id,
+                coordinate,
+                flags: 0,
+            } if sound_id == "BuildingMetalDamaged" => Some(*coordinate),
+            _ => None,
+        })
+        .collect()
+}
+
+/// `BuildingClass::ReceiveDamage @ 0x00442230`: the global
+/// `[AudioVisual] BuildingDamageSound` (`Rules+0x714`) is a **damage-state**
+/// cue, not a per-hit one.
+///
+/// `0x00442476 JMP [EAX*4 + 0x00442C18]` indexes the four-entry table
+/// `{0x004426AC, 0x004426C8, 0x004424A2, 0x0044247D}` with `result - 2`;
+/// entry 0 (result 2, the `Strength >> 1` crossing) falls through into entry 1
+/// (result 3, the `Strength * Rules+0x1708` crossing) and both reach
+/// `0x004426D2 CMP [type+0x538],-1`, so a type with its own `DamageSound=`
+/// takes `JNZ 0x0044270B` and the global never plays. Results 1 (no crossing)
+/// and 4 (dead) leave the arm unvisited, and `0x0044242C MOV AL,[ESI+0x90]`
+/// (`ObjectClass::IsAlive`) skips the whole dispatch for a corpse.
+#[test]
+fn a_struck_building_sounds_the_global_damage_cue_only_on_a_state_crossing() {
+    let rules = building_damage_sound_rules();
+    let coordinate = BUILDING_DAMAGE_CUE_COORD;
+    let hit =
+        |victim_type: &str, victim_category: EntityCategory, damage: i32, ignore_defenses: bool| {
+            building_damage_sound_hit(
+                &rules,
+                victim_type,
+                victim_category,
+                damage,
                 ignore_defenses,
-                arg6: false,
-            },
-        )];
-        let _ = commit_damage_events(
-            &records,
-            &mut entities,
-            &mut occupancy,
-            &rules,
-            &mut interner,
-            &mut houses,
-            &HouseAllianceMap::new(),
-            &mut main_rng,
-            &mut scenario_rng,
-            &mut handled_deaths,
-            None,
-            None,
-            None,
-            100,
-            &mut hooks,
-            &mut sound_sink,
-        );
-        let hp = entities.get(2).map_or(0, |victim| victim.health.current());
-        (collected, hp)
-    };
-
-    let damage_cues = |sounds: &[SimSoundEvent]| -> Vec<crate::sim::components::DriveCoord> {
-        sounds
-            .iter()
-            .filter_map(|sound| match sound {
-                SimSoundEvent::VocAtCoord {
-                    sound_id,
-                    coordinate,
-                    flags: 0,
-                } if sound_id == "BuildingDamaged" => Some(*coordinate),
-                _ => None,
-            })
-            .collect()
-    };
-    let type_cues = |sounds: &[SimSoundEvent]| -> Vec<crate::sim::components::DriveCoord> {
-        sounds
-            .iter()
-            .filter_map(|sound| match sound {
-                SimSoundEvent::VocAtCoord {
-                    sound_id,
-                    coordinate,
-                    flags: 0,
-                } if sound_id == "BuildingMetalDamaged" => Some(*coordinate),
-                _ => None,
-            })
-            .collect()
-    };
+            )
+        };
+    let damage_cues = global_building_damage_cues;
+    let type_cues = type_building_damage_cues;
 
     // 100 -> 40 crosses `Strength >> 1` = 50: result 2, entry 0 of the table,
     // and the cue retains direct Location+9C, including subcell X/Y and Z.
@@ -5606,32 +5636,6 @@ DisableDamageSound=yes\n\n\
     assert_eq!(hp, 40);
     assert_eq!(damage_cues(&sounds), [coordinate]);
 
-    // Phobos `BuildingTypeExt::DisableDamageSound`
-    // (`Ext/BuildingType/Hooks.cpp:389-411`, hooks `0x4426DB`, `0x70272E`,
-    // `0x702777`): a struck building with the key issues no damage cue, while
-    // the stock rows above keep both the global and the type's own cue.
-    #[cfg(feature = "phobos")]
-    {
-        assert!(rules.object("CADIS").unwrap().disable_damage_sound());
-        assert!(
-            !rules.object("GAPOWR").unwrap().disable_damage_sound(),
-            "unset stays false"
-        );
-        let (sounds, hp) = hit("CADIS", EntityCategory::Structure, 60, false);
-        assert_eq!(hp, 40);
-        assert!(
-            damage_cues(&sounds).is_empty(),
-            "the global BuildingDamageSound cue is skipped on a crossing"
-        );
-        let (sounds, hp) = hit("CADMG", EntityCategory::Structure, 20, false);
-        assert_eq!(hp, 80);
-        assert!(
-            type_cues(&sounds).is_empty(),
-            "the type's own DamageSound requests are skipped"
-        );
-        assert!(damage_cues(&sounds).is_empty());
-    }
-
     // Original7019D8 raises defended zero to1 before Object's Verses kernel.
     // The executed retail AP/concrete control reduces that1 back to0; this
     // authored PlainWH100% fixture does not. Use the executed raw-zero entry
@@ -5653,6 +5657,53 @@ DisableDamageSound=yes\n\n\
     let (sounds, hp) = hit("E1", EntityCategory::Infantry, 60, false);
     assert_eq!(hp, 40);
     assert!(damage_cues(&sounds).is_empty());
+}
+
+/// Phobos `BuildingTypeExt::DisableDamageSound`
+/// (`Ext/BuildingType/Body.cpp:245`, `Valueable<bool>` seeded false; hooks
+/// `Ext/BuildingType/Hooks.cpp:389-411`, `0x4426DB`, `0x70272E`, `0x702777`):
+/// a struck building with the key skips both of the building damage-cue
+/// owners, while a stock type still requests each one.
+#[cfg(feature = "phobos")]
+#[test]
+fn phobos_disable_damage_sound_mutes_the_building_damage_cues() {
+    let rules = building_damage_sound_rules();
+    assert!(rules.object("CADIS").unwrap().disable_damage_sound());
+    assert!(
+        !rules.object("GAPOWR").unwrap().disable_damage_sound(),
+        "unset stays false"
+    );
+
+    // Result 2 (`Strength >> 1` crossing): the global
+    // `[AudioVisual] BuildingDamageSound` request is skipped.
+    let (sounds, hp) =
+        building_damage_sound_hit(&rules, "CADIS", EntityCategory::Structure, 60, false);
+    assert_eq!(hp, 40);
+    assert!(global_building_damage_cues(&sounds).is_empty());
+    let (sounds, hp) =
+        building_damage_sound_hit(&rules, "GAPOWR", EntityCategory::Structure, 60, false);
+    assert_eq!(hp, 40);
+    assert_eq!(
+        global_building_damage_cues(&sounds),
+        [BUILDING_DAMAGE_CUE_COORD],
+        "the stock building still requests the global cue"
+    );
+
+    // Result 1 (no crossing): the type's own two `DamageSound=` requests are
+    // skipped, and the global arm never runs on this result anyway.
+    let (sounds, hp) =
+        building_damage_sound_hit(&rules, "CADMG", EntityCategory::Structure, 20, false);
+    assert_eq!(hp, 80);
+    assert!(type_building_damage_cues(&sounds).is_empty());
+    assert!(global_building_damage_cues(&sounds).is_empty());
+    let (sounds, hp) =
+        building_damage_sound_hit(&rules, "GAWEAP", EntityCategory::Structure, 20, false);
+    assert_eq!(hp, 80);
+    assert_eq!(
+        type_building_damage_cues(&sounds),
+        [BUILDING_DAMAGE_CUE_COORD, BUILDING_DAMAGE_CUE_COORD],
+        "the stock type still requests its own cue twice"
+    );
 }
 
 /// `TechnoClass::ReceiveDamage @ 0x00701900` arm `0x00702695` — index 2 of the

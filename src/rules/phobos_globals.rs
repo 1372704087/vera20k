@@ -147,6 +147,14 @@ pub struct PhobosGlobals {
     /// (`Ext/Rules/Body.h:923`): the fallback for a warhead whose own key is
     /// unset when its damage has no invoker.
     pub affects_invoker_only_ignore_invoker_state: bool,
+    /// `[AudioVisual] ShowDesignatorRange=`, default **`yes`**
+    /// (`Ext/Rules/Body.cpp:176`, constructor `Ext/Rules/Body.h:223,760`): the
+    /// rules half of the armed superweapon's designator/inhibitor range rings
+    /// (`Tactical_SuperLinesCircles_ShowDesignatorRange @ 0x6DBE74`). The
+    /// `[Phobos]` client switch and the armed `[SuperWeaponType]` switch must
+    /// also be on.
+    #[serde(default = "true_bool")]
+    pub show_designator_range: bool,
     /// `AutoDeath.OnOwnerChange.IgnoreRevertOnExit=`, default `no`
     /// (`Ext/Rules/Body.cpp:630`).
     pub auto_death_on_owner_change_ignore_revert_on_exit: bool,
@@ -1055,6 +1063,7 @@ impl Default for PhobosGlobals {
             return_weapon_apply_firepower_mult: false,
             overload_particle_sys_count: 5,
             affects_invoker_only_ignore_invoker_state: true,
+            show_designator_range: true,
             auto_death_on_owner_change_ignore_revert_on_exit: false,
             auto_death_allow_limboed: true,
             convert_reset_mind_control: false,
@@ -1231,6 +1240,10 @@ impl PhobosGlobals {
         // (`Ext/Rules/Body.cpp:291-304`); the two sections share no key, so
         // their relative order does not matter.
         let audio_visual = ini.section_or_empty("AudioVisual");
+        // `Ext/Rules/Body.cpp:176`: the designator/inhibitor range-ring rules
+        // switch, read in the same `[AudioVisual]` pass as the income labels.
+        globals.show_designator_range =
+            audio_visual.read_bool("ShowDesignatorRange", globals.show_designator_range);
         // `Ext/Rules/Body.cpp:291-297`: the income-label switch and cadence. A
         // read `DisplayIncome.Delay=0` would crash the native label, so the
         // reader forces it to 1.

@@ -25,6 +25,11 @@ pub(crate) struct PhobosClientSettings {
     /// `[Phobos] ShowPowerPlantEnhancerRange=`, default `no`: the client switch
     /// for the placement-time enhancer rings; the rules switch must also be on.
     pub(crate) show_power_plant_enhancer_range: bool,
+    /// `[Phobos] ShowDesignatorRange=`, default `no` (`Phobos.INI.cpp:133`,
+    /// static `:64`): the client switch for the armed superweapon's
+    /// designator/inhibitor range rings; the `[AudioVisual]` and the armed
+    /// `[SuperWeaponType]` switches must also be on.
+    pub(crate) show_designator_range: bool,
     /// `[Phobos] ShowPowerDelta=`, default `yes` (`Phobos.INI.cpp:108`): the
     /// client half of the power-delta sidebar indicator. The `uimd.ini` switch
     /// must also be on.
@@ -77,6 +82,7 @@ impl Default for PhobosClientSettings {
             superweapon_sidebar_required_significance: 0,
             show_flash_on_selecting: false,
             show_power_plant_enhancer_range: false,
+            show_designator_range: false,
             show_power_delta: true,
             show_harvester_counter: true,
             show_weeds_counter: true,
@@ -120,6 +126,8 @@ pub(crate) fn read(settings_dir: &Path) -> PhobosClientSettings {
             "ShowPowerPlantEnhancerRange",
             defaults.show_power_plant_enhancer_range,
         ),
+        show_designator_range: section
+            .read_bool("ShowDesignatorRange", defaults.show_designator_range),
         show_power_delta: section.read_bool("ShowPowerDelta", defaults.show_power_delta),
         show_harvester_counter: section
             .read_bool("ShowHarvesterCounter", defaults.show_harvester_counter),
@@ -179,7 +187,7 @@ mod tests {
         let dir = profile_with(
             "[Phobos]\nShowPlacementPreview=no\nDigitalDisplay.Enable=yes\n\
              SuperWeaponSidebar.RequiredSignificance=2\nShowFlashOnSelecting=yes\n\
-             ShowPowerPlantEnhancerRange=yes\nShowPowerDelta=no\nShowHarvesterCounter=no\n\
+             ShowPowerPlantEnhancerRange=yes\nShowDesignatorRange=yes\nShowPowerDelta=no\nShowHarvesterCounter=no\n\
              ShowWeedsCounter=no\nPriorityDeployFiltering=no\nTypeSelectUseIFVMode=no\n\
              MessageDisplayInCenter=yes\nSaveGameOnScenarioStart=no\n\
              HideLaserTrailEffects=yes\nShowGameTime=yes\nCampaignDefaultGameSpeed=4\n",
@@ -192,6 +200,7 @@ mod tests {
                 superweapon_sidebar_required_significance: 2,
                 show_flash_on_selecting: true,
                 show_power_plant_enhancer_range: true,
+                show_designator_range: true,
                 show_power_delta: false,
                 show_harvester_counter: false,
                 show_weeds_counter: false,

@@ -2134,6 +2134,11 @@ pub(crate) fn scale_pip_draws(
         // that the draw loop uses as its X/Y step; `None` keeps the stock
         // `pip()` closure's 4 / (building ? 2 : 0) layout untouched.
         let sized_step = object.ammo_pip_size();
+        // Phobos `TechnoClass_DrawPips_Ammo` (`0x70A36E`,
+        // `Ext/Techno/Hooks.Pips.cpp:241`) adds the offset to the draw
+        // origin, so every pip translates by the same pair after its slot
+        // step rather than once per slot.
+        let [dx, dy] = object.ammo_pip_offset();
         pips.extend((0..slots).map(|slot| {
             let frame = if slot < fill_slots { full } else { empty };
             let mut draw = pip(slot, frame, row_y - 3);
@@ -2143,6 +2148,8 @@ pub(crate) fn scale_pip_draws(
                     (row_y - 3).wrapping_add((slot as i32).wrapping_mul(step_y)),
                 ];
             }
+            draw.offset_pixels[0] = draw.offset_pixels[0].wrapping_add(dx);
+            draw.offset_pixels[1] = draw.offset_pixels[1].wrapping_add(dy);
             draw
         }));
         return pips;

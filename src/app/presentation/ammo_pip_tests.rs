@@ -353,3 +353,37 @@ fn the_ammo_pip_size_changes_the_strip_step_only_when_authored() {
         [[0, 7], [4, 7]]
     );
 }
+
+/// Phobos `AmmoPipOffset` (`Ext/TechnoType/Body.cpp:1006`,
+/// constructor `{0,0}` at `Body.h:670`, consumer
+/// `Ext/Techno/Hooks.Pips.cpp:241`): the pair translates every pip by the
+/// same amount, after the optional `AmmoPipSize` step.
+#[cfg(feature = "phobos")]
+#[test]
+fn an_authored_ammo_pip_offset_translates_every_pip_in_the_strip() {
+    let (rules, sim, id) = ammo_pip_scene("AmmoPipOffset=6,-2\n");
+    assert_eq!(rules.object("RIPU").unwrap().ammo_pip_offset(), [6, -2]);
+    let authored = draws(&sim, &rules, id);
+    assert_eq!(
+        authored.iter().map(|d| d.offset_pixels).collect::<Vec<_>>(),
+        [[6, 5], [10, 5]]
+    );
+
+    let (both_rules, both_sim, both_id) = ammo_pip_scene("AmmoPipSize=9,3\nAmmoPipOffset=6,-2\n");
+    let both = draws(&both_sim, &both_rules, both_id);
+    assert_eq!(
+        both.iter().map(|d| d.offset_pixels).collect::<Vec<_>>(),
+        [[6, 5], [15, 8]]
+    );
+
+    let (stock_rules, stock_sim, stock_id) = ammo_pip_scene("");
+    assert_eq!(
+        stock_rules.object("RIPU").unwrap().ammo_pip_offset(),
+        [0, 0]
+    );
+    let stock = draws(&stock_sim, &stock_rules, stock_id);
+    assert_eq!(
+        stock.iter().map(|d| d.offset_pixels).collect::<Vec<_>>(),
+        [[0, 7], [4, 7]]
+    );
+}

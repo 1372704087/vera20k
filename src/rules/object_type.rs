@@ -2720,6 +2720,12 @@ pub struct ObjectType {
     /// layout. VERA holds the pair as `[x, y]` lepton-pixel steps.
     ammo_pip_size: Option<[i32; 2]>,
 
+    /// Phobos `TechnoTypeExt::AmmoPipOffset` (`Ext/TechnoType/Body.h:241`,
+    /// `Valueable<Point2D>` seeded `{0,0}` at `Body.h:670`): added once to
+    /// the Ammo strip's draw origin (`Ext/TechnoType/Body.cpp:1006`,
+    /// consumer `Ext/Techno/Hooks.Pips.cpp:241`). VERA holds `[x, y]`.
+    ammo_pip_offset: [i32; 2],
+
     /// Whether this building absorbs infantry (Yuri Bio Reactor).
     /// Parsed from `InfantryAbsorb=yes` in rules.ini.
     pub infantry_absorb: bool,
@@ -4563,6 +4569,11 @@ impl ObjectType {
     /// Phobos `AmmoPipSize`: the authored `[x, y]` pip step, else stock.
     pub const fn ammo_pip_size(&self) -> Option<[i32; 2]> {
         self.ammo_pip_size
+    }
+
+    /// Phobos `AmmoPipOffset`: the strip's origin offset in pixels.
+    pub const fn ammo_pip_offset(&self) -> [i32; 2] {
+        self.ammo_pip_offset
     }
 
     /// Building4598A0's current-type query: UnitAbsorb OR InfantryAbsorb.
@@ -6857,6 +6868,12 @@ impl ObjectType {
             ammo_pip_size: section.read_phobos_nullable_int_pair("AmmoPipSize", None),
             #[cfg(not(feature = "phobos"))]
             ammo_pip_size: None,
+            // Phobos `TechnoTypeExt::AmmoPipOffset`
+            // (`Ext/TechnoType/Body.cpp:1006`), constructor `{0,0}`.
+            #[cfg(feature = "phobos")]
+            ammo_pip_offset: section.read_phobos_int_pair("AmmoPipOffset", [0, 0]),
+            #[cfg(not(feature = "phobos"))]
+            ammo_pip_offset: [0, 0],
             unit_absorb: section.read_bool("UnitAbsorb", false),
             infantry_absorb: section.read_bool("InfantryAbsorb", false),
             grinding: section.read_bool("Grinding", false),

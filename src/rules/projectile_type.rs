@@ -116,6 +116,13 @@ pub struct ProjectileType {
     /// `Misc/Hooks.BugFixes.cpp:2423`).
     #[cfg(feature = "phobos")]
     pub vertical_aircraft_fix: Option<bool>,
+    /// Phobos `Arcing.AllowElevationInaccuracy=` (`Nullable<bool>`,
+    /// `Ext/BulletType/Body.cpp:53`, `Body.h:55`): when this refuses
+    /// (the `[CombatDamage]` global defaults **`true`**), the arcing
+    /// launch velocity is recomputed by `BulletExt::ApplyArcingFix`
+    /// (`Ext/Bullet/Body.cpp:454-478`, hooks `0x6FF008`/`0x44D46E`).
+    #[cfg(feature = "phobos")]
+    pub phobos_arcing_allow_elevation_inaccuracy: Option<bool>,
     /// Phobos `SubjectToGround=` (`Ext/BulletType/Body.cpp:56`, declared
     /// `Ext/BulletType/Body.h:59`, constructed `no` `:123`): the firing
     /// techno's pre-shot obstacle scan also refuses a line that passes below
@@ -558,6 +565,9 @@ impl ProjectileType {
             vertical: section.read_bool("Vertical", false),
             #[cfg(feature = "phobos")]
             vertical_aircraft_fix: section.read_phobos_nullable_bool("Vertical.AircraftFix", None),
+            #[cfg(feature = "phobos")]
+            phobos_arcing_allow_elevation_inaccuracy: section
+                .read_phobos_nullable_bool("Arcing.AllowElevationInaccuracy", None),
             flat: false,
             // Integer fields
             #[cfg(feature = "phobos")]

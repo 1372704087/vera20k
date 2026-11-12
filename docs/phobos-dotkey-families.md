@@ -177,7 +177,7 @@ key's underground collection (`Ext/Bullet/Hooks.DetonateLogics.cpp:942-986`)
 needs the `ScenarioExt::UndergroundTracker`, which VERA has no counterpart for
 (recorded with the AffectsUnderground residuals).
 
-## Arcing.AllowElevationInaccuracy — NOT ported yet (G1.2)
+## Arcing.AllowElevationInaccuracy (G1.2)
 
 BulletType `Nullable<bool>` (`Ext/BulletType/Body.cpp:53`) over the
 `[CombatDamage]` global (default **`true`**, `Ext/Rules/Body.cpp:477`). Hook
@@ -190,7 +190,13 @@ horizontalDistance < dZ`, `speedMult = 0.45 / 0.68 / 1.0`, `speed = speedMult
 * sqrt(horizontalDistance * gravity * 1.2)`, then `vX/vY = d * speed /
 horizontalDistance` and `vZ = (dZ + vZ) * mult + gravity * horizontalDistance
 / (2 * speed)`; a degenerate horizontal or speed sets `vZ = speed` alone.
-VERA owner: `sim/projectile/launch.rs::fireat_launch` (velocity at
-`world_fire.rs:2442`, the `arc_angle` 45-degree distortion at `:36-38`) and
-`building_missile.rs`'s EMP cannon solve; the keys and this exact fold are
-the remaining work.
+VERA: `ProjectileType::phobos_arcing_allow_elevation_inaccuracy` +
+`PhobosGlobals::arcing_allow_elevation_inaccuracy`, the fold in
+`launch.rs::apply_arcing_fix` applied at the end of `fireat_launch` (the
+velocity is stored to binary64 bits, folded, and handed to
+`ProjectileVelocity::from_native`); the world_fire caller resolves the key
+per projectile. Test: `launch::arcing_fix_tests` (aims at the scattered
+delta, degenerate guard, lobber branch). RESIDUAL: the EMP cannon site
+(`0x44D46E`, `building_missile.rs`) does not fold the fix yet — its
+target-Z reconstruction needs the native Mission_Missile stack; the homing
+pass-through also keeps the stock velocity (the corpus tests pin it).

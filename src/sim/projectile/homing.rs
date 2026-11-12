@@ -575,6 +575,10 @@ mod tests {
                 high_root: false,
                 voxel_downward: None,
                 building_pitch_height: None,
+                #[cfg(feature = "phobos")]
+                arcing_fix: false,
+                #[cfg(feature = "phobos")]
+                lobber: false,
             })
             .unwrap();
             assert_eq!(

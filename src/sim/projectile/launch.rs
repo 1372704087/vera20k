@@ -185,6 +185,13 @@ pub struct FireAtLaunch {
     pub voxel_downward: Option<bool>,
     /// BuildingType+EF4*200 minus the live source virtual+300 result Z.
     pub building_pitch_height: Option<i32>,
+    /// Phobos `0x6FF008`: fold `BulletExt::ApplyArcingFix` into the finished
+    /// arcing velocity (the `Arcing.AllowElevationInaccuracy` refusal).
+    #[cfg(feature = "phobos")]
+    pub arcing_fix: bool,
+    /// The weapon's native `Lobber=` for the fix's own branch.
+    #[cfg(feature = "phobos")]
+    pub lobber: bool,
 }
 
 pub struct FireAtLaunchResult {
@@ -872,11 +879,37 @@ pub fn fireat_launch(input: FireAtLaunch) -> Option<FireAtLaunchResult> {
         round(X::mul(trig.cos_from_table(d(pitch_radians)), vy)),
         round(X::mul(trig.sin_from_table(d(pitch_radians)), magnitude)),
     ];
-    #[cfg(any(test, feature = "test-support"))]
+    #[cfg(feature = "phobos")]
+    let velocity = {
+        let as_bits = velocity.map(|v| {
+            crate::util::native_x87::NativeF64Bits::from_bits(
+                f64::from_bits(store(v).bits()).to_bits(),
+            )
+        });
+        if input.arcing && input.arcing_fix {
+            let fixed = apply_arcing_fix(
+                as_bits.map(|bits| f64::from_bits(bits.bits())),
+                [input.delta.x, input.delta.y, input.delta.z],
+                f64::from_bits(input.gravity.bits()),
+                input.lobber,
+            );
+            fixed.map(|v| crate::util::native_x87::NativeF64Bits::from_bits(v.to_bits()))
+        } else {
+            as_bits
+        }
+    };
+    // Under `phobos` the fold above already stored the vector as binary64
+    // bits, so `from_native` takes them directly.
+    #[cfg(all(any(test, feature = "test-support"), not(feature = "phobos")))]
     let before_fire = ProjectileVelocity::from_native(velocity.map(store));
+    #[cfg(all(any(test, feature = "test-support"), feature = "phobos"))]
+    let before_fire = ProjectileVelocity::from_native(velocity);
     // Bullet::Fire 468AAC..468B57 renormalizes ROT>0 after the six DWORDs
     // have been copied, with (z*z + y*y) + x*x and another Sqrt_Approx.
+    #[cfg(not(feature = "phobos"))]
     let velocity = ProjectileVelocity::from_native(velocity.map(store));
+    #[cfg(feature = "phobos")]
+    let velocity = ProjectileVelocity::from_native(velocity);
     let velocity = if input.homing {
         bullet_fire_homing_velocity(velocity)
     } else {
@@ -888,6 +921,44 @@ pub fn fireat_launch(input: FireAtLaunch) -> Option<FireAtLaunchResult> {
         #[cfg(any(test, feature = "test-support"))]
         before_fire,
     })
+}
+
+/// `BulletExt::ApplyArcingFix` (`Ext/Bullet/Body.cpp:454-478`), folded by the
+/// `0x6FF008`/`0x44D46E` hooks when an arcing bullet's
+/// `Arcing.AllowElevationInaccuracy` refuses: the finished launch velocity is
+/// recomputed from the scattered target delta so the shot lands on it. Plain
+/// binary64 math, as compiled.
+#[cfg(feature = "phobos")]
+pub(crate) fn apply_arcing_fix(
+    mut velocity: [f64; 3],
+    delta: [i32; 3],
+    gravity: f64,
+    lobber: bool,
+) -> [f64; 3] {
+    let horizontal = (f64::from(delta[0]) * f64::from(delta[0])
+        + f64::from(delta[1]) * f64::from(delta[1]))
+    .sqrt();
+    // `static_cast<int>(horizontalDistance) < distanceCoords.Z`.
+    let lobber = lobber || (horizontal as i32) < delta[2];
+    let speed_mult = if lobber {
+        0.45
+    } else if delta[2] > 0 {
+        0.68
+    } else {
+        1.0
+    };
+    let speed = speed_mult * (horizontal * gravity * 1.2).sqrt();
+    if horizontal < 1e-10 || speed < 1e-10 {
+        // No solution.
+        velocity[2] = speed;
+    } else {
+        let mult = speed / horizontal;
+        velocity[0] = f64::from(delta[0]) * mult;
+        velocity[1] = f64::from(delta[1]) * mult;
+        velocity[2] =
+            (f64::from(delta[2]) + velocity[2]) * mult + (gravity * horizontal) / (2.0 * speed);
+    }
+    velocity
 }
 
 #[cfg(test)]
@@ -924,6 +995,10 @@ mod tests {
                 high_root: false,
                 voxel_downward: None,
                 building_pitch_height: None,
+                #[cfg(feature = "phobos")]
+                arcing_fix: false,
+                #[cfg(feature = "phobos")]
+                lobber: false,
             });
             assert_eq!(
                 result.is_some(),
@@ -1063,6 +1138,10 @@ mod tests {
                             .wrapping_mul(200)
                             .wrapping_sub(row["source_z"].as_i64().unwrap() as i32)
                     }),
+                    #[cfg(feature = "phobos")]
+                    arcing_fix: false,
+                    #[cfg(feature = "phobos")]
+                    lobber: row["lobber"].as_bool().unwrap_or(false),
                 };
                 let result = fireat_launch(input);
                 assert_eq!(
@@ -1391,5 +1470,37 @@ mod tests {
                 );
             }
         }
+    }
+}
+
+#[cfg(all(test, feature = "phobos"))]
+mod arcing_fix_tests {
+    use super::apply_arcing_fix;
+
+    /// `BulletExt::ApplyArcingFix` (`Ext/Bullet/Body.cpp:454-478`): the
+    /// horizontal axes aim exactly at the scattered delta at the computed
+    /// launch speed, the vertical component gains the ballistic correction,
+    /// the degenerate guard replaces `vZ` with the speed alone, and the
+    /// lobber branch's 0.45 speed mult lofts higher than the flat shot.
+    #[test]
+    fn the_fix_aims_at_the_scattered_delta() {
+        let gravity = 0.3;
+        let flat = apply_arcing_fix([1.0, 2.0, 3.0], [400, 0, 0], gravity, false);
+        let speed = (400.0_f64 * gravity * 1.2).sqrt();
+        assert!((flat[0] - speed).abs() < 1e-9, "vX equals the launch speed");
+        assert_eq!(flat[1], 0.0, "vY vanishes on an axial shot");
+        let expected_z = 3.0 * (speed / 400.0) + (gravity * 400.0) / (2.0 * speed);
+        assert!(
+            (flat[2] - expected_z).abs() < 1e-9,
+            "vZ gains the correction"
+        );
+        let degenerate = apply_arcing_fix([1.0, 2.0, 3.0], [0, 0, 400], gravity, false);
+        assert_eq!(degenerate, [1.0, 2.0, 0.0], "no horizontal solution");
+        let lobbed = apply_arcing_fix([1.0, 2.0, 3.0], [400, 0, 0], gravity, true);
+        assert!(
+            (lobbed[0] - 0.45 * speed).abs() < 1e-9,
+            "the lobber speed mult"
+        );
+        assert!(lobbed[2] > flat[2], "the lobber branch lofts higher");
     }
 }

@@ -2439,6 +2439,18 @@ pub(super) fn emit_admitted_fire(
                     .weapon_burst
                     .take_radial_index(obj.radial_fire_segments)
             });
+        // Phobos `TechnoClass_Fire_BeforeMoveTo @ 0x6FF008` (`Ext/Bullet/
+        // Hooks.cpp:513-531`): an arcing bullet whose
+        // `Arcing.AllowElevationInaccuracy` refuses (the `[CombatDamage]`
+        // global defaults `true`) has its finished velocity recomputed by
+        // `BulletExt::ApplyArcingFix` before `BulletClass::Fire`.
+        #[cfg(feature = "phobos")]
+        let arcing_fix = ballistic
+            && !projectile_type
+                .and_then(|kind| kind.phobos_arcing_allow_elevation_inaccuracy)
+                .unwrap_or(rules.phobos_globals.arcing_allow_elevation_inaccuracy);
+        #[cfg(not(feature = "phobos"))]
+        let arcing_fix = false;
         let launch = fireat_launch(FireAtLaunch {
             radial_segments: obj.radial_fire_segments,
             radial_index,
@@ -2457,6 +2469,10 @@ pub(super) fn emit_admitted_fire(
             high_root: high_arc_root(weapon.lobber, raw_source, current_target_coord),
             voxel_downward,
             building_pitch_height,
+            #[cfg(feature = "phobos")]
+            arcing_fix,
+            #[cfg(feature = "phobos")]
+            lobber: weapon.lobber,
         });
         // A launch with no ballistic solution deletes its bullet
         // (`0x006FF000` -> `0x006FF93C`, or `0x006FF01E` when

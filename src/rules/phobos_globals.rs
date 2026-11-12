@@ -459,6 +459,12 @@ pub struct PhobosGlobals {
     /// hook `0x438D44`); a weapon's `IvanBomb.Visibility=` overrides it.
     #[serde(default)]
     pub ivan_icon_visibility: crate::rules::phobos_shields::AffectedHouse,
+    /// `[CombatDamage] Arcing.AllowElevationInaccuracy=` (`Valueable<bool>`,
+    /// default **`true`**, `Ext/Rules/Body.cpp:477`, `Ext/Rules/Body.h:387`,
+    /// `:892`): the global fallback of the BulletType key; `no` makes every
+    /// arcing launch run `BulletExt::ApplyArcingFix`.
+    #[serde(default = "true_bool")]
+    pub arcing_allow_elevation_inaccuracy: bool,
     /// `[CombatDamage] Temporal.ApplyMultiplier=` / `.ApplyVersus=`
     /// (`Valueable<bool>`, constructors `false`, `Ext/Rules/Body.h:494-495`,
     /// `:991-992`; reads `Ext/Rules/Body.cpp:583-584`): the global fallbacks
@@ -844,6 +850,7 @@ impl Default for PhobosGlobals {
             vertical_aircraft_fix: true,
             building_radio_link_sync_owner: true,
             ivan_icon_visibility: crate::rules::phobos_shields::AffectedHouse::OWNER,
+            arcing_allow_elevation_inaccuracy: true,
             temporal_apply_multiplier: false,
             temporal_apply_versus: false,
             can_target_iron_curtained: true,
@@ -1397,14 +1404,16 @@ fn section_settings(section: &crate::rules::ini_parser::IniSection) -> PhobosGlo
             "CanTarget.IronCurtained",
             defaults.can_target_iron_curtained,
         ),
+        arcing_allow_elevation_inaccuracy: section.read_bool(
+            "Arcing.AllowElevationInaccuracy",
+            defaults.arcing_allow_elevation_inaccuracy,
+        ),
         temporal_apply_multiplier: section.read_bool(
             "Temporal.ApplyMultiplier",
             defaults.temporal_apply_multiplier,
         ),
-        temporal_apply_versus: section.read_bool(
-            "Temporal.ApplyVersus",
-            defaults.temporal_apply_versus,
-        ),
+        temporal_apply_versus: section
+            .read_bool("Temporal.ApplyVersus", defaults.temporal_apply_versus),
         can_target_ai_iron_curtained: section.read_bool(
             "CanTargetAI.IronCurtained",
             defaults.can_target_ai_iron_curtained,

@@ -329,3 +329,27 @@ fn the_ammo_pip_wrap_start_frame_reads_its_authoring_and_constructor() {
         14
     );
 }
+
+/// Phobos `AmmoPipSize` (`Ext/TechnoType/Body.cpp:1005`,
+/// `Nullable<Point2D>` seeded empty at `Body.h:669`, consumer
+/// `Ext/Techno/Hooks.Pips.cpp:172`): a full pair replaces the strip's X/Y
+/// step, while the unset state keeps the stock 4 / 0 layout.
+#[cfg(feature = "phobos")]
+#[test]
+fn the_ammo_pip_size_changes_the_strip_step_only_when_authored() {
+    let (rules, sim, id) = ammo_pip_scene("AmmoPipSize=9,3\n");
+    assert_eq!(rules.object("RIPU").unwrap().ammo_pip_size(), Some([9, 3]));
+    let authored = draws(&sim, &rules, id);
+    assert_eq!(
+        authored.iter().map(|d| d.offset_pixels).collect::<Vec<_>>(),
+        [[0, 7], [9, 10]]
+    );
+
+    let (stock_rules, stock_sim, stock_id) = ammo_pip_scene("");
+    assert_eq!(stock_rules.object("RIPU").unwrap().ammo_pip_size(), None);
+    let stock = draws(&stock_sim, &stock_rules, stock_id);
+    assert_eq!(
+        stock.iter().map(|d| d.offset_pixels).collect::<Vec<_>>(),
+        [[0, 7], [4, 7]]
+    );
+}

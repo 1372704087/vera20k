@@ -2713,6 +2713,13 @@ pub struct ObjectType {
     /// this is stored and read but not yet consumed.
     ammo_pip_wrap_start_frame: i32,
 
+    /// Phobos `TechnoTypeExt::AmmoPipSize` (`Ext/TechnoType/Body.h:240`,
+    /// `Nullable<Point2D>` seeded empty at `Body.h:669`): overrides the
+    /// stock Ammo pip width/height step (`Ext/TechnoType/Body.cpp:1005`,
+    /// consumer `Ext/Techno/Hooks.Pips.cpp:172`). `None` keeps the stock
+    /// layout. VERA holds the pair as `[x, y]` lepton-pixel steps.
+    ammo_pip_size: Option<[i32; 2]>,
+
     /// Whether this building absorbs infantry (Yuri Bio Reactor).
     /// Parsed from `InfantryAbsorb=yes` in rules.ini.
     pub infantry_absorb: bool,
@@ -4551,6 +4558,11 @@ impl ObjectType {
     /// Phobos `AmmoPipWrapStartFrame`: the wrapped strip's start frame.
     pub const fn ammo_pip_wrap_start_frame(&self) -> i32 {
         self.ammo_pip_wrap_start_frame
+    }
+
+    /// Phobos `AmmoPipSize`: the authored `[x, y]` pip step, else stock.
+    pub const fn ammo_pip_size(&self) -> Option<[i32; 2]> {
+        self.ammo_pip_size
     }
 
     /// Building4598A0's current-type query: UnitAbsorb OR InfantryAbsorb.
@@ -6838,6 +6850,13 @@ impl ObjectType {
             ammo_pip_wrap_start_frame: section.read_int("AmmoPipWrapStartFrame", 14),
             #[cfg(not(feature = "phobos"))]
             ammo_pip_wrap_start_frame: 14,
+            // Phobos `TechnoTypeExt::AmmoPipSize`
+            // (`Ext/TechnoType/Body.cpp:1005`), `Nullable<Point2D>` with no
+            // constructor value: only a full two-integer read sets it.
+            #[cfg(feature = "phobos")]
+            ammo_pip_size: section.read_phobos_nullable_int_pair("AmmoPipSize", None),
+            #[cfg(not(feature = "phobos"))]
+            ammo_pip_size: None,
             unit_absorb: section.read_bool("UnitAbsorb", false),
             infantry_absorb: section.read_bool("InfantryAbsorb", false),
             grinding: section.read_bool("Grinding", false),

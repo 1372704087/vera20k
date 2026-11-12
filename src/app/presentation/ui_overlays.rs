@@ -2129,9 +2129,21 @@ pub(crate) fn scale_pip_draws(
         // A negative authored frame has no VERA `usize` frame counterpart;
         // fall back to the stock 13 for that degenerate read.
         let full = usize::try_from(object.ammo_pip_frame()).unwrap_or(13);
+        // Phobos `TechnoClass_DrawPips_Sizes` (`0x709B2E`,
+        // `Ext/Techno/Hooks.Pips.cpp:172`) replaces the Ammo pip width/height
+        // that the draw loop uses as its X/Y step; `None` keeps the stock
+        // `pip()` closure's 4 / (building ? 2 : 0) layout untouched.
+        let sized_step = object.ammo_pip_size();
         pips.extend((0..slots).map(|slot| {
             let frame = if slot < fill_slots { full } else { empty };
-            pip(slot, frame, row_y - 3)
+            let mut draw = pip(slot, frame, row_y - 3);
+            if let Some([step_x, step_y]) = sized_step {
+                draw.offset_pixels = [
+                    (slot as i32).wrapping_mul(step_x),
+                    (row_y - 3).wrapping_add((slot as i32).wrapping_mul(step_y)),
+                ];
+            }
+            draw
         }));
         return pips;
     }

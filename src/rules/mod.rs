@@ -252,6 +252,8 @@ pub mod phobos_return_warhead;
 pub mod phobos_return_weapon;
 #[cfg(feature = "phobos")]
 pub mod phobos_selection_flash;
+#[cfg(feature = "phobos")]
+pub mod phobos_self_heal;
 pub mod phobos_shields;
 #[cfg(feature = "phobos")]
 pub mod phobos_sidebar_indicators;

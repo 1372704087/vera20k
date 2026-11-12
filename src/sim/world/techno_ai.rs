@@ -1497,30 +1497,203 @@ fn house_self_heal_step(
     session: &ScenarioSession,
     substrate: &mut ObjectSubstrate,
     houses: &Houses,
+    house_alliances: &crate::sim::house_diplomacy::HouseAlliances,
     resolved_terrain: &Option<ResolvedTerrainGrid>,
     id: u64,
     rules: &RuleSet,
 ) {
-    house_heal_arm(
+    // Phobos `TechnoClass_AI_SelfHealGain` (0x6FA793,
+    // `Ext/Techno/Hooks.cpp:146-155`) replaces the two stock arms with one
+    // type-resolved pass; unset keys reproduce the stock classification.
+    #[cfg(feature = "phobos")]
+    phobos_apply_gained_self_heal(
         interner,
         session,
         substrate,
         houses,
+        house_alliances,
         resolved_terrain,
         id,
         rules,
-        false,
     );
-    house_heal_arm(
-        interner,
-        session,
-        substrate,
-        houses,
-        resolved_terrain,
-        id,
-        rules,
-        true,
+    #[cfg(not(feature = "phobos"))]
+    {
+        let _ = house_alliances;
+        house_heal_arm(
+            interner,
+            session,
+            substrate,
+            houses,
+            resolved_terrain,
+            id,
+            rules,
+            false,
+        );
+        house_heal_arm(
+            interner,
+            session,
+            substrate,
+            houses,
+            resolved_terrain,
+            id,
+            rules,
+            true,
+        );
+    }
+}
+
+/// `TechnoExt::ApplyGainedSelfHeal` (`Ext/Techno/Body.Update.cpp:591-705`):
+/// the TechnoType's `SelfHealGainType`, else the stock classification
+/// (Infantry, organic Unit -> Infantry; other Unit -> Units; everything else
+/// -> NoHeal), picks the frame gate, house count and amount. The Phobos caps
+/// clamp the count; `GainSelfHealFromPlayerControl`/`FromAllies` add other
+/// houses' counts. The healed object's damage particle retires on the same
+/// crossing condition the stock unit arm uses.
+#[cfg(feature = "phobos")]
+#[allow(clippy::too_many_arguments)]
+fn phobos_apply_gained_self_heal(
+    interner: &StringInterner,
+    session: &ScenarioSession,
+    substrate: &mut ObjectSubstrate,
+    houses: &Houses,
+    house_alliances: &crate::sim::house_diplomacy::HouseAlliances,
+    resolved_terrain: &Option<ResolvedTerrainGrid>,
+    id: u64,
+    rules: &RuleSet,
+) {
+    use crate::rules::phobos_self_heal::SelfHealGainType;
+    use crate::sim::scenario_session::ScenarioGameMode;
+
+    let globals = &rules.phobos_globals;
+    let Some(entity) = substrate.entities.get(id) else {
+        return;
+    };
+    let Some(object) = interner.object_type(entity.type_ref(), rules) else {
+        return;
+    };
+    let owner = entity.owner();
+    if !globals.gain_self_heal_allow_multiplay_passive
+        && houses
+            .get(&owner)
+            .is_some_and(|house| house.multiplay_passive())
+    {
+        return;
+    }
+    let health = entity.health.current();
+    let deficit = object.strength.wrapping_sub(health);
+    if health == 0 || deficit <= 0 {
+        return;
+    }
+    let default_kind = match entity.category() {
+        crate::map::entities::EntityCategory::Infantry => SelfHealGainType::Infantry,
+        crate::map::entities::EntityCategory::Unit => {
+            if object.organic {
+                SelfHealGainType::Infantry
+            } else {
+                SelfHealGainType::Units
+            }
+        }
+        _ => SelfHealGainType::NoHeal,
+    };
+    let kind = object.phobos_self_heal_gain_type.unwrap_or(default_kind);
+    if kind == SelfHealGainType::NoHeal {
+        return;
+    }
+    let infantry = kind == SelfHealGainType::Infantry;
+    let frames = if infantry {
+        rules.general.self_heal_infantry_frames
+    } else {
+        rules.general.self_heal_unit_frames
+    };
+    let frame = session.binary_frame() as i32;
+    let remainder = frame.checked_rem(frames).unwrap_or_else(|| {
+        panic!(
+            "native House self-heal IDIV fault at 006FA7EE/006FA8E2: frame={frame} period={frames}"
+        )
+    });
+    if remainder != 0 {
+        return;
+    }
+    let amount_key = if infantry {
+        rules.general.self_heal_infantry_amount
+    } else {
+        rules.general.self_heal_unit_amount
+    };
+    let cap = if infantry {
+        globals.infantry_gain_self_heal_cap
+    } else {
+        globals.units_gain_self_heal_cap
+    };
+    let count = {
+        let heal_count = |house: &crate::sim::house_state::HouseState| {
+            if infantry {
+                house.self_heal_infantry()
+            } else {
+                house.self_heal_units()
+            }
+        };
+        let mut count = houses.get(&owner).map_or(0, heal_count);
+        let cap_active = cap.is_some();
+        let cap = cap.unwrap_or(0).max(1);
+        if cap_active && count >= cap {
+            cap
+        } else {
+            let is_campaign = session.game_mode() == ScenarioGameMode::Campaign;
+            let from_player = globals.gain_self_heal_from_player_control
+                && is_campaign
+                && houses
+                    .get(&owner)
+                    .is_some_and(|house| house.is_human() || house.player_control());
+            let from_allies = globals.gain_self_heal_from_allies;
+            if from_player || from_allies {
+                for &house_id in houses.order() {
+                    if house_id == owner {
+                        continue;
+                    }
+                    let Some(house) = houses.get(&house_id) else {
+                        continue;
+                    };
+                    let eligible = (from_player && (house.is_human() || house.player_control()))
+                        || (from_allies
+                            && (!is_campaign || (!house.is_human() && !house.player_control()))
+                            && house_alliances.is_allied(interner, house_id, owner));
+                    if eligible {
+                        count = count.wrapping_add(heal_count(house));
+                        if cap_active && count >= cap {
+                            count = cap;
+                            break;
+                        }
+                    }
+                }
+            }
+            count
+        }
+    };
+    let amount = amount_key.wrapping_mul(count);
+    if amount == 0 {
+        return;
+    }
+    let amount = if amount >= deficit { deficit } else { amount };
+    let was_damaged = crate::sim::pathfinding::terrain_speed::is_at_or_below_condition_yellow(
+        health,
+        object.strength,
+        rules.general.condition_yellow,
     );
+    if let Some(entity) = substrate.entities.get_mut(id) {
+        entity.health.heal(amount);
+    }
+    if was_damaged {
+        // Phobos' tail retires the damage particle above ConditionYellow or
+        // below -10 leptons. VERA derives the building's damaged art from
+        // live health, so no explicit ToggleDamagedAnims mark is kept.
+        Simulation::retire_damage_smoke_after_self_heal(
+            interner,
+            substrate,
+            resolved_terrain,
+            id,
+            rules,
+        );
+    }
 }
 
 /// One arm of [`house_self_heal_step`]. `infantry` selects the hospital arm:
@@ -1546,6 +1719,8 @@ fn house_self_heal_step(
 /// `bl` is built at `0x006FA79A..0x006FA7B0` (`ebp` is zeroed at `0x006F9E58`):
 /// it is set when `Health >= Type+0xA0` (`0x006FA7A2`, `jl` past the set) or when
 /// `Health == 0` (`0x006FA7AC`), and either arm leaves before its heal block.
+/// Phobos builds replace both arms with [`phobos_apply_gained_self_heal`].
+#[cfg(not(feature = "phobos"))]
 fn house_heal_arm(
     interner: &StringInterner,
     session: &ScenarioSession,
@@ -2559,6 +2734,7 @@ fn techno_after_acquisition(
             &sim.session,
             &mut sim.substrate,
             &sim.houses,
+            &sim.house_alliances,
             &sim.resolved_terrain,
             id,
             rules,

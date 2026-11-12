@@ -872,6 +872,43 @@ pub struct PhobosGlobals {
     /// (`Ext/Techno/Hooks.Transport.cpp:70-165`).
     #[serde(default)]
     pub reload_in_transport: bool,
+    /// `[General] InfantryGainSelfHealCap=`, `Nullable<int>`
+    /// (`Ext/Rules/Body.cpp:111`, `Body.h:30,570`): the cap on the infantry
+    /// self-heal count; unset means no cap.
+    #[serde(default)]
+    pub infantry_gain_self_heal_cap: Option<i32>,
+    /// `[General] UnitsGainSelfHealCap=`, `Nullable<int>`
+    /// (`Ext/Rules/Body.cpp:112`, `Body.h:31,571`).
+    #[serde(default)]
+    pub units_gain_self_heal_cap: Option<i32>,
+    /// `[General] GainSelfHealAllowMultiplayPassive=`, default `yes`
+    /// (`Ext/Rules/Body.cpp:113`, `Body.h:32,572`).
+    #[serde(default = "true_bool")]
+    pub gain_self_heal_allow_multiplay_passive: bool,
+    /// `[General] GainSelfHealFromPlayerControl=`, default `no`
+    /// (`Ext/Rules/Body.cpp:114`, `Body.h:33,573`).
+    #[serde(default)]
+    pub gain_self_heal_from_player_control: bool,
+    /// `[General] GainSelfHealFromAllies=`, default `no`
+    /// (`Ext/Rules/Body.cpp:115`, `Body.h:34,574`).
+    #[serde(default)]
+    pub gain_self_heal_from_allies: bool,
+    /// `[AudioVisual] AircraftDockingDir.DefaultToPoseDir=`, default `yes`
+    /// (`Ext/Rules/Body.cpp:634`, `Body.h:533,1032`): a docked aircraft's
+    /// landing direction falls through to the type/pose dir instead of the
+    /// building's facing (`AircraftExt::GetLandingDir`).
+    #[serde(default = "true_bool")]
+    pub aircraft_docking_dir_default_to_pose_dir: bool,
+    /// `[AudioVisual] PoseDir.Production=`, `Nullable<int>`
+    /// (`Ext/Rules/Body.cpp:635`, `Body.h:534,1033`): the production
+    /// landing direction; unset keeps `[General] PoseDir=`.
+    #[serde(default)]
+    pub pose_dir_production: Option<i32>,
+    /// `[AudioVisual] PoseDir.Field=`, `Nullable<int>`
+    /// (`Ext/Rules/Body.cpp:636`, `Body.h:535,1034`): a raw field landing
+    /// direction; unset keeps `PoseDir * 32`. Only its low byte is used.
+    #[serde(default)]
+    pub pose_dir_field: Option<i32>,
     /// `[General] VeteranReload=`, default **`1.0`**
     /// (`Ext/Rules/Body.cpp:388`, constructor `Ext/Rules/Body.h:808`).
     #[serde(default = "one_f64")]
@@ -970,11 +1007,6 @@ pub struct PhobosGlobals {
     /// (`Ext/Aircraft/Hooks.cpp:1274`).
     #[serde(default = "default_paradrop_delay")]
     pub paradrop_delay: i32,
-    /// `[General] AllowWeaponSelectAgainstWalls=`, default `no`
-    /// (`Ext/Rules/Body.cpp` read through `RulesExt`, constructor
-    /// `Ext/Rules/Body.h:702`): the fallback for a TechnoType's own key.
-    #[serde(default)]
-    pub allow_weapon_select_against_walls: bool,
 }
 
 /// `RadarJamHouses=`'s constructor value (`Ext/Rules/Body.h:657`).
@@ -1194,6 +1226,14 @@ impl Default for PhobosGlobals {
             no_queue_up_to_unload: false,
             no_queue_up_to_unload_buildings: None,
             reload_in_transport: false,
+            infantry_gain_self_heal_cap: None,
+            units_gain_self_heal_cap: None,
+            gain_self_heal_allow_multiplay_passive: true,
+            gain_self_heal_from_player_control: false,
+            gain_self_heal_from_allies: false,
+            aircraft_docking_dir_default_to_pose_dir: true,
+            pose_dir_production: None,
+            pose_dir_field: None,
             veteran_reload: NativeF64Bits::ONE,
             veteran_empty_reload: None,
             is_voice_created_global: false,
@@ -1212,7 +1252,6 @@ impl Default for PhobosGlobals {
             set_recruitable_on_liberate: -1,
             no_alpha_image_on_buildup: false,
             paradrop_delay: default_paradrop_delay(),
-            allow_weapon_select_against_walls: false,
         }
     }
 }
@@ -1220,13 +1259,6 @@ impl Default for PhobosGlobals {
 impl PhobosGlobals {
     pub fn from_ini(ini: &IniFile) -> Self {
         let mut globals = section_settings(ini.section_or_empty("CombatDamage"));
-        let combat_damage = ini.section_or_empty("CombatDamage");
-        // `Ext/Rules/Body.cpp:256`: the `[CombatDamage]` fallback a TechnoType's
-        // `AllowWeaponSelectAgainstWalls=` overrides.
-        globals.allow_weapon_select_against_walls = combat_damage.read_bool(
-            "AllowWeaponSelectAgainstWalls",
-            globals.allow_weapon_select_against_walls,
-        );
         // `RulesExt::LoadFromINIFile` reads this block in the same pass
         // (`Ext/Rules/Body.cpp:291-304`); the two sections share no key, so
         // their relative order does not matter.
@@ -1253,6 +1285,16 @@ impl PhobosGlobals {
             .map(str::to_owned);
         globals.drain_money_display =
             audio_visual.read_bool("DrainMoneyDisplay", globals.drain_money_display);
+        // `Ext/Rules/Body.cpp:634-636`: the aircraft landing-direction
+        // globals, all `[AudioVisual]`.
+        globals.aircraft_docking_dir_default_to_pose_dir = audio_visual.read_bool(
+            "AircraftDockingDir.DefaultToPoseDir",
+            globals.aircraft_docking_dir_default_to_pose_dir,
+        );
+        globals.pose_dir_production = audio_visual
+            .read_phobos_nullable_int("PoseDir.Production", globals.pose_dir_production);
+        globals.pose_dir_field =
+            audio_visual.read_phobos_nullable_int("PoseDir.Field", globals.pose_dir_field);
         globals.drain_money_display_houses = crate::rules::phobos_shields::read_affected_house(
             audio_visual,
             "DrainMoneyDisplay.Houses",
@@ -1420,6 +1462,23 @@ impl PhobosGlobals {
         );
         globals.reload_in_transport =
             general.read_bool("ReloadInTransport", globals.reload_in_transport);
+        // `Ext/Rules/Body.cpp:111-115`: the gained-self-heal caps and gates.
+        globals.infantry_gain_self_heal_cap = general.read_phobos_nullable_int(
+            "InfantryGainSelfHealCap",
+            globals.infantry_gain_self_heal_cap,
+        );
+        globals.units_gain_self_heal_cap = general
+            .read_phobos_nullable_int("UnitsGainSelfHealCap", globals.units_gain_self_heal_cap);
+        globals.gain_self_heal_allow_multiplay_passive = general.read_bool(
+            "GainSelfHealAllowMultiplayPassive",
+            globals.gain_self_heal_allow_multiplay_passive,
+        );
+        globals.gain_self_heal_from_player_control = general.read_bool(
+            "GainSelfHealFromPlayerControl",
+            globals.gain_self_heal_from_player_control,
+        );
+        globals.gain_self_heal_from_allies =
+            general.read_bool("GainSelfHealFromAllies", globals.gain_self_heal_from_allies);
         // `Ext/Rules/Body.cpp:213-214`: the Ares radar-jam scan's House filter
         // (`Valueable<AffectedHouse>`, default Enemies) and interval.
         globals.radar_jam_houses = crate::rules::phobos_shields::read_affected_house(

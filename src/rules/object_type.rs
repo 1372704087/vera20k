@@ -942,6 +942,23 @@ pub struct ObjectType {
     /// (`LocomotionClass_Process_DamagedSpeedMultiplier @ 0x4B3DF0/0x6A343F`).
     #[cfg(feature = "phobos")]
     pub phobos_damaged_speed: Option<crate::util::native_x87::NativeF64Bits>,
+    /// Phobos `SelfHealGainType` (`Nullable<SelfHealGainType>`, unset;
+    /// `Ext/TechnoType/Body.cpp:957`, `Body.h:201`): which house self-heal
+    /// capacity this techno draws on. Unset keeps the stock classification
+    /// (`TechnoExt::ApplyGainedSelfHeal`, `0x6FA793`).
+    #[cfg(feature = "phobos")]
+    pub phobos_self_heal_gain_type: Option<crate::rules::phobos_self_heal::SelfHealGainType>,
+    /// Phobos `LandingDir` (`Nullable<int>`, unset; `Ext/AircraftType/
+    /// Body.cpp:28`, `Body.h:19`): the type's landing direction. An
+    /// AirportBound aircraft always uses `value & 0xFF`; otherwise a
+    /// negative value keeps its own facing (`AircraftExt::GetLandingDir`).
+    #[cfg(feature = "phobos")]
+    pub phobos_landing_dir: Option<i32>,
+    /// Phobos building-ART `AircraftDockingDir.DefaultToPoseDir`
+    /// (`Nullable<bool>`; `Ext/BuildingType/Body.cpp:307`, `Body.h:72`):
+    /// the building's own fallback for the global of the same name.
+    #[cfg(feature = "phobos")]
+    pub phobos_aircraft_docking_dir_default_to_pose_dir: Option<bool>,
     /// Phobos `ParadropMission`/`AIParadropMission` (`Nullable<Mission>`,
     /// unset; `Ext/TechnoType/Body.cpp:1171-1172`, `Body.h:411-412`): the
     /// mission a human- or AI-controlled `FootClass` queues after
@@ -6367,6 +6384,11 @@ impl ObjectType {
                 .read_phobos_nullable_double("DamagedSpeed", None)
                 .map(|value| crate::util::native_x87::NativeF64Bits::from_bits(value.to_bits())),
             #[cfg(feature = "phobos")]
+            phobos_self_heal_gain_type: section
+                .read_string_with("SelfHealGainType", 2048, None, |current, value| {
+                    crate::rules::phobos_self_heal::SelfHealGainType::parse(value).or(current)
+                }),
+            #[cfg(feature = "phobos")]
             phobos_paradrop_mission: section
                 .read_string_with("ParadropMission", 2048, None, |current, value| {
                     crate::rules::mission_data::MissionType::from_map_name(value).or(current)
@@ -6842,6 +6864,8 @@ impl ObjectType {
             tiberium_heal: section.read_bool("TiberiumHeal", false),
             deploy_to_land: section.read_bool("DeployToLand", false),
             airport_bound: section.read_bool("AirportBound", false),
+            #[cfg(feature = "phobos")]
+            phobos_landing_dir: section.read_phobos_nullable_int("LandingDir", None),
             fighter: section.read_bool("Fighter", false),
             fly_by: section.read_bool("FlyBy", false),
             fly_back: section.read_bool("FlyBack", false),
@@ -7184,6 +7208,8 @@ impl ObjectType {
             helipad: section.read_bool("Helipad", false),
             number_of_docks,
             aircraft_docking_dirs,
+            #[cfg(feature = "phobos")]
+            phobos_aircraft_docking_dir_default_to_pose_dir: None,
             // TogglePower defaults to true for buildings, false for units.
             toggle_power: section.read_bool("TogglePower", category == ObjectCategory::Building),
             // BuildingType+0x1564/+0x1568. The native constructor does not write
@@ -7490,6 +7516,13 @@ fn building_bool(section: &IniSection, category: ObjectCategory, key: &str) -> b
     category == ObjectCategory::Building && section.read_bool(key, false)
 }
 
+/// Phobos `AircraftDockingDir`/`AircraftDockingDir%d`
+/// (`Ext/BuildingType/Body.cpp:285-304`): the base key seeds both index 0 and
+/// the running value the numeric loop carries; each `%d` read keeps the
+/// running value on a missing key and clears it on `none`. `DirType`'s
+/// reader accepts only 0..=224, so an out-of-range integer keeps the current
+/// value. A `NumberOfDocks` of zero or less reads nothing.
+#[cfg(feature = "phobos")]
 #[cfg(test)]
 #[path = "infantry_speed_type_tests.rs"]
 mod infantry_speed_type_tests;

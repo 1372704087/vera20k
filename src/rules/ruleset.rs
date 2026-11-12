@@ -11896,6 +11896,11 @@ impl RuleSet {
             }
             buildings_checked += 1;
             obj.hidden_occupancy = art.building_hidden_occupancy_profile(&obj.id, art_key);
+            #[cfg(feature = "phobos")]
+            {
+                obj.phobos_aircraft_docking_dir_default_to_pose_dir =
+                    entry.and_then(|entry| entry.aircraft_docking_dir_default_to_pose_dir);
+            }
             // +EF0 and ToOverlay are supplied by the sole pass owner in
             // from_processed_rules. Repeating461225 here changes late
             // constructor-only types and loses retained state when

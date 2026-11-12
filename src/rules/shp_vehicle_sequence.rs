@@ -486,6 +486,8 @@ mod tests {
             disable_voxel_cache: false,
             disable_shadow_cache: false,
             can_be_hidden: true,
+            #[cfg(feature = "phobos")]
+            aircraft_docking_dir_default_to_pose_dir: None,
             queueing_cell: [0, 0],
             pads: Vec::new(),
             damage_fire_offsets: Vec::new(),

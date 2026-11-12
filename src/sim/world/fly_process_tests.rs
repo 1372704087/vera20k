@@ -661,6 +661,16 @@ fn fly_process_matches_native_frames() {
         if crate::rules::ARES_ENABLED && flag(input, "hunter_seeker", false) {
             continue;
         }
+        // Phobos `AircraftExt::GetLandingDir` (0x4CF31C) replaces the
+        // stock landing direction. With a dock link and the default
+        // `AircraftDockingDir.DefaultToPoseDir=yes` the pose dir replaces
+        // the contact's facing, so these stock rows no longer apply; the
+        // Phobos branch is covered by
+        // `landing_base::tests::get_landing_dir_follows_the_native_branch_order`.
+        #[cfg(feature = "phobos")]
+        if input["dock"].is_object() {
+            continue;
+        }
         let (mut sim, rules) = fixture(input);
         let start = sim.session.binary_frame();
         let frames = row["frames"].as_array().unwrap();

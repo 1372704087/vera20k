@@ -707,3 +707,40 @@ fn the_buildup_alpha_and_paradrop_delay_globals_read() {
     assert!(!wrong.no_alpha_image_on_buildup);
     assert_eq!(wrong.paradrop_delay, 5);
 }
+
+/// `[General]` gained-self-heal caps and gates (`Ext/Rules/Body.h:30-34`).
+/// `[AudioVisual]` aircraft landing-direction keys (`Ext/Rules/Body.h:533-535`).
+#[test]
+fn aircraft_landing_direction_globals_default_and_read() {
+    let defaults = PhobosGlobals::default();
+    assert!(defaults.aircraft_docking_dir_default_to_pose_dir);
+    assert_eq!(defaults.pose_dir_production, None);
+    assert_eq!(defaults.pose_dir_field, None);
+    let set = read(
+        "[AudioVisual]\nAircraftDockingDir.DefaultToPoseDir=no\n\
+         PoseDir.Production=64\nPoseDir.Field=200\n",
+    );
+    assert!(!set.aircraft_docking_dir_default_to_pose_dir);
+    assert_eq!(set.pose_dir_production, Some(64));
+    assert_eq!(set.pose_dir_field, Some(200));
+}
+
+#[test]
+fn self_heal_caps_and_gates_default_and_read() {
+    let defaults = PhobosGlobals::default();
+    assert_eq!(defaults.infantry_gain_self_heal_cap, None);
+    assert_eq!(defaults.units_gain_self_heal_cap, None);
+    assert!(defaults.gain_self_heal_allow_multiplay_passive);
+    assert!(!defaults.gain_self_heal_from_player_control);
+    assert!(!defaults.gain_self_heal_from_allies);
+    let set = read(
+        "[General]\nInfantryGainSelfHealCap=3\nUnitsGainSelfHealCap=2\n\
+         GainSelfHealAllowMultiplayPassive=no\nGainSelfHealFromPlayerControl=yes\n\
+         GainSelfHealFromAllies=yes\n",
+    );
+    assert_eq!(set.infantry_gain_self_heal_cap, Some(3));
+    assert_eq!(set.units_gain_self_heal_cap, Some(2));
+    assert!(!set.gain_self_heal_allow_multiplay_passive);
+    assert!(set.gain_self_heal_from_player_control);
+    assert!(set.gain_self_heal_from_allies);
+}

@@ -508,6 +508,10 @@ pub(crate) struct AoECollector {
     /// own threshold (`Ext/WarheadType/Hooks.cpp:426`).
     #[cfg(feature = "phobos")]
     merge_spread_leptons: i32,
+    /// Phobos `CellSpread.Cylinder` (hook family `0x489430..`), resolved once
+    /// at collection start: the distance tests ignore Z.
+    #[cfg(feature = "phobos")]
+    cylinder: bool,
     pub result: AoEDamageResult,
 }
 
@@ -649,6 +653,10 @@ impl AoECollector {
                     i32::from(impact_rx as i16),
                     i32::from(impact_ry as i16),
                 );
+            #[cfg(feature = "phobos")]
+            let cylinder = warhead.phobos_cell_spread_cylinder;
+            #[cfg(not(feature = "phobos"))]
+            let cylinder = false;
                 for entity_id in entities.airborne_in_query_order(
                     &center,
                     cell_spread::whole_cells(cell_spread),
@@ -678,6 +686,7 @@ impl AoECollector {
                         air_source_admitted,
                         rules,
                         interner,
+                    cylinder,
                     );
                 }
             }
@@ -697,6 +706,9 @@ impl AoECollector {
             merge_building_damage: warhead
                 .phobos_extras
                 .merges_building_damage(rules.phobos_globals.merge_building_damage),
+            #[cfg(feature = "phobos")]
+            #[cfg(feature = "phobos")]
+            cylinder: warhead.phobos_cell_spread_cylinder,
             #[cfg(feature = "phobos")]
             merge_spread_leptons: crate::util::native_x87::X87Chop53::ftol_f64_low_masked(
                 cell_spread * f64::from(crate::util::lepton::LEPTONS_PER_CELL_I32),
@@ -800,6 +812,19 @@ impl AoECollector {
         let (rx, ry) = cell
             .real_coord
             .expect("native real cell has its canonical coordinate");
+        // Phobos `CellSpread.Cylinder` (hook family `0x489430..`): every
+        // DamageArea distance test replaces the detonation Z with the
+        // victim's, so only the planar separation remains.
+        let cylinder = {
+            #[cfg(feature = "phobos")]
+            {
+                self.cylinder
+            }
+            #[cfg(not(feature = "phobos"))]
+            {
+                false
+            }
+        };
         let mut terrain_inserted = self.selected_layer() != MovementLayer::Ground;
         if let Some(cell_occ) = occupancy.get(rx, ry) {
             for occupant in cell_occ.iter_layer(self.selected_layer()) {
@@ -819,6 +844,7 @@ impl AoECollector {
                         self.spread_leptons,
                         self.base_damage,
                         self.origin.warhead_ref,
+                        cylinder,
                     );
                     terrain_inserted = true;
                 }
@@ -840,6 +866,7 @@ impl AoECollector {
                     self.ground_source_admitted,
                     self.origin.warhead_ref,
                     &self.truce_harvesters,
+                    cylinder,
                 );
             }
         }
@@ -857,6 +884,7 @@ impl AoECollector {
                 self.spread_leptons,
                 self.base_damage,
                 self.origin.warhead_ref,
+                cylinder,
             );
         }
     }
@@ -899,6 +927,16 @@ impl AoECollector {
                 continue;
             }
 
+            let cylinder = {
+                #[cfg(feature = "phobos")]
+                {
+                    self.cylinder
+                }
+                #[cfg(not(feature = "phobos"))]
+                {
+                    false
+                }
+            };
             push_entity_aoe_damage(
                 &mut self.result,
                 entities,
@@ -917,6 +955,7 @@ impl AoECollector {
                 self.ground_source_admitted,
                 self.origin.warhead_ref,
                 &self.truce_harvesters,
+                cylinder,
             );
         }
 
@@ -1289,6 +1328,7 @@ fn push_airborne_aoe_damage(
     source_self_admitted: bool,
     rules: &RuleSet,
     interner: &StringInterner,
+    cylinder: bool,
 ) {
     // Phobos `MapClass_DamageArea_AirDamageSelfFix @ 0x00489416`: the airborne
     // phase skips its own source unless DamageSelf or AllowDamageOnSelf admits
@@ -1313,10 +1353,11 @@ fn push_airborne_aoe_damage(
     let target = crate::sim::movement::ground_pose::object_location(entity, Some(terrain));
     let impact_point = impact.world_point(impact_rx, impact_ry);
     let (impact_x, impact_y) = (impact_point.x, impact_point.y);
-    let raw_distance_leptons = distance_3d_leptons(
-        [impact_x, impact_y, impact.z_leptons],
-        [target.x, target.y, target.z],
-    );
+    let raw_distance_leptons = if cylinder {
+        distance_3d_leptons([impact_x, impact_y, target.z], [target.x, target.y, target.z])
+    } else {
+        distance_3d_leptons([impact_x, impact_y, impact.z_leptons], [target.x, target.y, target.z])
+    };
     if i64::from(raw_distance_leptons) > spread_leptons {
         return;
     }
@@ -1377,6 +1418,7 @@ fn push_entity_aoe_damage(
     source_self_admitted: bool,
     warhead_ref: crate::sim::intern::InternedId,
     truce_harvesters: &[crate::sim::intern::InternedId],
+    cylinder: bool,
 ) {
     // Apply_area_damage's selected ground/deck list excludes the source object
     // unless its type opts into DamageSelf, the warhead is Rules.CrushWarhead,
@@ -1426,13 +1468,22 @@ fn push_entity_aoe_damage(
         [location.x, location.y, location.z]
     };
     let distance_leptons = if entity.category() == EntityCategory::Structure && center_cell {
-        let height_above_cell = impact.z_leptons.wrapping_sub(target_xyz[2]);
-        if height_above_cell <= BUILDING_CENTER_HEIGHT_ALLOWANCE_LEPTONS {
+        // The cylinder hooks replace the detonation Z in the same stack slot
+        // this branch reads, so the center record's height allowance sees a
+        // zero difference and admits the building unconditionally.
+        if cylinder {
             0
         } else {
-            distance_3d_leptons([impact_x, impact_y, impact.z_leptons], target_xyz)
-                .wrapping_sub(BUILDING_CENTER_HEIGHT_ALLOWANCE_LEPTONS)
+            let height_above_cell = impact.z_leptons.wrapping_sub(target_xyz[2]);
+            if height_above_cell <= BUILDING_CENTER_HEIGHT_ALLOWANCE_LEPTONS {
+                0
+            } else {
+                distance_3d_leptons([impact_x, impact_y, impact.z_leptons], target_xyz)
+                    .wrapping_sub(BUILDING_CENTER_HEIGHT_ALLOWANCE_LEPTONS)
+            }
         }
+    } else if cylinder {
+        distance_3d_leptons([impact_x, impact_y, target_xyz[2]], target_xyz)
     } else {
         distance_3d_leptons([impact_x, impact_y, impact.z_leptons], target_xyz)
     };
@@ -1465,6 +1516,7 @@ fn push_terrain_aoe_damage(
     spread_leptons: i64,
     base_damage: i32,
     warhead_ref: crate::sim::intern::InternedId,
+    cylinder: bool,
 ) {
     let Some(view) = terrain_objects else {
         return;
@@ -1478,10 +1530,17 @@ fn push_terrain_aoe_damage(
         }
         let impact_point = impact.world_point(impact_rx, impact_ry);
         let target_coord = object.world_coord();
-        let distance_leptons = distance_3d_leptons(
-            [impact_point.x, impact_point.y, impact.z_leptons],
-            [target_coord.x, target_coord.y, target_coord.z],
-        );
+        let distance_leptons = if cylinder {
+            distance_3d_leptons(
+                [impact_point.x, impact_point.y, target_coord.z],
+                [target_coord.x, target_coord.y, target_coord.z],
+            )
+        } else {
+            distance_3d_leptons(
+                [impact_point.x, impact_point.y, impact.z_leptons],
+                [target_coord.x, target_coord.y, target_coord.z],
+            )
+        };
         if i64::from(distance_leptons) > spread_leptons {
             continue;
         }

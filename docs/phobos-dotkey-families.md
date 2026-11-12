@@ -142,3 +142,55 @@ stands within `(BombSight << 8)` of the carrier. VERA: the `seen_by` mask in
 `Wake.Grapple`, `Wake.Sinking`, `WarpAway`, `WarpOutWeapon`,
 `ChargeTurret.Delays`, `IvanBomb.Visibility` — re-run
 `phobos_chain_analysis_v2.py` after integrating.
+
+## Temporal.ApplyMultiplier / .ApplyVersus (G1.3)
+
+WarheadType `Nullable<bool>` pair (`Ext/WarheadType/Body.cpp:190-191`,
+`Body.h:61-62`) over the `[CombatDamage]` globals (default `false`,
+`Ext/Rules/Body.cpp:583-584`). `WarpPerStep::TemporalClassFake::
+_GetWarpPerStep` (`Ext/Techno/Hooks.cpp:2338-2392`, LJMP `0x71AB10` replaces
+`GetWarpPerStep`/`SumChainDamage`): each chain member's per-step warp starts
+at its weapon's raw `Damage=`; `Multiplier` rescales by the attacker's
+firepower multiplier (`(int)` truncation) and divides the final product by the
+target's armor multiplier; `Versus` multiplies the deployed
+(`Damage.Deployed=`, the Ares warhead key) or crawling (`ProneDamage=`) factor
+and folds the packet through the Verses kernel with distance `0`
+(`MapClass::GetTotalDamage`). VERA: `WarheadType::phobos_temporal_apply_*` +
+`PhobosGlobals::temporal_apply_*`, the per-member fold in
+`temporal.rs::temporal_warp_per_step` (chain walker moved to `&mut`).
+RESIDUALS: `GetCurrentArmorMultiplier` is approximated by
+`attach_effect_armor_multiplier`; the deployed factor reads the Ares combat
+rules (1.0 in a phobos-only build); `GetCurrentFirepowerMultiplier` is VERA's
+crit aggregate.
+
+## CellSpread.Cylinder (G1.1)
+
+WarheadType `Valueable<bool>`, default `false` (`Ext/WarheadType/Body.cpp:408`,
+`Body.h:232,503`). The six `MapClass::DamageArea` distance hooks
+(`Ext/WarheadType/Hooks.cpp:63-137`) replace the detonation Z with the
+victim's, so every ground/deck, airborne and terrain distance test keeps only
+the planar separation, and the building center record's two-Level vertical
+allowance sees a zero difference (always admits). VERA: `WarheadType::
+phobos_cell_spread_cylinder`, resolved once onto the `AoECollector` and
+threaded through the three `push_*_aoe_damage` distance sites. RESIDUAL: the
+key's underground collection (`Ext/Bullet/Hooks.DetonateLogics.cpp:942-986`)
+needs the `ScenarioExt::UndergroundTracker`, which VERA has no counterpart for
+(recorded with the AffectsUnderground residuals).
+
+## Arcing.AllowElevationInaccuracy — NOT ported yet (G1.2)
+
+BulletType `Nullable<bool>` (`Ext/BulletType/Body.cpp:53`) over the
+`[CombatDamage]` global (default **`true`**, `Ext/Rules/Body.cpp:477`). Hook
+`0x6FF008` (`Ext/Bullet/Hooks.cpp:513-531`) and the EMP cannon site `0x44D46E`
+(`:534-551`): for an `Arcing=yes` bullet with the key off,
+`BulletExt::ApplyArcingFix` (`Ext/Bullet/Body.cpp:454-478`) recomputes the
+launch velocity from the scattered target — `distanceCoords = target -
+source`, `horizontalDistance = |dX,dY|`, `lobber = Lobber || (int)
+horizontalDistance < dZ`, `speedMult = 0.45 / 0.68 / 1.0`, `speed = speedMult
+* sqrt(horizontalDistance * gravity * 1.2)`, then `vX/vY = d * speed /
+horizontalDistance` and `vZ = (dZ + vZ) * mult + gravity * horizontalDistance
+/ (2 * speed)`; a degenerate horizontal or speed sets `vZ = speed` alone.
+VERA owner: `sim/projectile/launch.rs::fireat_launch` (velocity at
+`world_fire.rs:2442`, the `arc_angle` 45-degree distortion at `:36-38`) and
+`building_missile.rs`'s EMP cannon solve; the keys and this exact fold are
+the remaining work.

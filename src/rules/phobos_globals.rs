@@ -459,6 +459,15 @@ pub struct PhobosGlobals {
     /// hook `0x438D44`); a weapon's `IvanBomb.Visibility=` overrides it.
     #[serde(default)]
     pub ivan_icon_visibility: crate::rules::phobos_shields::AffectedHouse,
+    /// `[CombatDamage] Temporal.ApplyMultiplier=` / `.ApplyVersus=`
+    /// (`Valueable<bool>`, constructors `false`, `Ext/Rules/Body.h:494-495`,
+    /// `:991-992`; reads `Ext/Rules/Body.cpp:583-584`): the global fallbacks
+    /// of the WarheadType keys that extend the temporal warp-per-step
+    /// (`Ext/Techno/Hooks.cpp:2359-2379`).
+    #[serde(default)]
+    pub temporal_apply_multiplier: bool,
+    #[serde(default)]
+    pub temporal_apply_versus: bool,
     /// `[CombatDamage] CanTarget.IronCurtained=`, default **`yes`**
     /// (`Ext/Rules/Body.cpp:438`, constructor `Ext/Rules/Body.h:833`): the
     /// human fallback for an unset WeaponType `CanTarget.IronCurtained`; `no`
@@ -835,6 +844,8 @@ impl Default for PhobosGlobals {
             vertical_aircraft_fix: true,
             building_radio_link_sync_owner: true,
             ivan_icon_visibility: crate::rules::phobos_shields::AffectedHouse::OWNER,
+            temporal_apply_multiplier: false,
+            temporal_apply_versus: false,
             can_target_iron_curtained: true,
             can_target_ai_iron_curtained: false,
             auto_target_iron_curtained: true,
@@ -1385,6 +1396,14 @@ fn section_settings(section: &crate::rules::ini_parser::IniSection) -> PhobosGlo
         can_target_iron_curtained: section.read_bool(
             "CanTarget.IronCurtained",
             defaults.can_target_iron_curtained,
+        ),
+        temporal_apply_multiplier: section.read_bool(
+            "Temporal.ApplyMultiplier",
+            defaults.temporal_apply_multiplier,
+        ),
+        temporal_apply_versus: section.read_bool(
+            "Temporal.ApplyVersus",
+            defaults.temporal_apply_versus,
         ),
         can_target_ai_iron_curtained: section.read_bool(
             "CanTargetAI.IronCurtained",

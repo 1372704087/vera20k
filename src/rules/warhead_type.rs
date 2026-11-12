@@ -230,6 +230,24 @@ pub struct WarheadType {
     /// double and `80%` to the one below 0.8, each one ulp under the
     /// nearest-rounded product.
     pub prone_damage_f64: f64,
+    /// Phobos `CellSpread.Cylinder=` (`Valueable<bool>`, default `false`,
+    /// `Ext/WarheadType/Body.cpp:408`, `Body.h:232,503`): the `DamageArea`
+    /// distance tests ignore Z (`Ext/WarheadType/Hooks.cpp:63-137` replace the
+    /// detonation Z with the victim's), making the splash a cylinder. The
+    /// underground collection of the same key needs the
+    /// `ScenarioExt::UndergroundTracker`, which VERA has no counterpart for
+    /// (recorded with the AffectsUnderground residuals).
+    #[cfg(feature = "phobos")]
+    pub phobos_cell_spread_cylinder: bool,
+    /// Phobos `Temporal.ApplyMultiplier=` / `.ApplyVersus=` (`Nullable<bool>`,
+    /// `Ext/WarheadType/Body.cpp:190-191`, `Body.h:61-62`, constructors `{}`):
+    /// the temporal warp-per-step extension gates
+    /// (`Ext/Techno/Hooks.cpp:2359-2379`), falling back to the
+    /// `[CombatDamage]` globals.
+    #[cfg(feature = "phobos")]
+    pub phobos_temporal_apply_multiplier: Option<bool>,
+    #[cfg(feature = "phobos")]
+    pub phobos_temporal_apply_versus: Option<bool>,
     /// Instantly destroys any wall. `WarheadTypeClass+0x145`, written by
     /// `WarheadTypeClass::ReadINI` @ `0x0075d522` from the key string at
     /// `0x00847e1c`. (`+0x151` is `CLDisableRed=`, not this.)
@@ -847,6 +865,8 @@ impl WarheadType {
             cl_disable_blue: section.read_bool("CLDisableBlue", false),
             combat_light_size_f64: section.read_double("CombatLightSize", 0.0),
             prone_damage_f64: section.read_double("ProneDamage", 1.0),
+            #[cfg(feature = "phobos")]
+            phobos_cell_spread_cylinder: section.read_bool("CellSpread.Cylinder", false),
             wall_absolute_destroyer: section.read_bool("WallAbsoluteDestroyer", false),
             temporal: section.read_bool("Temporal", false),
             is_locomotor: section.read_bool("IsLocomotor", false),
@@ -884,6 +904,12 @@ impl WarheadType {
             max_debris,
             #[cfg(feature = "phobos")]
             allow_damage_on_self: section.read_phobos_nullable_bool("AllowDamageOnSelf", None),
+            #[cfg(feature = "phobos")]
+            phobos_temporal_apply_multiplier: section
+                .read_phobos_nullable_bool("Temporal.ApplyMultiplier", None),
+            #[cfg(feature = "phobos")]
+            phobos_temporal_apply_versus: section
+                .read_phobos_nullable_bool("Temporal.ApplyVersus", None),
             #[cfg(feature = "phobos")]
             decloak_damaged_targets: section
                 .read_phobos_nullable_bool("DecloakDamagedTargets", None),

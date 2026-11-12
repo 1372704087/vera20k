@@ -19,6 +19,15 @@
 //! VeteranEmptyReload=        ; Nullable<double>, unset         :1063
 //! Spawns.Queue=              ; ValueableVector<AircraftType*>, empty :1118
 //! DropCrate=                 ; Nullable<Powerup>, unset        :1446
+//! LowSelectionPriority=      ; Valueable<bool>, no              :766
+//! CameoPriority=             ; Valueable<int>, 0                :855
+//! AllowWeaponSelectAgainstWalls= ; Nullable<bool>, unset        :909
+//! TargetZoneScanType=        ; Valueable<TargetZoneScanType>, Same :972
+//! RadarInvisibleToHouse=     ; Nullable<AffectedHouse>, unset   :1131
+//! EngineerRepairAmount=      ; Valueable<int>, 0                :1144
+//! SubterraneanSpeed=         ; int (ReadSpeed), -1              :1209
+//! SubterraneanHeight=        ; Nullable<int>, unset             :1210
+//! VeteranRange=              ; Nullable<double>, unset          :1064
 //! ```
 //!
 //! Constructor values: `Ext/TechnoType/Body.h:482-485`, `:544`, `:561-562`,
@@ -55,8 +64,8 @@
 use crate::rules::ini_parser::IniSection;
 use crate::rules::phobos_shields::AffectedHouse;
 
-/// The twelve `TechnoTypeExt` keys owned here.
-#[derive(Debug, Clone, PartialEq, Default)]
+/// The twenty-three `TechnoTypeExt` keys owned here.
+#[derive(Debug, Clone, PartialEq)]
 pub struct PhobosTechnoExtras {
     /// `RadarJamHouses=` (`:780`), `Nullable`: which Houses a
     /// `RadarJamRadius=` jammer may jam, measured from the jammer's owner.
@@ -107,6 +116,103 @@ pub struct PhobosTechnoExtras {
     /// `DropCrate=` (`:1446`), `Nullable`: the `[Powerups]` slot this object
     /// leaves where it dies (`Ext/Techno/Body.Internal.cpp:275-294`).
     pub drop_crate: Option<usize>,
+    /// `LowSelectionPriority=` (`:766`, `Valueable<bool>`, ctor `Body.h:479`):
+    /// the type is skipped while a normal-priority selection exists, and only
+    /// picked up by the filtered pass (`Ext/Misc/Selection.cpp`).
+    pub low_selection_priority: bool,
+    /// `CameoPriority=` (`:855`, `Valueable<int>`, ctor `Body.h:509`): sidebar
+    /// cameo ordering weight; larger values sort first.
+    pub cameo_priority: i32,
+    /// `AllowWeaponSelectAgainstWalls=` (`:909`, `Nullable<bool>`, ctor
+    /// `Body.h:565`): a turreted object may keep a wall overlay as its weapon
+    /// target instead of dropping it. `None` reads
+    /// `[General] AllowWeaponSelectAgainstWalls`.
+    pub allow_weapon_select_against_walls: Option<bool>,
+    /// `TargetZoneScanType=` (`:972`, `Valueable<TargetZoneScanType>`, ctor
+    /// `Body.h:644`, default `Same`): which cells a guard-area or attack-move
+    /// scan may look at.
+    pub target_zone_scan_type: TargetZoneScanType,
+    /// `RadarInvisibleToHouse=` (`:1131`, `Nullable<AffectedHouse>`, ctor
+    /// `Body.h:781`): Houses that do not see this object on radar. `None`
+    /// reads `[General] RadarInvisibleToHouse` (default `Enemies`).
+    pub radar_invisible_to_house: Option<AffectedHouse>,
+    /// `EngineerRepairAmount=` (`:1144`, `Valueable<int>`, ctor `Body.h:803`):
+    /// hit points an Engineer restores to a friendly damaged building;
+    /// 0 restores the type's `Strength`.
+    pub engineer_repair_amount: i32,
+    /// `SubterraneanSpeed=` (`:1209`, `CCINIClass::ReadSpeed`, ctor
+    /// `Body.h:865`, sentinel -1): the subterranean mover's speed in native
+    /// 256ths; -1 reads `[General] SubterraneanSpeed`.
+    pub subterranean_speed: i32,
+    /// `SubterraneanHeight=` (`:1210`, `Nullable<int>`, ctor `Body.h:866`):
+    /// altitude a subterranean object moves at; `None` reads
+    /// `[General] SubterraneanHeight` (default -256).
+    pub subterranean_height: Option<i32>,
+    /// `VeteranRange=` (`:1064`, `Nullable<double>`, ctor `Body.h:727`):
+    /// weapon-range multiplier at veteran rank and above, on top of the
+    /// hard-coded `VeteranAbilities` range bonus.
+    pub veteran_range: Option<f64>,
+}
+
+/// Phobos `TargetZoneScanType` (`Utilities/Enum.h:251-256`).
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Default)]
+pub enum TargetZoneScanType {
+    /// Scan the target's own zone only.
+    #[default]
+    Same,
+    /// Scan any zone within range.
+    Any,
+    /// Scan the zone the target is reachable from.
+    InRange,
+}
+
+impl TargetZoneScanType {
+    /// `EnumReader<TargetZoneScanType>` (`Utilities/TemplateDef.h:648-676`):
+    /// an exact, case-insensitive match; anything else leaves the default.
+    pub fn parse(raw: &str) -> Option<Self> {
+        if raw.eq_ignore_ascii_case("same") {
+            Some(Self::Same)
+        } else if raw.eq_ignore_ascii_case("any") {
+            Some(Self::Any)
+        } else if raw.eq_ignore_ascii_case("inrange") {
+            Some(Self::InRange)
+        } else {
+            None
+        }
+    }
+}
+
+impl Default for PhobosTechnoExtras {
+    /// The `TechnoTypeExt` constructor values (`Ext/TechnoType/Body.h:479`,
+    /// `:509`, `:565`, `:644`, `:781`, `:803`, `:865-866`, `:727`). Only
+    /// `SubterraneanSpeed=` is a non-zero int; its ctor sentinel is -1.
+    fn default() -> Self {
+        Self {
+            radar_jam_houses: None,
+            radar_jam_delay: None,
+            radar_jam_affect: Vec::new(),
+            radar_jam_ignore: Vec::new(),
+            voice_created: None,
+            use_disguise_movement_speed: None,
+            no_queue_up_to_enter: None,
+            no_queue_up_to_enter_board_distance: None,
+            no_queue_up_to_unload: None,
+            reload_in_transport: None,
+            veteran_reload: None,
+            veteran_empty_reload: None,
+            spawns_queue: Vec::new(),
+            drop_crate: None,
+            low_selection_priority: false,
+            cameo_priority: 0,
+            allow_weapon_select_against_walls: None,
+            target_zone_scan_type: TargetZoneScanType::Same,
+            radar_invisible_to_house: None,
+            engineer_repair_amount: 0,
+            subterranean_speed: -1,
+            subterranean_height: None,
+            veteran_range: None,
+        }
+    }
 }
 
 impl PhobosTechnoExtras {
@@ -145,6 +251,37 @@ impl PhobosTechnoExtras {
                     .iter()
                     .position(|name| name.eq_ignore_ascii_case(raw))
             }),
+            low_selection_priority: section.read_bool("LowSelectionPriority", false),
+            cameo_priority: section.read_int("CameoPriority", 0),
+            allow_weapon_select_against_walls: section
+                .read_phobos_nullable_bool("AllowWeaponSelectAgainstWalls", None),
+            target_zone_scan_type: section
+                .read_name("TargetZoneScanType", 2048)
+                .and_then(TargetZoneScanType::parse)
+                .unwrap_or_default(),
+            radar_invisible_to_house: section.read_phobos_nullable_with(
+                "RadarInvisibleToHouse",
+                None,
+                AffectedHouse::parse,
+            ),
+            engineer_repair_amount: section.read_int("EngineerRepairAmount", 0),
+            // `INI_EX::ReadSpeed` (`Utilities/INIParser.h:155-166`): ReadDouble
+            // with -1, then only a non-negative value replaces the buffer with
+            // `min(Floor(min(v, 100)*256/100), 255)`; anything else keeps the
+            // current value (the constructor's -1 sentinel).
+            subterranean_speed: section.read_double_with(
+                "SubterraneanSpeed",
+                -1,
+                |current, parsed| {
+                    if parsed >= 0.0 {
+                        (((parsed.min(100.0) * 256.0) / 100.0) as i32).min(255)
+                    } else {
+                        current
+                    }
+                },
+            ),
+            subterranean_height: section.read_phobos_nullable_int("SubterraneanHeight", None),
+            veteran_range: section.read_phobos_nullable_double("VeteranRange", None),
         }
     }
 
@@ -171,6 +308,41 @@ impl PhobosTechnoExtras {
     /// (`Ext/Techno/Hooks.Transport.cpp:82`, `Ext/TechnoType/Body.cpp:808`).
     pub fn reload_in_transport(&self, global: bool) -> bool {
         self.reload_in_transport.unwrap_or(global)
+    }
+
+    /// `AllowWeaponSelectAgainstWalls.Get([General]
+    /// AllowWeaponSelectAgainstWalls)` (`Ext/TechnoType/Body.cpp:909`,
+    /// `Ext/Weapons/WeaponHelpers.cpp:203`).
+    pub fn allow_weapon_select_against_walls(&self, global: bool) -> bool {
+        self.allow_weapon_select_against_walls.unwrap_or(global)
+    }
+
+    /// `RadarInvisibleToHouse.Get([General] RadarInvisibleToHouse)`
+    /// (`Ext/TechnoType/Body.cpp:1131`, `Ext/TechnoType/Hooks.cpp:985`).
+    pub fn radar_invisible_to_house_affected(&self, global: AffectedHouse) -> AffectedHouse {
+        self.radar_invisible_to_house.unwrap_or(global)
+    }
+
+    /// `SubterraneanSpeed` with its -1 sentinel reading
+    /// `[General] SubterraneanSpeed` (`Ext/TechnoType/Body.cpp:1209`).
+    pub fn resolved_subterranean_speed(&self, global: i32) -> i32 {
+        if self.subterranean_speed < 0 {
+            global
+        } else {
+            self.subterranean_speed
+        }
+    }
+
+    /// `SubterraneanHeight.Get([General] SubterraneanHeight)`
+    /// (`Ext/TechnoType/Body.cpp:1210`).
+    pub fn resolved_subterranean_height(&self, global: i32) -> i32 {
+        self.subterranean_height.unwrap_or(global)
+    }
+
+    /// `VeteranRange.Get([General] VeteranRange)`
+    /// (`Ext/TechnoType/Body.cpp:1064`).
+    pub fn veteran_range_multiplier(&self, global: f64) -> f64 {
+        self.veteran_range.unwrap_or(global)
     }
 }
 

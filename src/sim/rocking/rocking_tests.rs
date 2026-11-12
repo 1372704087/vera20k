@@ -298,7 +298,7 @@ fn overlay_recoil_retains_original_unit_rate_words() {
             0x3d80_0000,
             word(&row["input"]["velocity_bits"]).bits(),
         ]);
-        value.recoil_after_overlay_crush();
+        value.recoil_after_overlay_crush(0.02);
         assert_eq!(
             value.native_bits(),
             [
@@ -313,4 +313,17 @@ fn overlay_recoil_retains_original_unit_rate_words() {
         admitted += 1;
     }
     assert_eq!(admitted, 144);
+}
+
+/// Phobos `CrushOverlayExtraForwardTilt` (`Ext/Unit/Hooks.Crushing.cpp:18`,
+/// `UnitClass_PerCellProcess_TiltWhenCrushes @ 0x73B05B`) replaces the stock
+/// +0.02 forward tilt with the type's value; the recoil adds exactly it.
+#[test]
+fn overlay_recoil_adds_the_type_extra_forward_tilt() {
+    let mut custom = state([0, 0, 0, 0]);
+    custom.recoil_after_overlay_crush(0.05);
+    assert_eq!(custom.vel_forwards.bits(), 0.05f32.to_bits());
+    let mut stock = state([0, 0, 0, 0]);
+    stock.recoil_after_overlay_crush(0.02);
+    assert_eq!(stock.vel_forwards.bits(), 0x3ca3_d70a);
 }

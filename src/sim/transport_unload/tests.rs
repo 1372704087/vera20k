@@ -118,7 +118,10 @@ struct Fixture {
 
 impl Fixture {
     fn new(water: impl Fn(u16, u16) -> bool) -> Self {
-        let rules = rules();
+        Self::from_rules(rules(), water)
+    }
+
+    fn from_rules(rules: RuleSet, water: impl Fn(u16, u16) -> bool) -> Self {
         let mut sim = Simulation::new();
         let span = i32::from(MAP);
         sim.set_playfield_bounds_for_test(Some(crate::map::playfield::PlayfieldBounds {
@@ -2825,5 +2828,38 @@ NoQueueUpToUnload.Buildings=no
             &global_only
         ),
         "the Building nullable turns the global off"
+    );
+}
+
+/// Phobos `DeployFireDelay` (`Ext/Building/Hooks.Unload.cpp:73-77`): a set
+/// building key replaces the Unload epilogue's `RandomRanged(0, 2) + 14` and
+/// consumes no random draw; an unset key keeps the stock epilogue's draw.
+#[cfg(feature = "phobos")]
+#[test]
+fn phobos_deploy_fire_delay_replaces_the_unload_epilogue_draw() {
+    let rules = rules_with_patch(
+        "[BuildingTypes]\n0=REACTOR\n1=REACT2\n\
+         [REACTOR]\nStrength=500\nDeployFireDelay=7\n\
+         [REACT2]\nStrength=500\n",
+    );
+    let mut fx = Fixture::from_rules(rules, |_| false);
+    let reactor = fx.spawn("REACTOR", 10, 10, 0);
+    let react2 = fx.spawn("REACT2", 12, 10, 0);
+    let before = fx.sim.scenario_rng.native_state_hex();
+    assert_eq!(
+        super::building_unload_delay(&mut fx.sim, &fx.rules, reactor),
+        7,
+        "the set key returns its delay"
+    );
+    assert_eq!(
+        fx.sim.scenario_rng.native_state_hex(),
+        before,
+        "a set delay consumes no random draw"
+    );
+    let _ = super::building_unload_delay(&mut fx.sim, &fx.rules, react2);
+    assert_ne!(
+        fx.sim.scenario_rng.native_state_hex(),
+        before,
+        "the unset key keeps the stock epilogue's random draw"
     );
 }

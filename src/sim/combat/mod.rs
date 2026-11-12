@@ -590,23 +590,12 @@ pub fn can_target_house(
     alliances: &HouseAlliances,
     interner: &StringInterner,
 ) -> bool {
-    use crate::rules::phobos_shields::AffectedHouse;
-    if flags == AffectedHouse::ALL {
-        return true;
-    }
-    if source == target {
-        return flags.contains(AffectedHouse::OWNER);
-    }
-    if houses
-        .get(&target)
-        .is_some_and(|house| house.multiplay_passive())
-        && flags.contains(AffectedHouse::NEUTRAL)
-    {
-        return true;
-    }
-    if alliances.is_allied(interner, source, target) {
-        flags.contains(AffectedHouse::ALLIES)
-    } else {
-        flags.contains(AffectedHouse::ENEMIES)
-    }
+    crate::rules::phobos_shields::can_target_house_ladder(
+        flags,
+        source == target,
+        houses
+            .get(&target)
+            .is_some_and(|house| house.multiplay_passive()),
+        alliances.is_allied(interner, source, target),
+    )
 }

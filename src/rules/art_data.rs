@@ -434,16 +434,16 @@ pub struct AnimTypeRuntimeConfig {
     /// art.ini `ForceBigCraters=`, `AnimTypeClass+0x36E`, read by
     /// `AnimClass::Middle @ 0x00424F00`.
     pub force_big_craters: bool,
-    /// Phobos `SplashAnims=` (`Ext/AnimType/Body.cpp:102`,
-    /// `Ext/AnimType/Body.h:57`, a `NullableVector<AnimTypeClass*>`): the
-    /// entries replace the stock `[CombatDamage] SplashList=` on a water
-    /// landing; `None` for an absent or `<default>` read.
     /// Phobos `AnimTypeExt::Warhead.Detonate=` (`Valueable<bool>`, default
     /// `false`, `Ext/AnimType/Body.cpp:100`): the landing explosion routes
     /// its warhead through `WarheadTypeExt::DetonateAt` instead of
     /// `DamageArea` + `FlashbangWarheadAt` (`Ext/Anim/Body.cpp:245-307`).
     #[cfg(feature = "phobos")]
     pub phobos_warhead_detonate: bool,
+    /// Phobos `SplashAnims=` (`Ext/AnimType/Body.cpp:102`,
+    /// `Ext/AnimType/Body.h:57`, a `NullableVector<AnimTypeClass*>`): the
+    /// entries replace the stock `[CombatDamage] SplashList=` on a water
+    /// landing; `None` for an absent or `<default>` read.
     #[cfg(feature = "phobos")]
     pub splash_anims: Option<Vec<String>>,
     /// Phobos `SplashAnims.PickRandom=` (`Ext/AnimType/Body.cpp:103`,

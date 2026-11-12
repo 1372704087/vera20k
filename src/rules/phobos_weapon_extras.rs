@@ -25,7 +25,7 @@
 use crate::rules::ini_parser::IniSection;
 use crate::rules::ruleset::RuleSet;
 
-/// The three `WeaponTypeExt` keys owned here.
+/// The five `WeaponTypeExt` keys owned here.
 #[derive(Debug, Clone, Default, PartialEq, Eq, Hash, serde::Serialize, serde::Deserialize)]
 pub struct PhobosWeaponExtras {
     /// `FeedbackWeapon=` (`Body.cpp:124`, read `<true>`): the weapon also
@@ -42,7 +42,7 @@ pub struct PhobosWeaponExtras {
     pub attack_no_threat_buildings: Option<bool>,
     /// `TurretRecoil.Suppress=` (`Body.cpp:138`, `Valueable<bool>` default
     /// `false`, `Ext/WeaponType/Body.h:68,163`): the fired weapon skips the
-    /// unit recoil record (`Ext/Techno/Hooks.Firing.cpp:820-833`, hook
+    /// unit recoil record (`Ext/Techno/Hooks.Firing.cpp:821-836`, hook
     /// `0x6FF0DD`).
     pub turret_recoil_suppress: bool,
     /// `ChargeTurret.Delays=` (`Body.cpp:135`, `ValueableVector<int>`,

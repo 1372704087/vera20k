@@ -453,9 +453,10 @@ pub struct WeaponType {
     /// `Hooks.Targeting.cpp:63`).
     #[cfg(feature = "phobos")]
     pub phobos_auto_target_iron_curtained: Option<bool>,
-    /// Phobos `FeedbackWeapon`, `VisualScatter` and
-    /// `AttackNoThreatBuildings` (`Ext/WeaponType/Body.cpp:124`, `:133`,
-    /// `:206`); see [`crate::rules::phobos_weapon_extras`].
+    /// Phobos `FeedbackWeapon`, `VisualScatter`,
+    /// `AttackNoThreatBuildings`, `TurretRecoil.Suppress` and
+    /// `ChargeTurret.Delays` (`Ext/WeaponType/Body.cpp:124`, `:133`, `:206`,
+    /// `:138`, `:135`); see [`crate::rules::phobos_weapon_extras`].
     #[cfg(feature = "phobos")]
     pub(crate) phobos_extras: crate::rules::phobos_weapon_extras::PhobosWeaponExtras,
     /// Phobos `IvanBomb.Visibility=` (`Nullable<AffectedHouse>`,
@@ -491,6 +492,12 @@ impl WeaponType {
     #[cfg(feature = "phobos")]
     pub fn phobos_visual_scatter(&self) -> bool {
         self.phobos_extras.visual_scatter
+    }
+
+    /// Phobos `TurretRecoil.Suppress=` (`Ext/WeaponType/Body.cpp:138`).
+    #[cfg(feature = "phobos")]
+    pub fn phobos_turret_recoil_suppress(&self) -> bool {
+        self.phobos_extras.turret_recoil_suppress
     }
 
     /// Phobos `AttackNoThreatBuildings=` (`:206`) resolved against the

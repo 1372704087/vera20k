@@ -2760,11 +2760,11 @@ pub(super) fn emit_admitted_fire(
             obj.has_turret
         };
         // Phobos `TechnoClass_FireAt_TurretRecoil` (`0x6FF0DD`,
-        // `Ext/Techno/Hooks.Firing.cpp:820-833`): a weapon with
+        // `Ext/Techno/Hooks.Firing.cpp:821-836`): a weapon with
         // `TurretRecoil.Suppress=yes` skips the whole vanilla recoil arm, so
         // the entity's recoil state stays clear.
         #[cfg(feature = "phobos")]
-        let recoil_suppressed = weapon.phobos_extras.turret_recoil_suppress;
+        let recoil_suppressed = weapon.phobos_turret_recoil_suppress();
         #[cfg(not(feature = "phobos"))]
         let recoil_suppressed = false;
         if !recoil_suppressed {

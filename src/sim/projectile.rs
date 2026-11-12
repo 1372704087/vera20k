@@ -1783,6 +1783,10 @@ pub enum ProjectileDetonationReason {
     /// its own firer right after that shot, through the same
     /// `WeaponTypeExt::DetonateAt` bullet.
     FeedbackWeapon,
+    /// Phobos `AnimExt::HandleDebrisImpact` (`Ext/Anim/Body.cpp:256-263`):
+    /// an AnimType `Warhead.Detonate=yes` landing goes through
+    /// `WarheadTypeExt::DetonateAt` instead of `DamageArea`.
+    AnimWarheadDetonate,
 }
 
 /// One deferred `BulletClass::Detonate` handoff for combat to apply.

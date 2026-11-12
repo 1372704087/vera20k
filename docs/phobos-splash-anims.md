@@ -47,15 +47,22 @@ The same `HandleDebrisImpact` call takes `AnimTypeExt::Warhead.Detonate=`
 `Body.h:55,107`). On the land arm, when the anim's type also authors
 `Warhead=`, the key routes that warhead through
 `WarheadTypeExt::DetonateAt`: a bullet with no weapon exploded at the landing
-coords (`Ext/WarheadType/Body.cpp:107-111`, `BulletExt::Detonate`) with the
+coords (`Ext/WarheadType/Body.cpp:107-110`, `BulletExt::Detonate`) with the
 anim's `Damage=`. Without the key the landing keeps `MapClass::DamageArea`
 plus `FlashbangWarheadAt`. No `Warhead=` means neither arm.
 
-VERA reads the key into `AnimTypeRuntimeConfig::phobos_warhead_detonate` and
-`Simulation::anim_bounce_landing` commits the `DetonateAt` packet
-(`ProjectileDetonation` with a `None` target and the
-`AttachEffectShot`/instant-explode reason) through the shared bullet
-detonation owner instead of the area-damage and light-request arm.
+The hook replaces the whole expiry block, so on a Phobos build the warhead
+applies whenever the type names one — before the `ExpireAnim` and without
+requiring it. Stock `0x423DE7` nests both under the ExpireAnim slot and
+creates the anim first.
+
+VERA reads the key into `AnimTypeRuntimeConfig::phobos_warhead_detonate`;
+`Simulation::bounce_landing_warhead` owns the warhead arm, called before the
+`ExpireAnim` spawn under the feature (after it, and only inside its slot,
+without). The `DetonateAt` packet (`ProjectileDetonation` with a `None` target
+and the `AnimWarheadDetonate` instant-explode reason) commits through the
+shared bullet detonation owner instead of the area-damage and light-request
+arm.
 
 ## Tests
 
@@ -66,6 +73,9 @@ detonation owner instead of the area-damage and light-request arm.
 - `src/sim/anim_class.rs` — `the_warhead_detonate_key_routes_the_landing_through_detonate_at`:
   a `DetonateOnAllMapObjects` warhead reaches a tank away from the impact only
   under the key; the branch was mutated red and restored.
+- `src/sim/anim_class.rs` — `a_warhead_applies_without_an_expire_anim`: the
+  same warhead damages the impact tank with no `ExpireAnim=`; the hoist was
+  mutated red and restored.
 
 ## Residuals
 

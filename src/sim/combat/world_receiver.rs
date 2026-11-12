@@ -5054,14 +5054,15 @@ pub(crate) fn commit_projectile_detonations_inline(
             .payload
             .projectile_type()
             .and_then(|projectile| rules.projectile(world.interner.resolve(projectile)));
-        // A death weapon, a Phobos instant AttachEffect shot and a
-        // `FeedbackWeapon` shot (`BulletExt::Detonate` in both cases) all skip
-        // the BulletClass cluster loop and its draws.
+        // A death weapon and every `BulletExt::Detonate` site (Phobos instant
+        // AttachEffect, `FeedbackWeapon`, anim `Warhead.Detonate`) skip the
+        // BulletClass cluster loop and its draws.
         let single_detonation = matches!(
             detonation.reason,
             crate::sim::projectile::ProjectileDetonationReason::DeathWeapon
                 | crate::sim::projectile::ProjectileDetonationReason::AttachEffectShot
                 | crate::sim::projectile::ProjectileDetonationReason::FeedbackWeapon
+                | crate::sim::projectile::ProjectileDetonationReason::AnimWarheadDetonate
         );
         // Phobos `BulletClass_Explodes_AirburstCheck1/2` and Ares
         // BulletClass_Fire_SplitsB (1001A810, hook 0x468FFA) make `Splits`

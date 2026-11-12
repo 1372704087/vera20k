@@ -4010,9 +4010,35 @@ impl Simulation {
             }
             return Ok(false);
         }
-        //423C4A..423EFD: only the explosion prefix requires ExpireAnim.
+        //423C4A..423EFD: the stock explosion prefix requires ExpireAnim.
         //The Spawns/IsTiberium continuation still runs without it or a Warhead.
         let mut bridge_state_changed = false;
+        // Phobos `AnimExt::HandleDebrisImpact` (`Ext/Anim/Body.cpp:253-280`)
+        // replaces the expiry block (`0x423CC7`): the warhead applies whenever
+        // the type names one, before the ExpireAnim and without requiring it.
+        // Stock `0x423DE7` nests both under the ExpireAnim slot and creates
+        // the anim first, so retain that order without the feature.
+        #[cfg(feature = "phobos")]
+        {
+            bridge_state_changed |= self.bounce_landing_warhead(
+                config,
+                rules,
+                overlay_registry,
+                position,
+                frame_effects,
+            );
+            if let Some(expire) = config.expire_anim.as_deref() {
+                self.spawn_named_anim(
+                    rules,
+                    expire,
+                    location,
+                    0,
+                    BOUNCE_EXPIRE_DRAW_FLAGS,
+                    BOUNCE_EXPIRE_Z_ADJUST,
+                );
+            }
+        }
+        #[cfg(not(feature = "phobos"))]
         if let Some(expire) = config.expire_anim.as_deref() {
             self.spawn_named_anim(
                 rules,
@@ -4022,72 +4048,13 @@ impl Simulation {
                 BOUNCE_EXPIRE_DRAW_FLAGS,
                 BOUNCE_EXPIRE_Z_ADJUST,
             );
-            if let (Some(warhead_name), Ok(damage)) = (
-                config.warhead.as_deref(),
-                X87Chop53::load_f64(config.damage).and_then(X87Chop53::ftol_i64),
-            ) && let Some(warhead) = rules.warhead(warhead_name)
-            {
-                let damage = damage as i32;
-                let warhead_ref = self.interner.intern(warhead_name);
-                let impact = crate::sim::projectile::ProjectileCoord::new(
-                    position.x, position.y, position.z,
-                );
-                #[cfg(feature = "phobos")]
-                let detonate_at = config.phobos_warhead_detonate;
-                #[cfg(not(feature = "phobos"))]
-                let detonate_at = false;
-                if detonate_at {
-                    // Phobos `AnimExt::HandleDebrisImpact`
-                    // (`Ext/Anim/Body.cpp:245-307`): a `Warhead.Detonate=yes`
-                    // landing routes the warhead through
-                    // `WarheadTypeExt::DetonateAt` — a bullet with no weapon,
-                    // exploded at the landing coords — instead of
-                    // `DamageArea` plus `FlashbangWarheadAt`.
-                    let packet = crate::sim::projectile::ProjectileDetonation {
-                        projectile_id: u64::MAX,
-                        source_id: crate::sim::combat::RAD_NO_ATTACKER,
-                        target: crate::sim::projectile::ProjectileTarget::None,
-                        impact,
-                        payload: crate::sim::projectile::ProjectilePayload::new(
-                            damage,
-                            warhead_ref,
-                            None,
-                            warhead.bright,
-                        ),
-                        reason:
-                            crate::sim::projectile::ProjectileDetonationReason::AttachEffectShot,
-                    };
-                    bridge_state_changed |= self.commit_logic_projectile_detonations(
-                        rules,
-                        overlay_registry,
-                        &[packet],
-                        frame_effects,
-                    );
-                } else {
-                    bridge_state_changed = crate::sim::combat::world_receiver::apply_area_damage(
-                        self,
-                        rules,
-                        overlay_registry,
-                        impact,
-                        damage,
-                        warhead,
-                        true,
-                        (crate::sim::combat::RAD_NO_ATTACKER, None, warhead_ref),
-                        frame_effects,
-                    )
-                    .bridge_state_changed;
-                    self.combat_light_requests.emit(
-                        crate::sim::combat::CombatLightRequest::Impact {
-                            target_id: None,
-                            damage,
-                            warhead_ref,
-                            coord: impact,
-                            force_create: false,
-                            flags: 0,
-                        },
-                    );
-                }
-            }
+            bridge_state_changed |= self.bounce_landing_warhead(
+                config,
+                rules,
+                overlay_registry,
+                position,
+                frame_effects,
+            );
         }
         //423F37..423FC4: two inclusive draws precede the live constructor loop.
         //Each child completes constructor/Start before constructing the next.
@@ -4107,6 +4074,82 @@ impl Simulation {
             self.anim_landing_tiberium(config, rules, overlay_registry, position, frame_effects)?;
         }
         Ok(bridge_state_changed)
+    }
+
+    /// The landing warhead: Phobos `WarheadTypeExt::DetonateAt` for a
+    /// `Warhead.Detonate=yes` type (`Ext/Anim/Body.cpp:256-263`), else the
+    /// stock `DamageArea` plus `FlashbangWarheadAt` pair (`0x423E75..0x423EFD`).
+    fn bounce_landing_warhead(
+        &mut self,
+        config: &AnimTypeRuntimeConfig,
+        rules: &RuleSet,
+        overlay_registry: Option<&crate::rules::overlay_types::OverlayTypeRegistry>,
+        position: glam::IVec3,
+        frame_effects: FrameEffects<'_>,
+    ) -> bool {
+        let (Some(warhead_name), Ok(damage)) = (
+            config.warhead.as_deref(),
+            X87Chop53::load_f64(config.damage).and_then(X87Chop53::ftol_i64),
+        ) else {
+            return false;
+        };
+        let Some(warhead) = rules.warhead(warhead_name) else {
+            return false;
+        };
+        let damage = damage as i32;
+        let warhead_ref = self.interner.intern(warhead_name);
+        let impact =
+            crate::sim::projectile::ProjectileCoord::new(position.x, position.y, position.z);
+        #[cfg(feature = "phobos")]
+        let detonate_at = config.phobos_warhead_detonate;
+        #[cfg(not(feature = "phobos"))]
+        let detonate_at = false;
+        if detonate_at {
+            // `WarheadTypeExt::DetonateAt` builds a bullet with no weapon and
+            // explodes it at the landing coords instead of the stock damage
+            // area.
+            let packet = crate::sim::projectile::ProjectileDetonation {
+                projectile_id: u64::MAX,
+                source_id: crate::sim::combat::RAD_NO_ATTACKER,
+                target: crate::sim::projectile::ProjectileTarget::None,
+                impact,
+                payload: crate::sim::projectile::ProjectilePayload::new(
+                    damage,
+                    warhead_ref,
+                    None,
+                    warhead.bright,
+                ),
+                reason: crate::sim::projectile::ProjectileDetonationReason::AnimWarheadDetonate,
+            };
+            return self.commit_logic_projectile_detonations(
+                rules,
+                overlay_registry,
+                &[packet],
+                frame_effects,
+            );
+        }
+        let bridge_state_changed = crate::sim::combat::world_receiver::apply_area_damage(
+            self,
+            rules,
+            overlay_registry,
+            impact,
+            damage,
+            warhead,
+            true,
+            (crate::sim::combat::RAD_NO_ATTACKER, None, warhead_ref),
+            frame_effects,
+        )
+        .bridge_state_changed;
+        self.combat_light_requests
+            .emit(crate::sim::combat::CombatLightRequest::Impact {
+                target_id: None,
+                damage,
+                warhead_ref,
+                coord: impact,
+                force_create: false,
+                flags: 0,
+            });
+        bridge_state_changed
     }
 
     /// AnimAI423FD0..424269. The radius gates a squared-distance loop, but
@@ -7631,6 +7674,135 @@ Verses=100%,100%,100%,100%,100%,100%,100%,100%,100%,100%,100%
             assert!(
                 near_health < 300,
                 "{key:?}: the landing blasts the near tank"
+            );
+            assert_eq!(
+                far_health < 300,
+                far_damaged,
+                "{key:?}: the far tank at {far_health}"
+            );
+        }
+    }
+
+    /// A landing warhead applies with no `ExpireAnim=` at all.
+    ///
+    /// Phobos `AnimExt::HandleDebrisImpact` (`Ext/Anim/Body.cpp:253-271`)
+    /// tests `pWarhead` before, and independently of, `pExpireAnim`; the stock
+    /// block at `0x423DE7` nests both under the ExpireAnim slot. Both key
+    /// states must damage the tank at the impact, while only
+    /// `Warhead.Detonate=yes` reaches a tank away from it.
+    #[cfg(feature = "phobos")]
+    #[test]
+    fn a_warhead_applies_without_an_expire_anim() {
+        for (key, far_damaged) in [("Warhead.Detonate=yes\n", true), ("", false)] {
+            let art_ini = IniFile::from_str(&format!(
+                "[CHUNK]
+Bouncer=yes
+Elasticity=0.0
+MaxXYVel=0.5
+MinZVel=25.0
+Damage=20
+DamageRadius=80
+Warhead=HE
+{key}LoopEnd=15
+LoopCount=-1
+RandomRate=220,600
+"
+            ));
+            let mut rules = RuleSet::from_ini_with_fixed_art_for_test(
+                &IniFile::from_str(
+                    "[General]
+DamageFireTypes=
+[AudioVisual]
+ConditionYellow=50%
+ConditionRed=25%
+[InfantryTypes]
+[VehicleTypes]
+0=TANK
+[AircraftTypes]
+[BuildingTypes]
+[Animations]
+0=CHUNK
+[TANK]
+Strength=300
+Armor=heavy
+Speed=4
+[Warheads]
+0=HE
+[HE]
+CellSpread=.5
+PercentAtMax=.5
+DetonateOnAllMapObjects=yes
+DetonateOnAllMapObjects.AffectsTarget=all
+DetonateOnAllMapObjects.AffectsHouse=all
+Verses=100%,100%,100%,100%,100%,100%,100%,100%,100%,100%,100%
+",
+                ),
+                &art_ini,
+            )
+            .unwrap();
+            let he = rules.warhead("HE").expect("HE");
+            assert!(he.detonate_on_all_map.claims_detonation());
+            let mut art = ArtRegistry::from_ini(&art_ini);
+            art.bind_anim_frame_count_for_test("CHUNK", 30);
+            rules.install_art_fixture(art);
+            let config = rules.art().anim_runtime_config("CHUNK").expect("CHUNK");
+            assert_eq!(config.phobos_warhead_detonate, key.contains("=yes"));
+            assert!(config.expire_anim.is_none(), "{key:?}: no ExpireAnim");
+            let mut sim = Simulation::with_seed(3);
+            let americans = sim.interner.intern("Americans");
+            sim.houses
+                .register(crate::sim::house_state::HouseState::new(
+                    americans, 0, None, true, 0, 10,
+                ));
+            crate::sim::arena_fixture::flat_arena(&mut sim, &rules);
+            let near = sim
+                .spawn_object_at_height("TANK", "Americans", 8, 8, 0, 0, &rules)
+                .unwrap();
+            let far = sim
+                .spawn_object_at_height("TANK", "Americans", 1, 1, 0, 0, &rules)
+                .unwrap();
+            let chunk_type = sim.interner.intern("CHUNK");
+            let center = crate::util::lepton::CELL_CENTER_LEPTON;
+            let chunk = sim
+                .spawn_anim_at_world(
+                    &rules,
+                    AnimClassSpawnDescriptor {
+                        delay: 0,
+                        loop_count: 1,
+                        draw_flags: 0x600,
+                        z_adjust: 0,
+                        reverse: false,
+                        ..AnimClassSpawnDescriptor::new(chunk_type, 8, 8, center, center, 0)
+                    },
+                    AnimWorldCoord {
+                        x: 8 * 256 + 128,
+                        y: 8 * 256 + 128,
+                        z: 20,
+                    },
+                )
+                .unwrap();
+            for frame in 1..200 {
+                sim.session.set_binary_frame_for_test(frame);
+                sim.visit_anim(
+                    chunk,
+                    &rules,
+                    None,
+                    crate::sim::world::FrameEffects::default(),
+                )
+                .unwrap();
+                if sim.substrate.pending_delete.contains_object(&chunk) {
+                    break;
+                }
+            }
+            assert!(
+                sim.substrate.pending_delete.contains_object(&chunk),
+                "{key:?}: the chunk lands"
+            );
+            let near_health = sim.substrate.entities.get(near).unwrap().health.current();
+            let far_health = sim.substrate.entities.get(far).unwrap().health.current();
+            assert!(
+                near_health < 300,
+                "{key:?}: the landing warhead applies without an ExpireAnim"
             );
             assert_eq!(
                 far_health < 300,

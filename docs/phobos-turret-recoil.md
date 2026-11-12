@@ -14,10 +14,11 @@ Reader: `Ext/WeaponType/Body.cpp:138` (constructor `Ext/WeaponType/Body.h:163`,
 ## Native body
 
 `TechnoClass_FireAt_TurretRecoil` (`0x6FF0DD`,
-`Ext/Techno/Hooks.Firing.cpp:820-833`) replaces the vanilla recoil arm: when
-the fired weapon resolves `TurretRecoil.Suppress` true the hook returns
-before `UnitExt::RecordRecoilData`, so the unit's recoil state is never
-armed for that shot. Any other weapon keeps the vanilla record.
+`Ext/Techno/Hooks.Firing.cpp:821-836`) always returns `SkipGameCode`, so the
+vanilla recoil arm never runs on a Phobos build. When the fired weapon
+resolves `TurretRecoil.Suppress` false the hook calls
+`UnitExt::RecordRecoilData` directly; when true it returns without that call,
+so the unit's recoil state is never armed for that shot.
 
 ## VERA
 

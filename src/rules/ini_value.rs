@@ -823,6 +823,26 @@ impl IniSection {
         Some(tokens.into_iter().map(str::to_owned).collect())
     }
 
+    /// Phobos `Nullable<T>::Read<false, true>` (`allowNone=true`): only
+    /// `<default>` clears the value; `none` and `<none>` are value text handed
+    /// to the parser, and absent, empty and rejected reads retain it.
+    /// Source: Phobos b90ab4bc, Utilities/TemplateDef.h:1834-1849.
+    #[cfg(feature = "phobos")]
+    pub(crate) fn read_phobos_nullable_allow_none_with<T>(
+        &self,
+        key: &str,
+        current: Option<T>,
+        mut parse: impl FnMut(&str) -> Option<T>,
+    ) -> Option<T> {
+        self.read_string_with(key, 2048, current, |current, raw| {
+            if raw.eq_ignore_ascii_case("<default>") {
+                None
+            } else {
+                parse(raw).or(current)
+            }
+        })
+    }
+
     /// Phobos `Valueable<Point2D>`: `INI_EX::Read2Integers` (ReadString(2048),
     /// then `Parser<int, 2>`, the [`scan_partial_int_fields`] scan) converts
     /// each token straight into the value, so a one-token read changes only X

@@ -647,6 +647,7 @@ pub(crate) fn dispatch_foot_mission(
             if !bunker_unload
                 && sim.substrate.entities.get(id).is_some_and(|entity| {
                     crate::sim::transport_unload::is_vehicle_transport_type(sim, entity, rules)
+                        && !crate::sim::deploy::phobos_unload_skips_passengers(sim, entity, rules)
                 }) =>
         {
             MissionHandlerEvaluation::cadence(crate::sim::transport_unload::unit_mission_unload(
@@ -681,6 +682,17 @@ pub(crate) fn dispatch_foot_mission(
                 return Ok(bridge_changed);
             };
             MissionHandlerEvaluation::cadence(delay)
+        }
+        // Phobos `SkipPassengers` (`0x73DCD3`, hook `0x73D63B`,
+        // `Ext/Unit/Hooks.Unload.cpp:53-58`): a transport that skips its
+        // passenger unload but has no deploy-fire/DeploysInto/IsSimpleDeployer
+        // arm ends at the FootClass Mission_Unload stub (`0x4DA2B0`).
+        (EntityCategory::Unit, Some(MissionType::Unload))
+            if sim.substrate.entities.get(id).is_some_and(|entity| {
+                crate::sim::deploy::phobos_unload_skips_passengers(sim, entity, rules)
+            }) =>
+        {
+            MissionHandlerEvaluation::cadence(crate::sim::mission::MISSION_STUB_FRAMES)
         }
         // The harvester branch of `UnitClass::Mission_Unload @ 0x0073D630`
         // (`0x0073D672` → `0x0073DEE0`) for a harvester on its refinery pad.

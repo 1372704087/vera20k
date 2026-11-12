@@ -322,7 +322,8 @@ pub(crate) fn is_mcv(sim: &Simulation, entity: &GameEntity, rules: &RuleSet) -> 
                 obj.deploys_into
                     .as_deref()
                     .is_some_and(|name| rules.object(name).is_some())
-                    && obj.passengers == 0
+                    && (obj.passengers == 0
+                        || crate::sim::deploy::phobos_unload_skips_passengers(sim, entity, rules))
                     && !obj.harvester
             })
 }

@@ -872,6 +872,20 @@ impl IniSection {
         self.read_phobos_nullable_with(key, current, parse_ares_int)
     }
 
+    /// Phobos `Nullable<DirType>` (the reused `nLandingDir` reader at
+    /// `Ext/BuildingType/Body.cpp:292`): `Parser<int>` then `read<DirType>`'s
+    /// check `DirType::North..=DirType::NorthWest` (`0..=224`; a `DirType` is
+    /// an eight-step byte, not a full 0..=255 range). Failed, unparsed and
+    /// out-of-range text keeps the previous value and presence; `<default>`
+    /// and `<none>` clear it.
+    pub fn read_phobos_nullable_dir(&self, key: &str, current: Option<u8>) -> Option<u8> {
+        self.read_phobos_nullable_with(key, current, |raw| {
+            parse_ares_int(raw)
+                .and_then(|value| u8::try_from(value).ok())
+                .filter(|value| *value <= 224)
+        })
+    }
+
     /// Phobos `Valueable<ColorStruct>` (`INI_EX::Read3Bytes`, then
     /// `Parser<BYTE,3>` at `src/Utilities/TemplateDef.h`): a comma-separated
     /// `R,G,B` needs all three channels inside `0..=255`. Absent, empty and

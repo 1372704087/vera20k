@@ -946,9 +946,15 @@ fn fly_death_stun_matches_native_rows() {
 
 /// A grounded aircraft returning to its pad, for the two Phobos hooks: type
 /// `RETURN` with `ExtendedAircraftMissions.<key>=<value>`, its dock `+0x6CC`
-/// and NavCom (`Foot+0x5A4`) both the pad.
+/// and NavCom (`Foot+0x5A4`) both the pad. `pad_extra` appends rules keys to
+/// the `[PAD]` section.
 #[cfg(feature = "phobos")]
-fn phobos_returning_aircraft(key: &str, value: bool) -> (Simulation, RuleSet, u64, DriveCoord) {
+fn phobos_returning_aircraft(
+    key: &str,
+    value: bool,
+    docks: i32,
+    pad_extra: &str,
+) -> (Simulation, RuleSet, u64, DriveCoord) {
     let rules = RuleSet::from_ini(&IniFile::from_str(&format!(
         "[General]\nFlightLevel=1500\nPoseDir=0\n\
          [AircraftTypes]\n0=RETURN\n[BuildingTypes]\n0=PAD\n\
@@ -956,7 +962,7 @@ fn phobos_returning_aircraft(key: &str, value: bool) -> (Simulation, RuleSet, u6
          AirportBound=yes\nFighter=yes\nSlowdownDistance=1000\nDock=PAD\n\
          Locomotor={{4A582746-9839-11d1-B709-00A024DDAFD1}}\n\
          ExtendedAircraftMissions.{key}={}\n\
-         [PAD]\nStrength=500\nHelipad=yes\nNumberOfDocks=1\n",
+         [PAD]\nStrength=500\nHelipad=yes\nNumberOfDocks={docks}\n{pad_extra}",
         if value { "yes" } else { "no" },
     )))
     .expect("rules");
@@ -1013,7 +1019,7 @@ fn phobos_returning_aircraft(key: &str, value: bool) -> (Simulation, RuleSet, u6
 #[test]
 fn rear_approach_offsets_the_landing_destination() {
     let heading = |value: bool| {
-        let (mut sim, rules, plane, dock) = phobos_returning_aircraft("RearApproach", value);
+        let (mut sim, rules, plane, dock) = phobos_returning_aircraft("RearApproach", value, 1, "");
         let frame = sim.session.binary_frame();
         let owner = ground_pose::object_get_coords(
             sim.substrate.entities.get(plane).unwrap(),
@@ -1057,6 +1063,83 @@ fn rear_approach_offsets_the_landing_destination() {
     assert_ne!(rear, stock);
 }
 
+/// Phobos `BuildingTypeExt::AircraftDockingDirs`
+/// (`Ext/BuildingType/Body.cpp:287-305`) and `AircraftExt::GetLandingDir`
+/// (`Ext/Aircraft/Body.cpp:146-161`): the aircraft's link index in the dock's
+/// radio contacts selects the authored landing face, an absent index falls
+/// back to slot 0, and a building without an authored slot keeps the stock
+/// pad facing.
+#[cfg(feature = "phobos")]
+#[test]
+fn aircraft_docking_dir_names_the_landing_face_per_link_index() {
+    let pick_pad_link = |sim: &mut Simulation, plane: u64, slot: Option<usize>| {
+        let pad = sim
+            .substrate
+            .entities
+            .get(plane)
+            .unwrap()
+            .radio_contacts
+            .slot(0)
+            .expect("the plane holds its pad link");
+        let pad_entity = sim.substrate.entities.get_mut(pad).unwrap();
+        pad_entity.radio_contacts.set_capacity(3);
+        let _ = pad_entity.radio_contacts.remove(plane);
+        if let Some(slot) = slot {
+            pad_entity.radio_contacts.set_slot(slot, plane);
+        }
+    };
+    let (mut sim, rules, plane, _) = phobos_returning_aircraft(
+        "RearApproach",
+        false,
+        3,
+        "AircraftDockingDir=32\nAircraftDockingDir1=96\nAircraftDockingDir2=160\n",
+    );
+    let frame = sim.session.binary_frame();
+    let facing = |sim: &Simulation| {
+        crate::sim::aircraft::landing_base::get_landing_dir(
+            sim.substrate.entities.get(plane).unwrap(),
+            &sim.substrate.entities,
+            frame,
+            rules.general.pose_dir,
+            Some((&rules, &sim.interner)),
+        )
+    };
+
+    pick_pad_link(&mut sim, plane, Some(1));
+    assert_eq!(facing(&sim), 96 << 8, "slot 1 names the landing face");
+    pick_pad_link(&mut sim, plane, Some(2));
+    assert_eq!(facing(&sim), 160 << 8, "slot 2 names its own face");
+    pick_pad_link(&mut sim, plane, Some(0));
+    assert_eq!(facing(&sim), 32 << 8, "slot 0 takes AircraftDockingDir");
+    pick_pad_link(&mut sim, plane, None);
+    assert_eq!(
+        facing(&sim),
+        32 << 8,
+        "an aircraft without a link index falls back to slot 0's entry"
+    );
+
+    let (sim, rules, plane, _) = phobos_returning_aircraft("RearApproach", false, 1, "");
+    let frame = sim.session.binary_frame();
+    let stock = crate::sim::aircraft::landing_base::landing_direction(
+        sim.substrate.entities.get(plane).unwrap(),
+        &sim.substrate.entities,
+        frame,
+        rules.general.pose_dir,
+    ) as u16;
+    let via_phobos = crate::sim::aircraft::landing_base::get_landing_dir(
+        sim.substrate.entities.get(plane).unwrap(),
+        &sim.substrate.entities,
+        frame,
+        rules.general.pose_dir,
+        Some((&rules, &sim.interner)),
+    );
+    assert_eq!(
+        via_phobos,
+        stock.wrapping_shl(13),
+        "an unauthored slot keeps the stock pad facing"
+    );
+}
+
 /// Phobos `FlyLocomotionClass_FlightUpdate_SetFlightLevel`
 /// (`Ext/Aircraft/Hooks.cpp:669-671`, hook `0x4CF3D0`): under `EarlyDescend`
 /// an aircraft within `SlowdownDistance` of the dock it returns to descends
@@ -1065,7 +1148,7 @@ fn rear_approach_offsets_the_landing_destination() {
 #[test]
 fn early_descend_starts_the_slow_descent_within_slowdown_distance() {
     let level = |value: bool| {
-        let (mut sim, rules, plane, dock) = phobos_returning_aircraft("EarlyDescend", value);
+        let (mut sim, rules, plane, dock) = phobos_returning_aircraft("EarlyDescend", value, 1, "");
         sim.fly_horizontal_step(
             plane,
             dock,

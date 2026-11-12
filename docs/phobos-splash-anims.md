@@ -40,12 +40,32 @@ The shared `NullableVector<T*>` reader moved to
 `IniSection::read_phobos_nullable_type_list` (`src/rules/ini_value.rs`) and the
 shield type lists now use it.
 
+## Warhead.Detonate
+
+The same `HandleDebrisImpact` call takes `AnimTypeExt::Warhead.Detonate=`
+(`Valueable<bool>`, default `false`, `Ext/AnimType/Body.cpp:100`,
+`Body.h:55,107`). On the land arm, when the anim's type also authors
+`Warhead=`, the key routes that warhead through
+`WarheadTypeExt::DetonateAt`: a bullet with no weapon exploded at the landing
+coords (`Ext/WarheadType/Body.cpp:107-111`, `BulletExt::Detonate`) with the
+anim's `Damage=`. Without the key the landing keeps `MapClass::DamageArea`
+plus `FlashbangWarheadAt`. No `Warhead=` means neither arm.
+
+VERA reads the key into `AnimTypeRuntimeConfig::phobos_warhead_detonate` and
+`Simulation::anim_bounce_landing` commits the `DetonateAt` packet
+(`ProjectileDetonation` with a `None` target and the
+`AttachEffectShot`/instant-explode reason) through the shared bullet
+detonation owner instead of the area-damage and light-request arm.
+
 ## Tests
 
 - `src/rules/art_data_tests.rs` — the list, `<default>`/absent, and the bool.
 - `src/sim/anim_meteor_tests.rs` — a custom list replaces the stock water
   splash without a draw, and `PickRandom` consumes exactly one draw whose index
   selects the spawned entry.
+- `src/sim/anim_class.rs` — `the_warhead_detonate_key_routes_the_landing_through_detonate_at`:
+  a `DetonateOnAllMapObjects` warhead reaches a tank away from the impact only
+  under the key; the branch was mutated red and restored.
 
 ## Residuals
 
@@ -54,3 +74,6 @@ shield type lists now use it.
 - The custom list still applies when the key names no registered animation:
   the filtered list is empty and no splash spawns, as the native Find drop
   leaves an empty vector.
+- `VoxelAnimType`'s own `Warhead.Detonate=` (`Ext/VoxelAnimType/Body.cpp:14`)
+  is not read: the VoxelAnim bounce-landing explosion is a separate path VERA
+  does not model yet.

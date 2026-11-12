@@ -4032,27 +4032,61 @@ impl Simulation {
                 let impact = crate::sim::projectile::ProjectileCoord::new(
                     position.x, position.y, position.z,
                 );
-                bridge_state_changed = crate::sim::combat::world_receiver::apply_area_damage(
-                    self,
-                    rules,
-                    overlay_registry,
-                    impact,
-                    damage,
-                    warhead,
-                    true,
-                    (crate::sim::combat::RAD_NO_ATTACKER, None, warhead_ref),
-                    frame_effects,
-                )
-                .bridge_state_changed;
-                self.combat_light_requests
-                    .emit(crate::sim::combat::CombatLightRequest::Impact {
-                        target_id: None,
+                #[cfg(feature = "phobos")]
+                let detonate_at = config.phobos_warhead_detonate;
+                #[cfg(not(feature = "phobos"))]
+                let detonate_at = false;
+                if detonate_at {
+                    // Phobos `AnimExt::HandleDebrisImpact`
+                    // (`Ext/Anim/Body.cpp:245-307`): a `Warhead.Detonate=yes`
+                    // landing routes the warhead through
+                    // `WarheadTypeExt::DetonateAt` — a bullet with no weapon,
+                    // exploded at the landing coords — instead of
+                    // `DamageArea` plus `FlashbangWarheadAt`.
+                    let packet = crate::sim::projectile::ProjectileDetonation {
+                        projectile_id: u64::MAX,
+                        source_id: crate::sim::combat::RAD_NO_ATTACKER,
+                        target: crate::sim::projectile::ProjectileTarget::None,
+                        impact,
+                        payload: crate::sim::projectile::ProjectilePayload::new(
+                            damage,
+                            warhead_ref,
+                            None,
+                            warhead.bright,
+                        ),
+                        reason:
+                            crate::sim::projectile::ProjectileDetonationReason::AttachEffectShot,
+                    };
+                    bridge_state_changed |= self.commit_logic_projectile_detonations(
+                        rules,
+                        overlay_registry,
+                        &[packet],
+                        frame_effects,
+                    );
+                } else {
+                    bridge_state_changed = crate::sim::combat::world_receiver::apply_area_damage(
+                        self,
+                        rules,
+                        overlay_registry,
+                        impact,
                         damage,
-                        warhead_ref,
-                        coord: impact,
-                        force_create: false,
-                        flags: 0,
-                    });
+                        warhead,
+                        true,
+                        (crate::sim::combat::RAD_NO_ATTACKER, None, warhead_ref),
+                        frame_effects,
+                    )
+                    .bridge_state_changed;
+                    self.combat_light_requests.emit(
+                        crate::sim::combat::CombatLightRequest::Impact {
+                            target_id: None,
+                            damage,
+                            warhead_ref,
+                            coord: impact,
+                            force_create: false,
+                            flags: 0,
+                        },
+                    );
+                }
             }
         }
         //423F37..423FC4: two inclusive draws precede the live constructor loop.
@@ -7449,6 +7483,161 @@ mod tests {
             "HE splash of 20 at most, got {health}"
         );
         assert_eq!(sim.combat_light_requests.len(), 1);
+    }
+
+    /// Phobos `AnimExt::HandleDebrisImpact` (`Ext/Anim/Body.cpp:245-307`) with
+    /// `Warhead.Detonate=yes` (`Ext/AnimType/Body.cpp:100`): the landing
+    /// routes the warhead through `WarheadTypeExt::DetonateAt`, a bullet
+    /// detonation, instead of `MapClass::DamageArea`. A warhead with
+    /// `DetonateOnAllMapObjects=yes` therefore reaches a tank parked away
+    /// from the impact only under the key.
+    #[cfg(feature = "phobos")]
+    #[test]
+    fn the_warhead_detonate_key_routes_the_landing_through_detonate_at() {
+        for (key, far_damaged) in [
+            (
+                "Warhead.Detonate=yes
+",
+                true,
+            ),
+            (
+                "Warhead.Detonate=no
+",
+                false,
+            ),
+            ("", false),
+        ] {
+            let art_ini = IniFile::from_str(&format!(
+                "[CHUNK]
+Bouncer=yes
+Elasticity=0.0
+MaxXYVel=0.5
+MinZVel=25.0
+ExpireAnim=BOOM
+Damage=20
+DamageRadius=80
+Warhead=HE
+{key}LoopEnd=15
+LoopCount=-1
+RandomRate=220,600
+[BOOM]
+Rate=900
+"
+            ));
+            let mut rules = RuleSet::from_ini_with_fixed_art_for_test(
+                &IniFile::from_str(
+                    "[General]
+DamageFireTypes=
+[AudioVisual]
+ConditionYellow=50%
+ConditionRed=25%
+[InfantryTypes]
+[VehicleTypes]
+0=TANK
+[AircraftTypes]
+[BuildingTypes]
+[Animations]
+0=CHUNK
+1=BOOM
+[TANK]
+Strength=300
+Armor=heavy
+Speed=4
+[Warheads]
+0=HE
+[HE]
+CellSpread=.5
+PercentAtMax=.5
+DetonateOnAllMapObjects=yes
+DetonateOnAllMapObjects.AffectsTarget=all
+DetonateOnAllMapObjects.AffectsHouse=all
+Verses=100%,100%,100%,100%,100%,100%,100%,100%,100%,100%,100%
+",
+                ),
+                &art_ini,
+            )
+            .unwrap();
+            let he = rules.warhead("HE").expect("HE");
+            assert!(
+                he.detonate_on_all_map.claims_detonation(),
+                "{key:?}: DOAM claims, target {:?}",
+                he.detonate_on_all_map.affects_target
+            );
+            let mut art = ArtRegistry::from_ini(&art_ini);
+            art.bind_anim_frame_count_for_test("CHUNK", 30);
+            art.bind_anim_frame_count_for_test("BOOM", 17);
+            rules.install_art_fixture(art);
+            assert_eq!(
+                rules
+                    .art()
+                    .anim_runtime_config("CHUNK")
+                    .expect("CHUNK config")
+                    .phobos_warhead_detonate,
+                key.contains("=yes"),
+                "{key:?}: the ART key"
+            );
+            let mut sim = Simulation::with_seed(3);
+            let americans = sim.interner.intern("Americans");
+            sim.houses
+                .register(crate::sim::house_state::HouseState::new(
+                    americans, 0, None, true, 0, 10,
+                ));
+            crate::sim::arena_fixture::flat_arena(&mut sim, &rules);
+            let near = sim
+                .spawn_object_at_height("TANK", "Americans", 8, 8, 0, 0, &rules)
+                .unwrap();
+            let far = sim
+                .spawn_object_at_height("TANK", "Americans", 1, 1, 0, 0, &rules)
+                .unwrap();
+            let chunk_type = sim.interner.intern("CHUNK");
+            let center = crate::util::lepton::CELL_CENTER_LEPTON;
+            let chunk = sim
+                .spawn_anim_at_world(
+                    &rules,
+                    AnimClassSpawnDescriptor {
+                        delay: 0,
+                        loop_count: 1,
+                        draw_flags: 0x600,
+                        z_adjust: 0,
+                        reverse: false,
+                        ..AnimClassSpawnDescriptor::new(chunk_type, 8, 8, center, center, 0)
+                    },
+                    AnimWorldCoord {
+                        x: 8 * 256 + 128,
+                        y: 8 * 256 + 128,
+                        z: 20,
+                    },
+                )
+                .unwrap();
+            for frame in 1..200 {
+                sim.session.set_binary_frame_for_test(frame);
+                sim.visit_anim(
+                    chunk,
+                    &rules,
+                    None,
+                    crate::sim::world::FrameEffects::default(),
+                )
+                .unwrap();
+                if sim.substrate.pending_delete.contains_object(&chunk) {
+                    break;
+                }
+            }
+            assert!(
+                sim.substrate.pending_delete.contains_object(&chunk),
+                "{key:?}: the chunk lands"
+            );
+            let near_health = sim.substrate.entities.get(near).unwrap().health.current();
+            let far_health = sim.substrate.entities.get(far).unwrap().health.current();
+            assert!(
+                near_health < 300,
+                "{key:?}: the landing blasts the near tank"
+            );
+            assert_eq!(
+                far_health < 300,
+                far_damaged,
+                "{key:?}: the far tank at {far_health}"
+            );
+        }
     }
 
     /// A world whose flat 8x8 map takes a 1x1 crater and a 1x1 scorch.

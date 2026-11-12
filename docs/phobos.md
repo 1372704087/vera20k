@@ -109,7 +109,7 @@ Supported extensions:
 - [Crate goodie reroll](phobos-crate-goodie-reroll.md) (`CrateGoodie.RerollChance` makes a crate unit candidate fail a `RandomDouble()` roll and draw again; 1 key)
 - [Refinery normal active anim](phobos-refinery-use-normal-active-anim.md) (`Refinery.UseNormalActiveAnim` makes a refinery use its normal ActiveAnim slots instead of the storage-fill tier anims; 1 key)
 - [Crater tiberium destroy](phobos-crater-destroy-tiberium.md) (`Crater.DestroyTiberium` / `[General] AnimCraterDestroyTiberium` keep a crater animation from reducing its cell's ore at the middle frame; 2 keys)
-- [AnimType splash animations](phobos-splash-anims.md) (`SplashAnims` replaces the stock water-landing `SplashList`, and `SplashAnims.PickRandom` draws the entry; 2 keys)
+- [AnimType splash animations](phobos-splash-anims.md) (`SplashAnims` replaces the stock water-landing `SplashList`, `SplashAnims.PickRandom` draws the entry, and `Warhead.Detonate` routes the landing warhead through `WarheadTypeExt::DetonateAt`; 3 keys)
 - [RevealToAll radius](phobos-reveal-to-all-radius.md) (`RevealToAll.Radius` sets the sight circle a computer RevealToAll building shows the current house; 1 key)
 - [Negative-damage modifiers](phobos-negative-damage-modifiers.md) (`ApplyModifiersOnNegativeDamage` per warhead and globally runs a negative packet through falloff/Verses instead of the stock bypass; 2 keys)
 - [Tiberium ramps](phobos-allow-ramps.md) (`AllowRamps` lets a tiberium type grow and spread onto cardinal ramp cells when its ramp art exists, and raises `NumSlopes` to 8; 1 key)

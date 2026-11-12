@@ -438,6 +438,12 @@ pub struct AnimTypeRuntimeConfig {
     /// `Ext/AnimType/Body.h:57`, a `NullableVector<AnimTypeClass*>`): the
     /// entries replace the stock `[CombatDamage] SplashList=` on a water
     /// landing; `None` for an absent or `<default>` read.
+    /// Phobos `AnimTypeExt::Warhead.Detonate=` (`Valueable<bool>`, default
+    /// `false`, `Ext/AnimType/Body.cpp:100`): the landing explosion routes
+    /// its warhead through `WarheadTypeExt::DetonateAt` instead of
+    /// `DamageArea` + `FlashbangWarheadAt` (`Ext/Anim/Body.cpp:245-307`).
+    #[cfg(feature = "phobos")]
+    pub phobos_warhead_detonate: bool,
     #[cfg(feature = "phobos")]
     pub splash_anims: Option<Vec<String>>,
     /// Phobos `SplashAnims.PickRandom=` (`Ext/AnimType/Body.cpp:103`,
@@ -887,12 +893,13 @@ fn parse_anim_runtime_config(section: &IniSection) -> AnimTypeRuntimeConfig {
         crater: section.read_bool("Crater", false),
         force_big_craters: section.read_bool("ForceBigCraters", false),
         #[cfg(feature = "phobos")]
+        phobos_warhead_detonate: section.read_bool("Warhead.Detonate", false),
+        #[cfg(feature = "phobos")]
         splash_anims: section.read_phobos_nullable_type_list("SplashAnims"),
         #[cfg(feature = "phobos")]
         splash_anims_pick_random: section.read_bool("SplashAnims.PickRandom", false),
         #[cfg(feature = "phobos")]
-        crater_destroy_tiberium: section
-            .read_phobos_nullable_bool("Crater.DestroyTiberium", None),
+        crater_destroy_tiberium: section.read_phobos_nullable_bool("Crater.DestroyTiberium", None),
         sticky: section.read_bool("Sticky", false),
         psi_warning: section.read_bool("PsiWarning", false),
         double_thick: section.read_bool("DoubleThick", false),

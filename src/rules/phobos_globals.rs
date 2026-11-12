@@ -829,6 +829,17 @@ pub struct PhobosGlobals {
     /// (`Ext/Rules/Body.cpp:200`, constructor `Ext/Rules/Body.h:643`).
     #[serde(default)]
     pub no_queue_up_to_enter_buildings: Option<bool>,
+    /// `[General] NoQueueUpToUnload=`, default `no`
+    /// (`Ext/Rules/Body.cpp:199`, constructor `Ext/Rules/Body.h:642`): a
+    /// transport whose type or this global enables it unloads the whole cargo
+    /// within one frame (`Ext/Techno/Hooks.Transport.cpp:427-466`).
+    #[serde(default)]
+    pub no_queue_up_to_unload: bool,
+    /// `[General] NoQueueUpToUnload.Buildings=`, `Nullable<bool>`
+    /// (`Ext/Rules/Body.cpp:201`, constructor `Ext/Rules/Body.h:644`): the
+    /// building-type fallback for the same key (`0x44DCB1`).
+    #[serde(default)]
+    pub no_queue_up_to_unload_buildings: Option<bool>,
     /// `[General] VeteranReload=`, default **`1.0`**
     /// (`Ext/Rules/Body.cpp:388`, constructor `Ext/Rules/Body.h:808`).
     #[serde(default = "one_f64")]
@@ -1054,6 +1065,8 @@ impl Default for PhobosGlobals {
             no_queue_up_to_enter: false,
             no_queue_up_to_enter_board_distance: no_queue_board_distance_default(),
             no_queue_up_to_enter_buildings: None,
+            no_queue_up_to_unload: false,
+            no_queue_up_to_unload_buildings: None,
             veteran_reload: NativeF64Bits::ONE,
             veteran_empty_reload: None,
             is_voice_created_global: false,
@@ -1221,6 +1234,14 @@ impl PhobosGlobals {
         globals.no_queue_up_to_enter_buildings = general.read_phobos_nullable_bool(
             "NoQueueUpToEnter.Buildings",
             globals.no_queue_up_to_enter_buildings,
+        );
+        // `Ext/Rules/Body.cpp:199-201`: the unload-queue global and its
+        // Building override.
+        globals.no_queue_up_to_unload =
+            general.read_bool("NoQueueUpToUnload", globals.no_queue_up_to_unload);
+        globals.no_queue_up_to_unload_buildings = general.read_phobos_nullable_bool(
+            "NoQueueUpToUnload.Buildings",
+            globals.no_queue_up_to_unload_buildings,
         );
         // `Ext/Rules/Body.cpp:213-214`: the Ares radar-jam scan's House filter
         // (`Valueable<AffectedHouse>`, default Enemies) and interval.

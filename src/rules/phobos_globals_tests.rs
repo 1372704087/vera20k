@@ -602,3 +602,14 @@ fn damaged_speed_defaults_and_reads() {
         0.5f64.to_bits()
     );
 }
+
+/// `[General] NoQueueUpToUnload` (false) and its nullable Building override.
+#[test]
+fn no_queue_up_to_unload_globals_default_and_read() {
+    let defaults = PhobosGlobals::default();
+    assert!(!defaults.no_queue_up_to_unload);
+    assert_eq!(defaults.no_queue_up_to_unload_buildings, None);
+    let set = read("[General]\nNoQueueUpToUnload=yes\nNoQueueUpToUnload.Buildings=no\n");
+    assert!(set.no_queue_up_to_unload);
+    assert_eq!(set.no_queue_up_to_unload_buildings, Some(false));
+}

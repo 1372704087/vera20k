@@ -1,4 +1,4 @@
-//! The twelve
+//! The thirteen
 //! [`crate::rules::phobos_techno_extras`].
 
 use crate::rules::ini_parser::IniFile;
@@ -11,10 +11,10 @@ fn read(keys: &str) -> PhobosTechnoExtras {
     )
 }
 
-/// `Body.h:482-485`, `:544`, `:602`, `:709-710`, `:725-726`, `:768`, `:851`:
-/// seven unset nullables and five empty vectors.
+/// `Body.h:482-485`, `:544`, `:602`, `:709-711`, `:725-726`, `:768`, `:851`:
+/// eight unset nullables and five empty vectors.
 #[test]
-fn the_twelve_keys_construct_unset() {
+fn the_thirteen_keys_construct_unset() {
     let defaults = PhobosTechnoExtras::default();
     assert_eq!(read(""), defaults);
     assert_eq!(defaults.radar_jam_houses, None);
@@ -25,6 +25,7 @@ fn the_twelve_keys_construct_unset() {
     assert_eq!(defaults.use_disguise_movement_speed, None);
     assert_eq!(defaults.no_queue_up_to_enter, None);
     assert_eq!(defaults.no_queue_up_to_enter_board_distance, None);
+    assert_eq!(defaults.no_queue_up_to_unload, None);
     assert_eq!(defaults.veteran_reload, None);
     assert_eq!(defaults.veteran_empty_reload, None);
     assert!(defaults.spawns_queue.is_empty());
@@ -36,7 +37,7 @@ fn every_key_reads_on_its_own() {
     let set = read(
         "RadarJamHouses=enemies\nRadarJamDelay=12\nRadarJamAffect=BARRACKS\nRadarJamIgnore=GAPILE\n\
          VoiceCreated=UnitCreated\nUseDisguiseMovementSpeed=yes\n\
-         NoQueueUpToEnter=yes\nNoQueueUpToEnter.BoardDistance=512\n\
+         NoQueueUpToEnter=yes\nNoQueueUpToEnter.BoardDistance=512\nNoQueueUpToUnload=yes\n\
          VeteranReload=0.75\nVeteranEmptyReload=1.5\nSpawns.Queue=HORNET,ASW\n\
          DropCrate=Firepower\n",
     );
@@ -48,6 +49,7 @@ fn every_key_reads_on_its_own() {
     assert_eq!(set.use_disguise_movement_speed, Some(true));
     assert_eq!(set.no_queue_up_to_enter, Some(true));
     assert_eq!(set.no_queue_up_to_enter_board_distance, Some(512));
+    assert_eq!(set.no_queue_up_to_unload, Some(true));
     assert_eq!(set.veteran_reload, Some(0.75));
     assert_eq!(set.veteran_empty_reload, Some(1.5));
     assert_eq!(set.spawns_queue, ["HORNET", "ASW"]);
@@ -61,12 +63,13 @@ fn every_key_reads_on_its_own() {
 fn a_default_or_blank_read_clears_the_nullables() {
     let cleared = read(
         "RadarJamDelay=<default>\nUseDisguiseMovementSpeed=\nVeteranReload=<default>\n\
-         NoQueueUpToEnter.BoardDistance=\n",
+         NoQueueUpToEnter.BoardDistance=\nNoQueueUpToUnload=<default>\n",
     );
     assert_eq!(cleared.radar_jam_delay, None);
     assert_eq!(cleared.use_disguise_movement_speed, None);
     assert_eq!(cleared.veteran_reload, None);
     assert_eq!(cleared.no_queue_up_to_enter_board_distance, None);
+    assert_eq!(cleared.no_queue_up_to_unload, None);
 }
 
 /// `AffectedHouse` parses `none` as a value, so `RadarJamHouses=none` means

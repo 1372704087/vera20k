@@ -542,7 +542,7 @@ impl Simulation {
                 // Phobos `TechnoClass_WhatAction_WallWeapon` (`0x70095A`,
                 // `Ext/Techno/Hooks.TargetEvaluation.cpp:81-89`) reads the
                 // wall test's weapon from `GetWeaponIndexAgainstWall`
-                // (`Ext/Techno/WeaponHelpers.cpp:196-236`), so a secondary
+                // (`Ext/Techno/WeaponHelpers.cpp:196-228`), so a secondary
                 // wall-breaker can admit the ATTACK rung the current weapon
                 // would refuse.
                 #[cfg(feature = "phobos")]

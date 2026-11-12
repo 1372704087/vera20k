@@ -18,7 +18,7 @@ through.
 
 ## Native body
 
-`TechnoExt::GetWeaponIndexAgainstWall` (`Ext/Techno/WeaponHelpers.cpp:196-236`)
+`TechnoExt::GetWeaponIndexAgainstWall` (`Ext/Techno/WeaponHelpers.cpp:196-228`)
 replaces the hardcoded `GetWeapon(0)` at three hooks:
 
 - `0x51C1F1` — `InfantryClass::Can_Enter_Cell`'s wall arm;
@@ -66,3 +66,11 @@ required list exists, and the gate can only refuse a firer when one does.
   `wall_threat_score` still reads the current weapon and GetWeaponRange(0).
 - The `SkipWeaponPicking` optimization itself is not read; see the note
   above for why this consumer does not need it.
+- `NoAmmoAmount=`/`NoAmmoWeapon=` live in VERA's Ares-gated
+  `techno_combat` data, so a `--features phobos` build without `ares`
+  uses the constructor defaults (`0`, `-1`) for the
+  `CanFireNoAmmoWeapon(1)` term even when a section authors the keys.
+- The test drives the unit wall arm (`0x73F495`) and the ATTACK rung
+  (`0x70095A`). The infantry arm (`0x51C1F1`, same helper), the gattling
+  slot pair, turreted early return, the AE gate and the ammo term are
+  ported from the native arms but not covered by a regression test.

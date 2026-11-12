@@ -628,16 +628,17 @@ pub fn current_weapon<'r>(
 }
 
 /// Phobos `TechnoExt::GetWeaponIndexAgainstWall`
-/// (`Ext/Techno/WeaponHelpers.cpp:196-236`): the slot whose warhead the wall
+/// (`Ext/Techno/WeaponHelpers.cpp:196-228`): the slot whose warhead the wall
 /// checks read, replacing the native's hardcoded `GetWeapon(0)` at
 /// `0x51C1F1`, `0x73F495` and `0x70095A`. The hook always swaps the slot,
 /// even when the key is off: the answer is then `GetCurrentWeapon`'s index
 /// (`0x70E1A0`: the gunner slot for a `TurretCount>0` non-gattling type, the
 /// gattling stage pair, else slot 0). With
 /// `AllowWeaponSelectAgainstWalls` resolved true (the type's `Nullable`
-/// falls back to `[CombatDamage]`), a non-gattling type whose current weapon
-/// cannot hurt that wall overlay — no `Wall=` and no `Wood=` against
-/// `Armor=wood`, `CanFireNoAmmoWeapon(1)`, or the current weapon's
+/// falls back to `[CombatDamage]`), a type that is not a turreted
+/// non-gattling one (no turret, or gattling) whose current weapon cannot
+/// hurt that wall overlay — no `Wall=` and no `Wood=` against `Armor=wood`,
+/// `CanFireNoAmmoWeapon(1)`, or the current weapon's
 /// `AttachEffect.CheckOnFirer` gate refusing its firer — retries the
 /// secondary slot (`stage*2+1` for a gattling type, else 1) when that
 /// weapon can hurt the wall and `NoSecondaryWeaponFallback` allows it.

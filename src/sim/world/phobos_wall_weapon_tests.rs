@@ -1,5 +1,5 @@
 //! Phobos `TechnoExt::GetWeaponIndexAgainstWall`
-//! (`Ext/Techno/WeaponHelpers.cpp:196-236`): the wall checks at
+//! (`Ext/Techno/WeaponHelpers.cpp:196-228`): the wall checks at
 //! `0x51C1F1`, `0x73F495` and `0x70095A` read
 //! `GetWeapon(GetWeaponIndexAgainstWall(..))` instead of the native
 //! `GetWeapon(0)`, so with `AllowWeaponSelectAgainstWalls` a secondary

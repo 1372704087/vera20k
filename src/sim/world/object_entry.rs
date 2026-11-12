@@ -1115,7 +1115,7 @@ fn full_foot_entry<'a>(
                 .is_some_and(|o| mover.allied_with(live, o));
             // Phobos hooks `0x51C1F1`/`0x73F495` replace the native's
             // `GetWeapon(0)` with `GetWeapon(GetWeaponIndexAgainstWall(..))`
-            // (`Ext/Techno/WeaponHelpers.cpp:196-236`), so the secondary may
+            // (`Ext/Techno/WeaponHelpers.cpp:196-228`), so the secondary may
             // answer the wall test.
             #[cfg(feature = "phobos")]
             let wall_weapon = combat_weapon::get_weapon(

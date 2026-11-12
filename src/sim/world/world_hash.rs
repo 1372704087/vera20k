@@ -724,6 +724,10 @@ impl Simulation {
         self.hash_radiation(hasher);
         self.kamikaze.fold_hash(hasher);
         self.hash_projectiles(hasher);
+        // Phobos `ScenarioExt::TransportReloaders` is saved scenario state;
+        // its order decides the reload pass's visits.
+        #[cfg(feature = "phobos")]
+        self.transport_reloaders.hash(hasher);
     }
 
     /// Whether something retains the shared dummy cell, so that its live

@@ -333,16 +333,22 @@ impl Simulation {
             FrameStep::Lighting => self.tick_scenario_lighting_transition(rules),
             FrameStep::OreGrowth => self.tick_ore_growth_rungs(rules, overlay_registry, effects)?,
             // `BombListClass::UpdateAll` follows growth and spread (0x0055B4E1).
-            FrameStep::BombList => Self::bomb_list_update(
-                &self.interner,
-                &mut self.substrate,
-                &self.houses,
-                &self.house_alliances,
-                &self.resolved_terrain,
-                &mut self.bombs,
-                &mut self.sound_events,
-                rules,
-            ),
+            FrameStep::BombList => {
+                // Phobos `LogicClass_Update_BeforeAll` (hook 0x55B4E1):
+                // transport reloaders tick before BombList's update.
+                #[cfg(feature = "phobos")]
+                self.phobos_update_transport_reloaders(rules);
+                Self::bomb_list_update(
+                    &self.interner,
+                    &mut self.substrate,
+                    &self.houses,
+                    &self.house_alliances,
+                    &self.resolved_terrain,
+                    &mut self.bombs,
+                    &mut self.sound_events,
+                    rules,
+                )
+            }
             FrameStep::Kamikaze => self.kamikaze_update(rules, effects),
             FrameStep::TeamScript => self.run_team_ai_pass(rules, overlay_registry, effects),
             FrameStep::DiskLasers => {

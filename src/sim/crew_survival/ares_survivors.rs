@@ -150,6 +150,9 @@ impl Simulation {
             entity.passenger_role.clear_carrier_relation();
             entity.passenger_role.clear_transporter();
         }
+        // Phobos `FootClass_LeaveTransport` (0x4DE722): unlisted here.
+        #[cfg(feature = "phobos")]
+        self.remove_transport_reloader(id);
         Self::foot_neighbors_store_retained_cell(&mut self.substrate, id, retained);
         if airborne {
             let layer = if on_bridge {

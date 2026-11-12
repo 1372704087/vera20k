@@ -1088,6 +1088,9 @@ impl Simulation {
             if let Some(entity) = sim.substrate.entities.get_mut(passenger) {
                 entity.passenger_role.clear_transporter();
             }
+            // Phobos `FootClass_LeaveTransport` (0x4DE722): unlisted here.
+            #[cfg(feature = "phobos")]
+            sim.remove_transport_reloader(passenger);
 
             // `0x00738104..0x0073812A`: Assign_Target(NULL).
             if open_topped && passenger_owner != unit_owner {

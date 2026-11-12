@@ -3072,6 +3072,12 @@ pub(super) fn emit_admitted_fire(
     // Concrete class FireAt suffixes follow the base tail, including
     // LimboLaunch. Ares reload / Infantry panic and Unit's firing counter /
     // Scalable work stay here for ordinary and direct mission FireAt callers.
+    // Phobos `InfantryClass_FireAt_ReloadInTransport` (0x51DF82): a
+    // transported infantryman restarts its reload clock before Ares' arm.
+    #[cfg(feature = "phobos")]
+    if snap.category == EntityCategory::Infantry {
+        world.reload_in_transport_after_infantry_fire(rules, snap.stable_id, binary_frame as i32);
+    }
     #[cfg(feature = "ares")]
     if snap.category == EntityCategory::Infantry && weapon.ammo_cost() > 0 {
         let restart = world

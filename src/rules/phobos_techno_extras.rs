@@ -85,6 +85,16 @@ pub struct PhobosTechnoExtras {
     /// `NoQueueUpToEnter.BoardDistance=` (`:1046`), `Nullable` leptons. `None`
     /// reads `[General] NoQueueUpToEnter.BoardDistance` (default 384).
     pub no_queue_up_to_enter_board_distance: Option<i32>,
+    /// `NoQueueUpToUnload=` (`:1047`), `Nullable`: a transport with this key
+    /// unloads its whole cargo within one frame (`0x73DC1E`); a building
+    /// returns 0 from its Unload mission (`0x44DCB1`). `None` reads
+    /// `[General] NoQueueUpToUnload`.
+    pub no_queue_up_to_unload: Option<bool>,
+    /// `ReloadInTransport=` (`Ext/TechnoType/Body.cpp:808`, `Body.h:75`),
+    /// `Nullable`: the passenger reloads while inside a transport, both on
+    /// the per-update reloader list and when it fires. `None` reads
+    /// `[General] ReloadInTransport`.
+    pub reload_in_transport: Option<bool>,
     /// `VeteranReload=` (`:1062`), `Nullable`: the reload multiplier once the
     /// object is veteran or better (`Ext/Techno/Hooks.Firing.cpp:1186-1187`).
     pub veteran_reload: Option<f64>,
@@ -122,6 +132,8 @@ impl PhobosTechnoExtras {
             no_queue_up_to_enter: section.read_phobos_nullable_bool("NoQueueUpToEnter", None),
             no_queue_up_to_enter_board_distance: section
                 .read_phobos_nullable_int("NoQueueUpToEnter.BoardDistance", None),
+            no_queue_up_to_unload: section.read_phobos_nullable_bool("NoQueueUpToUnload", None),
+            reload_in_transport: section.read_phobos_nullable_bool("ReloadInTransport", None),
             veteran_reload: section.read_phobos_nullable_double("VeteranReload", None),
             veteran_empty_reload: section.read_phobos_nullable_double("VeteranEmptyReload", None),
             spawns_queue: type_list("Spawns.Queue"),
@@ -147,6 +159,18 @@ impl PhobosTechnoExtras {
     /// `Ext/TechnoType/Body.cpp:1046`).
     pub fn no_queue_board_distance(&self, global: i32) -> i32 {
         self.no_queue_up_to_enter_board_distance.unwrap_or(global)
+    }
+
+    /// `NoQueueUpToUnload.Get([General] NoQueueUpToUnload)`
+    /// (`Ext/Techno/Hooks.Transport.cpp:436`, `Ext/TechnoType/Body.cpp:1047`).
+    pub fn no_queue_up_to_unload(&self, global: bool) -> bool {
+        self.no_queue_up_to_unload.unwrap_or(global)
+    }
+
+    /// `ReloadInTransport.Get([General] ReloadInTransport)`
+    /// (`Ext/Techno/Hooks.Transport.cpp:82`, `Ext/TechnoType/Body.cpp:808`).
+    pub fn reload_in_transport(&self, global: bool) -> bool {
+        self.reload_in_transport.unwrap_or(global)
     }
 }
 

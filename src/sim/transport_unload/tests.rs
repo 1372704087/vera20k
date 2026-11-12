@@ -754,7 +754,7 @@ fn ejection_keeps_the_passengers_target_unless_it_leaves_another_houses_open_tra
             ));
         } else {
             assert!(matches!(
-                super::eject_head_passenger(&mut fx.sim, &fx.rules, transport, None, effects),
+                super::eject_head_passenger(&mut fx.sim, &fx.rules, transport, None, effects, true),
                 super::EjectOutcome::Placed
             ));
         }
@@ -978,7 +978,13 @@ fn phobos_failed_shore_search_takes_the_cannot_unload_arm() {
         None,
         "no packed (0,0) destination is set"
     );
-    assert!(entity.navigation.path_replay().remaining_directions().is_empty());
+    assert!(
+        entity
+            .navigation
+            .path_replay()
+            .remaining_directions()
+            .is_empty()
+    );
 }
 
 // Stock: the failed search passes packed (0,0); Phobos hook `0x73D7B7`
@@ -2362,7 +2368,8 @@ fn cargo_departure_ground_reveal_rejection_preserves_route_retry_state() {
                         &fx.rules,
                         transport,
                         None,
-                        crate::sim::world::FrameEffects::default()
+                        crate::sim::world::FrameEffects::default(),
+                        true
                     ),
                     super::EjectOutcome::Failed
                 ));
@@ -2708,4 +2715,115 @@ fn retail_aligned_transports_wait_only_for_their_turrets() {
             MissionId::from_known(MissionType::Move)
         );
     }
+}
+
+/// Phobos `NoQueueUpToUnload` (`0x73DC1E`,
+/// `Ext/Techno/Hooks.Transport.cpp:427-466`): a transport whose type or
+/// `[General]` enables it ejects the whole cargo within one dispatch and
+/// plays `LeaveTransportSound` once; the stock path ejects one per dispatch.
+#[cfg(feature = "phobos")]
+#[test]
+fn phobos_no_queue_up_to_unload_empties_the_cargo_in_one_dispatch() {
+    let run = |patch: &str| {
+        let mut fx = Fixture::new(|_, _| false);
+        if !patch.is_empty() {
+            fx.rules = rules_with_patch(patch);
+        }
+        let transport = fx.spawn("BFRT", 20, 20, 0);
+        let passengers = fx.board(transport, 2);
+        fx.sim.session.set_binary_frame_for_test(100);
+        fx.sim
+            .substrate
+            .mission_assign_exact(transport, MissionId::from_known(MissionType::Unload), 100)
+            .unwrap();
+        fx.sim
+            .substrate
+            .entities
+            .get_mut(transport)
+            .unwrap()
+            .mission
+            .set_handler_state(super::STATE_EJECT);
+        let delay = super::unit_mission_unload(
+            &mut fx.sim,
+            &fx.rules,
+            transport,
+            None,
+            crate::sim::world::FrameEffects::default(),
+        );
+        let revealed = passengers.iter().filter(|&&id| fx.revealed(id)).count();
+        let sounds = fx
+            .sim
+            .sound_events
+            .iter()
+            .filter(|event| matches!(event, SimSoundEvent::LeaveTransport { .. }))
+            .count();
+        (revealed, delay, sounds)
+    };
+
+    let (revealed, delay, sounds) = run("");
+    assert_eq!(revealed, 1, "stock ejects one passenger per dispatch");
+    assert!(delay != 1, "the stock path takes the rate epilogue");
+    assert_eq!(sounds, 1, "the placed passenger plays the leave sound");
+
+    let (revealed, delay, sounds) = run("[BFRT]
+NoQueueUpToUnload=yes
+");
+    assert_eq!(revealed, 2, "the type key empties the cargo at once");
+    assert!(delay != 1, "the finished loop takes the epilogue");
+    assert_eq!(sounds, 1, "the one-frame arm plays the sound once");
+
+    let (revealed, _, sounds) = run("[General]
+NoQueueUpToUnload=yes
+");
+    assert_eq!(revealed, 2, "the global key empties the cargo at once");
+    assert_eq!(sounds, 1);
+}
+
+/// Phobos `NoQueueUpToUnload` on a building (`0x44DCB1`,
+/// `Ext/Techno/Hooks.Transport.cpp:804-817`): the type key, else the
+/// `[General]` Building nullable, else the global.
+#[cfg(feature = "phobos")]
+#[test]
+fn phobos_building_no_queue_up_to_unload_resolves_type_then_building_then_general() {
+    let rules = rules_with_patch(
+        "[BuildingTypes]
+0=REACTOR
+1=REACT2
+         [REACTOR]
+Strength=500
+         [REACT2]
+Strength=500
+NoQueueUpToUnload=no
+         [General]
+NoQueueUpToUnload=yes
+NoQueueUpToUnload.Buildings=yes
+",
+    );
+    let object = |id: &str| rules.object(id).expect("building type");
+    assert!(super::building_no_queue_up_to_unload(
+        object("REACTOR"),
+        &rules
+    ));
+    assert!(
+        !super::building_no_queue_up_to_unload(object("REACT2"), &rules),
+        "the type's no wins over the Building global"
+    );
+
+    let global_only = rules_with_patch(
+        "[BuildingTypes]
+0=REACTOR
+[REACTOR]
+Strength=500
+         [General]
+NoQueueUpToUnload=yes
+NoQueueUpToUnload.Buildings=no
+",
+    );
+    assert!(
+        !super::building_no_queue_up_to_unload(
+            global_only.object("REACTOR").expect("building type"),
+            &global_only
+        ),
+        "the Building nullable turns the global off"
+    );
 }

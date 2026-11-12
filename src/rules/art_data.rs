@@ -157,6 +157,15 @@ pub struct ArtEntry {
     pub primary_fire_dual_offset: bool,
     /// Building fire is held behind the SpecialAnim before weapon emission.
     pub is_anim_delayed_fire: bool,
+    /// Phobos `IsAnimDelayedBurst=` (`Ext/BuildingType/Body.cpp:374` reads it
+    /// from the ART section; `Valueable<bool>` at `Body.h:69`, constructed
+    /// **true** at `Body.h:202`): when false, only the first shot of a burst
+    /// waits for the SpecialAnim and a burst already in progress fires
+    /// immediately (`Ext/Building/Hooks.cpp:868-873`, hook `0x44B630`:
+    /// `CurrentBurstIndex != 0 && !IsAnimDelayedBurst` jumps to `0x44B6C4`,
+    /// the JustFire arm).
+    #[cfg(feature = "phobos")]
+    pub is_anim_delayed_burst: bool,
     /// BuildingType+16A8, ART ReadBool461169, constructor45E0BA false.
     pub silo_damage: bool,
     /// Phobos `Refinery.UseNormalActiveAnim=` (`Ext/BuildingType/Body.cpp:309`,
@@ -1471,6 +1480,8 @@ impl ArtRegistry {
                     secondary_fire_pixel_offset,
                     primary_fire_dual_offset,
                     is_anim_delayed_fire,
+                    #[cfg(feature = "phobos")]
+                    is_anim_delayed_burst: section.read_bool("IsAnimDelayedBurst", true),
                     silo_damage: section.read_bool("SiloDamage", false),
                     #[cfg(feature = "phobos")]
                     refinery_use_normal_active_anim: section

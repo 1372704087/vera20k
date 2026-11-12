@@ -619,15 +619,17 @@ pub(super) fn apply_explosion_crate(
         ) {
             crate::sim::world::damage_consequences::admit_explosion_effect(sim, rules, effect);
         }
-        sim.combat_light_requests
-            .emit(crate::sim::combat::CombatLightRequest::Impact {
-                target_id: None,
-                damage: amount,
-                warhead_ref,
-                coord: scattered,
-                force_create: false,
-                flags: 0,
-            });
+        if crate::sim::combat::combat_light_chance_admits(sim, rules, warhead_ref) {
+            sim.combat_light_requests
+                .emit(crate::sim::combat::CombatLightRequest::Impact {
+                    target_id: None,
+                    damage: amount,
+                    warhead_ref,
+                    coord: scattered,
+                    force_create: false,
+                    flags: 0,
+                });
+        }
     }
 }
 
@@ -876,11 +878,10 @@ pub(super) fn choose_unit_crate_type<'r>(
         // below the chance (accept only when `chance < RandomDouble()`),
         // before the base-unit gates read the same boolean.
         #[cfg(feature = "phobos")]
-        let goodie = candidate.crate_goodie
-            && {
-                let chance = candidate.phobos_crate_goodie_reroll_chance;
-                chance <= 0.0 || chance < scenario_rng.random_double()
-            };
+        let goodie = candidate.crate_goodie && {
+            let chance = candidate.phobos_crate_goodie_reroll_chance;
+            chance <= 0.0 || chance < scenario_rng.random_double()
+        };
         #[cfg(not(feature = "phobos"))]
         let goodie = candidate.crate_goodie;
         if goodie && (!is_base_unit(candidate) || (bases && (human || preempted))) {

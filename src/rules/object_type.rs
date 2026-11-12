@@ -1168,6 +1168,12 @@ pub struct ObjectType {
     /// `FlightLevel` (`Ext/Aircraft/Body.cpp:77`). Aircraft types only.
     #[cfg(feature = "phobos")]
     pub phobos_spawn_height: Option<i32>,
+    /// Phobos `SpawnFromEdge=` (`Ext/AircraftType/Body.cpp:24`,
+    /// `Nullable<EdgeType>`): the edge mode an aircraft picking its spawn/exit
+    /// cell uses; unset takes `[General] AircraftSpawnFromEdge`
+    /// (`Ext/Aircraft/Body.cpp:88`). Aircraft types only.
+    #[cfg(feature = "phobos")]
+    pub phobos_spawn_from_edge: Option<crate::rules::phobos_aircraft_edge::PhobosEdgeType>,
     /// Phobos `Explodes.KillPassengers` (`Ext/TechnoType/Body.cpp:968`) and
     /// `Explodes.DuringBuildup` (`Ext/BuildingType/Body.cpp:222`), consumed by
     /// the `TechnoClass::ReceiveDamage` death arm.
@@ -5981,6 +5987,12 @@ impl ObjectType {
             #[cfg(feature = "phobos")]
             phobos_spawn_height: (category == ObjectCategory::Aircraft)
                 .then(|| section.read_phobos_nullable_int("SpawnHeight", None))
+                .flatten(),
+            #[cfg(feature = "phobos")]
+            phobos_spawn_from_edge: (category == ObjectCategory::Aircraft)
+                .then(|| {
+                    crate::rules::phobos_aircraft_edge::read_spawn_from_edge(section)
+                })
                 .flatten(),
             #[cfg(feature = "phobos")]
             phobos_explodes: crate::rules::phobos_explodes::PhobosExplodesSettings::from_section(

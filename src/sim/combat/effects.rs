@@ -118,7 +118,7 @@ pub struct TiberiumReductionRequest {
 pub struct UnderAttackEvent {
     pub rx: u16,
     pub ry: u16,
-    /// The VICTIM's owner — the player whose radar/EVA should react.
+    /// The VICTIM's owner 鈥?the player whose radar/EVA should react.
     pub owner: InternedId,
     pub victim_type: InternedId,
     /// The victim house's own radar/EVA line. Ares
@@ -239,5 +239,79 @@ impl DeathEffects {
         #[cfg(any(test, feature = "test-support"))]
         self.receiver_stage_trace
             .append(&mut other.receiver_stage_trace);
+    }
+}
+
+/// Phobos `CombatLightChance=`'s probability gate at the native `Flash`
+/// creation point: `0x48A620` draws one `Randomizer::Global.RandomDouble()`
+/// with the warhead (`Misc/Hooks.LightEffects.cpp:69-74`) and, when the
+/// authored chance is below that draw, returns before the per-warhead
+/// `CombatLightDetailLevel`/`CLDisable` reads and before the detail, fps and
+/// `Bright` tests. So the draw precedes those tests and a suppressed flash
+/// still spends it; `force_create` bypasses `Bright` only, never this gate.
+/// `Flash` without a warhead (the bridge and trigger rows) has no chance read.
+///
+/// Sim-scale deviation: the draw is made only when the authored value is below
+/// 1.0. Retail rules never set the key and the constructor value is 1.0, so
+/// drawing for every stock explosion would shift the process Main886B88 stream
+/// that the original-execution fixtures compare against while changing no
+/// visible flash; a rule set that authors the key keeps native draw count and
+/// order.
+#[cfg(feature = "phobos")]
+pub(crate) fn combat_light_chance_admits(
+    sim: &crate::sim::world::Simulation,
+    rules: &crate::rules::ruleset::RuleSet,
+    warhead_ref: InternedId,
+) -> bool {
+    let Some(warhead) = rules.warhead(sim.interner.resolve(warhead_ref)) else {
+        return true;
+    };
+    let chance = warhead.phobos_combat_light_chance;
+    chance >= 1.0 || chance >= sim.main_rng().random_double()
+}
+
+#[cfg(all(test, feature = "phobos"))]
+mod combat_light_chance_tests {
+    use super::combat_light_chance_admits;
+    use crate::rules::ini_parser::IniFile;
+    use crate::rules::ruleset::RuleSet;
+    use crate::sim::world::Simulation;
+
+    fn rules_with(body: &str) -> RuleSet {
+        RuleSet::from_ini(&IniFile::from_str(&format!(
+            "[Warheads]\n0=WH\n[WH]\n{body}"
+        )))
+        .unwrap()
+    }
+
+    /// Retail `[Warheads]` leaves the key unset; the constructor's 1.0 admits
+    /// and, under the recorded deviation, spends no draw.
+    #[test]
+    fn an_unset_chance_admits_without_touching_main() {
+        let rules = rules_with("");
+        let mut sim = Simulation::new();
+        let warhead = sim.interner.intern("WH");
+        let before = sim.main_rng().state();
+        assert!(combat_light_chance_admits(&sim, &rules, warhead));
+        assert_eq!(sim.main_rng().state(), before);
+    }
+
+    /// `CombatLightChance=0` never admits even though it still takes its draw;
+    /// `=1` is the admitting boundary.
+    #[test]
+    fn boundary_chances_gate_the_flash_and_keep_the_draw() {
+        let zero = rules_with("CombatLightChance=0\n");
+        let mut sim = Simulation::new();
+        let warhead = sim.interner.intern("WH");
+        let before = sim.main_rng().state();
+        assert!(!combat_light_chance_admits(&sim, &zero, warhead));
+        assert_ne!(sim.main_rng().state(), before, "the gate draws once");
+
+        let one = rules_with("CombatLightChance=1\n");
+        let mut sim = Simulation::new();
+        let warhead = sim.interner.intern("WH");
+        let before = sim.main_rng().state();
+        assert!(combat_light_chance_admits(&sim, &one, warhead));
+        assert_eq!(sim.main_rng().state(), before);
     }
 }

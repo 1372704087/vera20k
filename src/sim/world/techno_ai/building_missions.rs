@@ -1438,11 +1438,22 @@ fn fire_arm(
     if ares_prism_forwarding::mission_attack_prism(sim, id, rules, obj) {
         return;
     }
-    match rules
+    let burst_index = sim
+        .substrate
+        .entities
+        .get(id)
+        .map_or(0, |entity| entity.weapon_burst.index());
+    let art_metadata = rules
         .art()
         .resolve_metadata_entry(&obj.id, &obj.image)
-        .filter(|art| art.is_anim_delayed_fire)
-    {
+        .filter(|art| art.is_anim_delayed_fire);
+    // `Ext/Building/Hooks.cpp:868-873` (hook `0x44B630`): with
+    // `IsAnimDelayedBurst=` (ART, constructor true) off, a burst already in
+    // progress jumps to JustFire `0x44B6C4` instead of arming the SpecialAnim
+    // delay again. The first shot (index 0) keeps the vanilla check either way.
+    #[cfg(feature = "phobos")]
+    let art_metadata = art_metadata.filter(|art| art.is_anim_delayed_burst || burst_index == 0);
+    match art_metadata {
         Some(art) => {
             let slot = if weapon == 1 {
                 WeaponSlot::Secondary

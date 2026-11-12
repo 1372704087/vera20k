@@ -129,6 +129,8 @@ pub mod phobos_adjacent;
 #[cfg(feature = "phobos")]
 pub mod phobos_airburst;
 #[cfg(feature = "phobos")]
+pub mod phobos_aircraft_edge;
+#[cfg(feature = "phobos")]
 pub mod phobos_ammo_deploy;
 #[cfg(feature = "phobos")]
 pub mod phobos_anim_draw_offset;

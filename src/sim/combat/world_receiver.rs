@@ -1790,7 +1790,18 @@ pub(crate) fn commit_entities(
         }
         if let Some(effect) = receiver_outcome.and_then(|resolved| resolved.invulnerability_impact)
         {
-            death.combat_light_requests.push(effect);
+            // The invulnerability flash is another `Flash 0x48A620` call, so
+            // Phobos' chance gate (`Misc/Hooks.LightEffects.cpp:69-74`) precedes
+            // it as well.
+            let admitted = match &effect {
+                CombatLightRequest::Impact { warhead_ref, .. } => {
+                    crate::sim::combat::combat_light_chance_admits(world, rules, *warhead_ref)
+                }
+                CombatLightRequest::Spark { .. } => true,
+            };
+            if admitted {
+                death.combat_light_requests.push(effect);
+            }
         }
         // `0x00701D71..0x00701DB4`: a Psychedelic hit that turns its target
         // berserk takes it out of its team, with its idle order
@@ -4965,16 +4976,19 @@ fn emit_detonation_anim(
         let flags = (u32::from(warhead.cl_disable_red) << 1)
             | (u32::from(warhead.cl_disable_green) << 2)
             | (u32::from(warhead.cl_disable_blue) << 3);
-        out.effects
-            .combat_light_requests
-            .push(CombatLightRequest::Impact {
-                target_id: None,
-                damage: detonation.payload.base_damage,
-                warhead_ref: detonation.payload.warhead,
-                coord: placement,
-                force_create: true,
-                flags,
-            });
+        if crate::sim::combat::combat_light_chance_admits(world, rules, detonation.payload.warhead)
+        {
+            out.effects
+                .combat_light_requests
+                .push(CombatLightRequest::Impact {
+                    target_id: None,
+                    damage: detonation.payload.base_damage,
+                    warhead_ref: detonation.payload.warhead,
+                    coord: placement,
+                    force_create: true,
+                    flags,
+                });
+        }
     }
     #[cfg(feature = "phobos")]
     {

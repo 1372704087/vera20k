@@ -380,14 +380,16 @@ impl Simulation {
         .bridge_state_changed;
         //74A1F6..225 reloads the shared Type value after the nested area.
         let damage = self.voxel_type_damage(type_id, rules);
-        self.combat_light_requests.emit(CombatLightRequest::Impact {
-            target_id: None,
-            damage,
-            warhead_ref,
-            coord,
-            force_create: false,
-            flags: 0,
-        });
+        if crate::sim::combat::combat_light_chance_admits(self, rules, warhead_ref) {
+            self.combat_light_requests.emit(CombatLightRequest::Impact {
+                target_id: None,
+                damage,
+                warhead_ref,
+                coord,
+                force_create: false,
+                flags: 0,
+            });
+        }
         changed
     }
 
@@ -416,8 +418,7 @@ impl Simulation {
             else {
                 continue;
             };
-            let ramp_type_allows =
-                crate::sim::tiberium::tiberium_type_allows_ramps(rules, type_id);
+            let ramp_type_allows = crate::sim::tiberium::tiberium_type_allows_ramps(rules, type_id);
             let admitted = {
                 let (Some(terrain), Some(grid)) =
                     (self.resolved_terrain.as_ref(), self.overlay_grid.as_ref())

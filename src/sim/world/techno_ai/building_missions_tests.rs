@@ -2168,3 +2168,51 @@ fn turret_anim_frame_uses_body_shape_low_power_and_requires_a_turret() {
         "a Turret=no host never reaches GetTurretFrame"
     );
 }
+
+/// `Ext/Building/Hooks.cpp:868-873` (hook `0x44B630`): a building with
+/// `IsAnimDelayedFire=yes` arms the SpecialAnim delay for its first shot, but
+/// once a burst is in progress (`CurrentBurstIndex != 0`) ART
+/// `IsAnimDelayedBurst=no` (constructor true, `Body.h:202`) jumps to the
+/// JustFire arm `0x44B6C4` and fires without waiting.
+#[cfg(feature = "phobos")]
+#[test]
+fn an_anim_delayed_burst_only_holds_the_first_shot() {
+    for (key, index, armed) in [
+        ("", 1, true),
+        ("IsAnimDelayedBurst=no\n", 1, false),
+        ("IsAnimDelayedBurst=no\n", 0, true),
+    ] {
+        let mut rules = rules(".016", 20);
+        rules.install_art_data(crate::rules::art_data::ArtRegistry::from_ini(
+            &IniFile::from_str(&format!(
+                "[TDEFART]\nIsAnimDelayedFire=yes\nDelayedFireDelay=28\n{key}"
+            )),
+        ));
+        let (mut sim, building, target) = fixture(&rules, "TDEF", (8, 5));
+        set_mission(&mut sim, building, mission_of("attack"), 0);
+        aim_at(&mut sim, building, target);
+        let entity = sim.substrate.entities.get_mut(building).unwrap();
+        for _ in 0..index {
+            entity.weapon_burst.advance();
+        }
+        attack_arm(
+            &mut sim,
+            building,
+            &rules,
+            TargetKind::Entity(target),
+            0,
+            FireError::Ok,
+            ObjectAiCtx::default(),
+            &mut false,
+        );
+        let pending = sim
+            .substrate
+            .entities
+            .get(building)
+            .unwrap()
+            .pending_building_fire
+            .pending()
+            .is_some();
+        assert_eq!(pending, armed, "burst index {index} with {key:?}");
+    }
+}

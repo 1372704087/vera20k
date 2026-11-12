@@ -222,6 +222,15 @@ pub struct WarheadType {
     /// a modded size whose product with 63 lands on an integer could differ by
     /// one (presentation only).
     pub combat_light_size_f64: f64,
+    /// Phobos `CombatLightChance=` (`Ext/WarheadType/Body.cpp:343`, declared
+    /// `Valueable<double>` at `Body.h:188`, constructed **1.0** at
+    /// `Body.h:467`): the probability gate gamemd's `Flash` (`0x48A620`)
+    /// applies before its detail/fps/Bright tests
+    /// (`Misc/Hooks.LightEffects.cpp:69-74`). Read through `ReadDouble`'s
+    /// `float` out-parameter, so an authored value is the nearest binary32
+    /// widened back; the constructor 1.0 is an exact f64 literal.
+    #[cfg(feature = "phobos")]
+    pub phobos_combat_light_chance: f64,
     /// `ProneDamage=` (`WarheadTypeClass+0xF8`, ReadDouble at `0x0075D999`,
     /// `FSTP qword` at `0x0075D9A4`; the constructor stores 1.0 at
     /// `0x0075CEE4..0x0075CEEB`): the double InfantryClass::ReceiveDamage
@@ -987,6 +996,10 @@ impl WarheadType {
             cl_disable_green: section.read_bool("CLDisableGreen", false),
             cl_disable_blue: section.read_bool("CLDisableBlue", false),
             combat_light_size_f64: section.read_double("CombatLightSize", 0.0),
+            // Phobos `CombatLightChance=` (`Ext/WarheadType/Body.cpp:343`,
+            // `Valueable<double>` `Body.h:188`, constructor 1.0 `Body.h:467`).
+            #[cfg(feature = "phobos")]
+            phobos_combat_light_chance: section.read_phobos_double("CombatLightChance", 1.0),
             prone_damage_f64: section.read_double("ProneDamage", 1.0),
             #[cfg(feature = "phobos")]
             phobos_cell_spread_cylinder: section.read_bool("CellSpread.Cylinder", false),

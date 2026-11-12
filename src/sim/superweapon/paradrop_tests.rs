@@ -4,6 +4,8 @@
 //! `paradrop_missions`, `drop_payload`, `spawn_parachuted`; `--check`
 //! regenerates them), and drops on retail rules through production frames.
 
+#[cfg(feature = "phobos")]
+use super::spawn_edge;
 use super::{ParaDropKind, board_passengers, launch, retarget, send_planes};
 use crate::map::entities::EntityCategory;
 use crate::map::playfield::PlayfieldBounds;
@@ -1533,5 +1535,40 @@ fn ares_country_types_without_counts_send_nothing() {
     assert!(
         planes(&sim).is_empty(),
         "no side fallback after a false resolver"
+    );
+}
+
+/// Phobos `SpawnFromEdge=` / `[General] AircraftSpawnFromEdge=` edge modes
+/// (`Ext/Aircraft/Body.cpp:88-118`): `Owner` keeps the caller's edge and
+/// spends no draw; `Random` spends exactly one `RandomRanged(0, 3)` draw and
+/// is deterministic for the same stream.
+#[cfg(feature = "phobos")]
+#[test]
+fn phobos_spawn_from_edge_modes_keep_the_house_edge_or_spend_one_random_draw() {
+    use crate::rules::phobos_aircraft_edge::PhobosEdgeType;
+    use crate::sim::rng::SimRng;
+
+    let mut owner_rng = SimRng::new(7);
+    let owner_before = owner_rng.state();
+    assert_eq!(
+        spawn_edge(PhobosEdgeType::Owner, Edge::East, &mut owner_rng),
+        Edge::East
+    );
+    assert_eq!(owner_rng.state(), owner_before, "Owner spends no draw");
+
+    let mut random_rng = SimRng::new(7);
+    let expected = {
+        let mut reference = SimRng::new(7);
+        reference.next_range_i32_inclusive(0, 3);
+        reference.state()
+    };
+    let edge = spawn_edge(PhobosEdgeType::Random, Edge::North, &mut random_rng);
+    assert_eq!(random_rng.state(), expected, "one RandomRanged(0, 3) draw");
+
+    // Same stream, same edge: the mode reads only that draw.
+    let mut replay = SimRng::new(7);
+    assert_eq!(
+        spawn_edge(PhobosEdgeType::Random, Edge::North, &mut replay),
+        edge
     );
 }

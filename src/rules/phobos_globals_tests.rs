@@ -744,3 +744,22 @@ fn self_heal_caps_and_gates_default_and_read() {
     assert!(set.gain_self_heal_from_player_control);
     assert!(set.gain_self_heal_from_allies);
 }
+
+/// `[General] AircraftSpawnFromEdge=` (`Ext/Rules/Body.cpp:193`, constructor
+/// `Owner` `Body.h:636`): the fallback for an AircraftType's own nullable.
+#[test]
+fn the_aircraft_spawn_from_edge_global_defaults_to_owner_and_reads_the_names() {
+    use crate::rules::phobos_aircraft_edge::PhobosEdgeType;
+
+    assert_eq!(
+        PhobosGlobals::default().aircraft_spawn_from_edge,
+        PhobosEdgeType::Owner
+    );
+    let set = read("[General]\nAircraftSpawnFromEdge=random\n");
+    assert_eq!(set.aircraft_spawn_from_edge, PhobosEdgeType::Random);
+    let closest = read("[General]\nAircraftSpawnFromEdge=closest\n");
+    assert_eq!(closest.aircraft_spawn_from_edge, PhobosEdgeType::Closest);
+    // An unknown name keeps the constructor value.
+    let bad = read("[General]\nAircraftSpawnFromEdge=nearest\n");
+    assert_eq!(bad.aircraft_spawn_from_edge, PhobosEdgeType::Owner);
+}

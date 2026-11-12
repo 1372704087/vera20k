@@ -141,6 +141,37 @@ pub struct TerrainObjectType {
     /// A reached resource request, not proof that a physical SHP exists.
     #[serde(default = "legacy_bound_terrain_field")]
     shape_requested: bool,
+    /// Phobos `AnimationLength=` (`Ext/TerrainType/Body.cpp:83`,
+    /// `Nullable<int>`, constructor `Ext/TerrainType/Body.h:57`): frames per
+    /// animation stage. Unset derives `Frames / (2 * (HasDamagedFrames + 1))`
+    /// (`Ext/TerrainType/Hooks.cpp:26`).
+    #[cfg(feature = "phobos")]
+    #[serde(default)]
+    pub(crate) animation_length: Option<i32>,
+    /// Phobos `HasDamagedFrames=` (`:80`, `Valueable<bool>`, constructor
+    /// `Body.h:54`): the SHP holds a damaged half after the healthy frames
+    /// (`Ext/TerrainType/Hooks.cpp:106-113`).
+    #[cfg(feature = "phobos")]
+    #[serde(default)]
+    pub(crate) has_damaged_frames: bool,
+    /// Phobos `MinimapColor=` (`:75`, `Nullable<ColorStruct>`, constructor
+    /// `Body.h:51`): replaces the SHP-header minimap color when set
+    /// (`Ext/TerrainType/Hooks.cpp:334-337`).
+    #[cfg(feature = "phobos")]
+    #[serde(default)]
+    pub(crate) minimap_color: Option<[u8; 3]>,
+    /// Phobos `CrumblingSound=` (`:82`, `ValueableIdx<VocClass>`, constructor
+    /// `Body.h:56`): the sound a terrain object plays when it crumbles
+    /// (`Ext/TerrainType/Hooks.cpp:251`, `:299`).
+    #[cfg(feature = "phobos")]
+    #[serde(default)]
+    pub(crate) crumbling_sound: Option<String>,
+    /// Phobos `DestroySound=` (`:73`, `ValueableIdx<VocClass>`, constructor
+    /// `Body.h:50`): the sound a destroyed terrain object plays
+    /// (`Ext/TerrainType/Body.cpp:19`).
+    #[cfg(feature = "phobos")]
+    #[serde(default)]
+    pub(crate) destroy_sound: Option<String>,
 }
 
 fn legacy_bound_terrain_field() -> bool {
@@ -233,6 +264,21 @@ impl TerrainObjectType {
             shape_requested: image.theater() || !image.shp_loads().is_empty(),
             #[cfg(feature = "phobos")]
             spawns_tiberium_ext: PhobosSpawnsTiberium::ctor(),
+            // `Ext/TerrainType/Body.cpp:73-83`: the extension's own reads, in
+            // native order. The two sound keys are `ValueableIdx<VocClass>`
+            // lookups natively; there is no Voc registry here, so the name is
+            // retained and resolved where the sound plays (the same
+            // deferred-lookup DRIFT as `VoiceCreated=`).
+            #[cfg(feature = "phobos")]
+            animation_length: section.read_phobos_nullable_int("AnimationLength", None),
+            #[cfg(feature = "phobos")]
+            has_damaged_frames: section.read_bool("HasDamagedFrames", false),
+            #[cfg(feature = "phobos")]
+            minimap_color: section.read_phobos_nullable_color("MinimapColor", None),
+            #[cfg(feature = "phobos")]
+            crumbling_sound: section.read_name("CrumblingSound", 0x80).map(str::to_owned),
+            #[cfg(feature = "phobos")]
+            destroy_sound: section.read_name("DestroySound", 0x80).map(str::to_owned),
         };
         read_state.project_into(&mut terrain, image);
         terrain
@@ -582,6 +628,38 @@ impl TerrainTypeReadState {
 mod tests {
     use super::*;
     use crate::rules::ini_parser::IniFile;
+
+    /// Phobos' five `TerrainTypeExt` keys (`Ext/TerrainType/Body.cpp:73-83`), in
+    /// one production read, plus the ctor values a blank section keeps.
+    #[test]
+    #[cfg(feature = "phobos")]
+    fn the_phobos_terrain_keys_read_and_default() {
+        let ini = IniFile::from_str(
+            "[TIBTRE01]\nDestroySound=EXPLODE\nMinimapColor=10,20,30\n\
+             HasDamagedFrames=yes\nCrumblingSound=CRUMBLE\nAnimationLength=7\n",
+        );
+        let section = ini.section("TIBTRE01").expect("section");
+        let t = TerrainObjectType::from_ini_section("TIBTRE01", section);
+        assert_eq!(t.destroy_sound.as_deref(), Some("EXPLODE"));
+        assert_eq!(t.minimap_color, Some([10, 20, 30]));
+        assert!(t.has_damaged_frames);
+        assert_eq!(t.crumbling_sound.as_deref(), Some("CRUMBLE"));
+        assert_eq!(t.animation_length, Some(7));
+
+        let blank_ini = IniFile::from_str(
+            "[TIBTRE01]\nMinimapColor=<default>\nAnimationLength=\n\
+             DestroySound=\nCrumblingSound=\nHasDamagedFrames=\n",
+        );
+        let blank = TerrainObjectType::from_ini_section(
+            "TIBTRE01",
+            blank_ini.section("TIBTRE01").expect("section"),
+        );
+        assert_eq!(blank.minimap_color, None);
+        assert_eq!(blank.animation_length, None);
+        assert_eq!(blank.destroy_sound, None);
+        assert_eq!(blank.crumbling_sound, None);
+        assert!(!blank.has_damaged_frames);
+    }
 
     #[test]
     fn parse_tibtre_section_defaults() {

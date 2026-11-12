@@ -1285,6 +1285,24 @@ pub(crate) fn build_overlay_instances(
                 .get(&obj.stable_id())
                 .map_or(0, |animation| animation.current_frame())
         });
+        // Phobos `TerrainClass_Draw_PickFrame` (`0x71C1FE`): a crumbling object
+        // draws from its Stage even when the type is not IsAnimated.
+        #[cfg(feature = "phobos")]
+        let frame = match terrain_type {
+            Some(terrain_type) if terrain_type.has_crumbling_frames && obj.is_crumbling() => {
+                let animation = sim.terrain_objects().animations().get(&obj.stable_id());
+                let value = animation.map_or(0, |animation| animation.current_frame());
+                let frames = animation.map_or(0, |animation| i32::from(animation.frame_count()));
+                terrain_crumbling_frame(
+                    value,
+                    terrain_type.is_animated,
+                    terrain_type.crumbling_animation_length(frames),
+                    terrain_type.has_damaged_frames(),
+                )
+            }
+            _ => terrain_draw_frame(stage, obj.health()),
+        };
+        #[cfg(not(feature = "phobos"))]
         let frame = terrain_draw_frame(stage, obj.health());
         let (body, shadow) = atlas.terrain_pieces(name, frame);
         if body.is_none() && shadow.is_none() {
@@ -1363,17 +1381,34 @@ pub(crate) fn build_overlay_instances(
 }
 
 /// Terrain DrawIt (0x71C1B0) frame: an IsAnimated type's stage, else frame 1
-/// below 2 health, else 0. Its crumbling arm never draws: Take_Damage
-/// (0x71B920) starts crumbling on a lethal hit and uninits the object in the
-/// same call. `TerrainClass::DrawAgain @ 0x0071C360` (slot +0x118) has one
-/// virtual caller, BuildingPlacement_OverlayRenderer at 0x006D53C5, which
-/// draws the pending placement object only under the map-editor flag
-/// 0x00A8ED6B (test at 0x006D5297; set only by Parse_Command_Line), so it
-/// has no port.
+/// below 2 health, else 0. The Phobos crumbling arm is selected by the caller
+/// through [`terrain_crumbling_frame`]. `TerrainClass::DrawAgain @ 0x0071C360`
+/// (slot +0x118) has one virtual caller, BuildingPlacement_OverlayRenderer at
+/// 0x006D53C5, which draws the pending placement object only under the
+/// map-editor flag 0x00A8ED6B (test at 0x006D5297; set only by
+/// Parse_Command_Line), so it has no port.
 fn terrain_draw_frame(stage: Option<i32>, health: i32) -> i32 {
     // Original71C208 keeps the whole signed Stage; frame bounds belong to
     // the image/atlas, not the cell overlay-data byte's0..255 domain.
     stage.unwrap_or_else(|| i32::from(health < 2))
+}
+
+/// Phobos `TerrainClass_Draw_PickFrame` (`0x71C1FE`,
+/// `Ext/TerrainType/Hooks.cpp:96-126`) crumbling arm: an animated type draws
+/// `animLength * (HasDamagedFrames + 1) + 1 + Animation.Value`, a non-animated
+/// one `1 + Animation.Value`.
+#[cfg(feature = "phobos")]
+fn terrain_crumbling_frame(
+    value: i32,
+    is_animated: bool,
+    anim_length: i32,
+    has_damaged_frames: bool,
+) -> i32 {
+    if is_animated {
+        anim_length * (i32::from(has_damaged_frames) + 1) + 1 + value
+    } else {
+        1 + value
+    }
 }
 
 /// Ordinary Terrain DrawIt 0071C304/0071C34E: both stored frames share one

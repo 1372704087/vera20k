@@ -1,6 +1,8 @@
 //! Native retained Terrain coordinates through static and animated DrawIt.
 //! The corpus stops at the shape sink; this compares instance inputs, not pixels.
 
+#[cfg(feature = "phobos")]
+use super::terrain_crumbling_frame;
 use super::{native_terrain_instance, terrain_draw_frame};
 use crate::render::overlay_atlas::OverlaySpriteEntry;
 use crate::render::terrain_draw::TerrainPiece;
@@ -15,6 +17,23 @@ fn terrain_draw_frame_follows_health_and_stage() {
     // TerrainAI71C7DD and DrawIt71C208 retain the full Stage. A 514-frame
     // animated spawner reaches256 before its midpoint257 resets the stage.
     assert_eq!(terrain_draw_frame(Some(256), 1), 256);
+}
+
+/// Phobos `TerrainClass_Draw_PickFrame` (`0x71C1FE`): the crumbling arm draws
+/// `1 + Animation.Value` for a static type and
+/// `animLength * (HasDamagedFrames + 1) + 1 + Animation.Value` for an animated
+/// one; the stock selector is unchanged when the flag is off.
+#[cfg(feature = "phobos")]
+#[test]
+fn terrain_crumbling_frame_selects_the_crumbling_half() {
+    assert_eq!(terrain_crumbling_frame(0, false, 4, false), 1);
+    assert_eq!(terrain_crumbling_frame(3, false, 4, false), 4);
+    // animated, HasDamagedFrames: animLength 2 * 2 + 1 + value 1 = 6.
+    assert_eq!(terrain_crumbling_frame(1, true, 2, true), 6);
+    assert_eq!(terrain_crumbling_frame(0, true, 2, false), 3);
+    // The stock arm still ignores the crumbling fields.
+    assert_eq!(terrain_draw_frame(None, 1), 1);
+    assert_eq!(terrain_draw_frame(Some(7), 0), 7);
 }
 
 #[test]

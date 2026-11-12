@@ -74,6 +74,7 @@ pub(crate) fn build(
     armed_building: Option<&str>,
     cursor_cell: Option<(u16, u16)>,
     show_power_plant_enhancer_range: bool,
+    show_designator_range: bool,
     unit_action_lines: bool,
     placement_pulse: &mut RangePulse,
     superweapon_pulse: &mut RangePulse,
@@ -86,7 +87,7 @@ pub(crate) fn build(
         return RadialIndicators { draws: Vec::new() };
     };
     #[cfg(not(feature = "phobos"))]
-    let _ = show_power_plant_enhancer_range;
+    let _ = (show_power_plant_enhancer_range, show_designator_range);
     let mut draws = Vec::new();
     //6DBE39..72 walks CurrentObjects FORWARD. Overlapping destination edits
     //must retain this order, independently of EntityStore allocation order.
@@ -104,7 +105,22 @@ pub(crate) fn build(
             &mut draws, sim, rules, entity, object, true, colors, viewport, time_ms,
         );
     }
-    // 0x006DBE74: with Unit Action Lines off (Options+0x1E) the pass ends
+    // Phobos "Show designator range": Tactical_SuperLinesCircles_ShowDesignatorRange
+    // @ 0x6DBE74 (Ext/SWType/Hooks.cpp:54-97) overwrites the Unit Action Lines
+    // load+test at 0x6DBE74..0x6DBE7B and resumes at the je 0x6DC3F3, so the
+    // rings draw BEFORE the early-out below and independent of that option.
+    // The caller combines the [Phobos] client and [AudioVisual] rules switches
+    // into show_designator_range; the armed [SuperWeaponType] switch is the
+    // third gate, checked here.
+    #[cfg(feature = "phobos")]
+    if show_designator_range
+        && let Some(section) = armed_super_weapon
+        && let Some(super_weapon) = rules.super_weapon(section)
+        && super_weapon.show_designator_range
+    {
+        push_designator_rings(&mut draws, sim, rules, super_weapon, colors, viewport);
+    }
+    // 0x006DBE7B: with Unit Action Lines off (Options+0x1E) the pass ends
     // here, before the placement and superweapon rings.
     if !unit_action_lines {
         return RadialIndicators { draws };
@@ -289,6 +305,93 @@ pub(crate) fn build(
         }
     }
     RadialIndicators { draws }
+}
+
+/// Phobos `Tactical_SuperLinesCircles_ShowDesignatorRange @ 0x6DBE74`
+/// (`Ext/SWType/Hooks.cpp:65-89`): ring every current-player techno named in
+/// the armed superweapon's `SW.Designators` and every hostile techno named in
+/// `SW.Inhibitors`, each in its owning house's colour. The hook skips only
+/// dead/limbo technos and allies other than the current player; unlike the
+/// Ares launch scan (`sim/superweapon/targeting.rs::scan_influences`) it reads
+/// only the explicit lists, ignoring `SW.AnyDesignator`/`SW.AnyInhibitor` and
+/// the health/deactivated/building-power predicates. Radius is the techno's
+/// `DesignatorRange`/`InhibitorRange` falling back to `Sight`.
+#[cfg(feature = "phobos")]
+fn push_designator_rings(
+    draws: &mut Vec<RadialIndicatorDraw>,
+    sim: &Simulation,
+    rules: &RuleSet,
+    super_weapon: &crate::rules::superweapon_type::SuperWeaponType,
+    colors: &HouseColorMap,
+    viewport: SurfaceLineViewport,
+) {
+    let Some(player) = sim.session().current_house() else {
+        return;
+    };
+    let Some(influence) = rules
+        .super_weapon_metadata(&super_weapon.id)
+        .map(|metadata| metadata.influence())
+    else {
+        return;
+    };
+    // `SW_Designators.Contains(pTechnoType)`: TechnoType identity is category
+    // plus name, the same test the launch scan uses.
+    let matches = |types: &[crate::rules::superweapon_type::TechnoTypeReference],
+                   ty: &crate::rules::object_type::ObjectType| {
+        types
+            .iter()
+            .any(|reference| reference.category == ty.category && reference.id == ty.id)
+    };
+    for (_, entity) in sim.entities().iter_sorted() {
+        if !entity.lifecycle.object_alive() || entity.lifecycle.in_limbo() {
+            continue;
+        }
+        let Some(ty) = sim.interner().object_type(entity.type_ref(), rules) else {
+            continue;
+        };
+        let owner = entity.owner();
+        let designator = owner == player && matches(&influence.designators, ty);
+        let inhibitor = owner != player
+            && !sim
+                .house_alliances()
+                .is_allied(sim.interner(), player, owner)
+            && matches(&influence.inhibitors, ty);
+        if !designator && !inhibitor {
+            continue;
+        }
+        #[cfg(feature = "ares")]
+        let range = if designator {
+            ty.designator_range().unwrap_or(ty.sight)
+        } else {
+            ty.inhibitor_range().unwrap_or(ty.sight)
+        };
+        // Without Ares the nullable range keys are unread, so Sight is the
+        // only source, matching the hook's `.Get(Sight)` on an unset range.
+        #[cfg(not(feature = "ares"))]
+        let range = ty.sight;
+        let coords =
+            crate::sim::movement::ground_pose::object_get_coords(entity, sim.resolved_terrain());
+        // Residual: the hook overwrites coords.Z with GetCellFloorHeight; VERA
+        // keeps the centre helper's Z, with no separate floor-height query.
+        let center = screen_center(viewport, coords.x, coords.y, coords.z);
+        let index = colors
+            .get(sim.interner().resolve(owner))
+            .copied()
+            .unwrap_or(crate::rules::house_colors::NO_REMAP);
+        let rgb = crate::render::palette_light::house_color_rgb(&rules.house_color_ramps, index);
+        // Game::DrawRadialIndicator(false, true, coords, color, radius, false,
+        // true): the same argument shape as the enhancer ring above.
+        draws.push(RadialIndicatorDraw {
+            center,
+            radius: range as f32,
+            truncate_radius: true,
+            pixel_radius: false,
+            rgb,
+            fade: true,
+            rays: false,
+            frame: sim.session().binary_frame() as i32,
+        });
+    }
 }
 
 /// `BuildingClass::DrawRadialIndicator @ 0x00456750(rays)`: the building's

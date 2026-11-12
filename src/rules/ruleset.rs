@@ -2164,6 +2164,12 @@ pub struct GeneralRules {
     /// leaves it unset.
     #[cfg(feature = "phobos")]
     pub skip_crush_slowdown: bool,
+    /// Phobos `[General] AircraftRetreatToEdge` (`Ext/Rules/Body.cpp:194`,
+    /// `Valueable<EdgeType>`, constructor `Body.h:637` stores `Owner`): the
+    /// fallback for an AircraftType's `RetreatToEdge` when its section leaves
+    /// the key unset.
+    #[cfg(feature = "phobos")]
+    pub aircraft_retreat_to_edge: crate::rules::ini_value::PhobosEdgeType,
     /// Phobos `[CombatDamage] ROF.RandomDelay` (`RulesExt`,
     /// `PartialVector2D<int>`, default `{0, 2}`): the full rearm's jitter
     /// range for a weapon that leaves its own key unset.
@@ -3108,6 +3114,8 @@ impl Default for GeneralRules {
             decloak_damaged_targets: true,
             #[cfg(feature = "phobos")]
             skip_crush_slowdown: false,
+            #[cfg(feature = "phobos")]
+            aircraft_retreat_to_edge: crate::rules::ini_value::PhobosEdgeType::Owner,
             #[cfg(feature = "phobos")]
             rof_random_delay: crate::rules::ini_value::PartialIntPair {
                 low: 0,
@@ -4450,6 +4458,11 @@ impl GeneralRules {
             decloak_damaged_targets: general.read_bool("DecloakDamagedTargets", true),
             #[cfg(feature = "phobos")]
             skip_crush_slowdown: general.read_bool("SkipCrushSlowdown", false),
+            #[cfg(feature = "phobos")]
+            aircraft_retreat_to_edge: general.read_phobos_valueable_edge_type(
+                "AircraftRetreatToEdge",
+                crate::rules::ini_value::PhobosEdgeType::Owner,
+            ),
             #[cfg(feature = "phobos")]
             rof_random_delay: combat_damage.read_ares_partial_int_pair(
                 "ROF.RandomDelay",
@@ -10994,6 +11007,30 @@ impl RuleSet {
     #[cfg(not(feature = "phobos"))]
     pub fn skip_crush_slowdown_for(&self, _unit: Option<&ObjectType>) -> bool {
         false
+    }
+
+    /// Phobos `AircraftTypeExt::RetreatToEdge.Get([General] ...)`
+    /// (`Ext/Aircraft/Body.cpp:88-89`): the AircraftType's own nullable
+    /// value, then the global, defaulting to `Owner` (the house's edge, which
+    /// is the stock behaviour). A caller without a resolved type takes the
+    /// global.
+    #[cfg(feature = "phobos")]
+    pub fn aircraft_retreat_to_edge_for(
+        &self,
+        aircraft: Option<&ObjectType>,
+    ) -> crate::rules::ini_value::PhobosEdgeType {
+        aircraft
+            .and_then(ObjectType::phobos_retreat_to_edge)
+            .unwrap_or(self.general.aircraft_retreat_to_edge)
+    }
+
+    /// Phobos is compiled out: every retreat stays on the house's edge.
+    #[cfg(not(feature = "phobos"))]
+    pub fn aircraft_retreat_to_edge_for(
+        &self,
+        _aircraft: Option<&ObjectType>,
+    ) -> crate::rules::ini_value::PhobosEdgeType {
+        crate::rules::ini_value::PhobosEdgeType::Owner
     }
 
     /// Phobos `WarheadTypeExt::DecloakDamagedTargets.Get([General] ...)`: the

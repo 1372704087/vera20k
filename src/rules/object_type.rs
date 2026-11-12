@@ -1382,6 +1382,15 @@ pub struct ObjectType {
     /// section reaches the Phobos reader.
     #[cfg(feature = "phobos")]
     phobos_voice_pickup: Option<String>,
+    /// Phobos `AircraftTypeExt::RetreatToEdge` (`Ext/AircraftType/Body.cpp:25`,
+    /// `Nullable<EdgeType>`, constructor `Body.h:40` leaves it unset): the
+    /// edge a retreating aircraft heads for; unset takes
+    /// `[General] AircraftRetreatToEdge` (`Ext/Rules/Body.cpp:194`, default
+    /// `Owner`). Consumer: `AircraftExt::PickEdgeCellForPlane`
+    /// (`Ext/Aircraft/Body.cpp:85-126`) behind the Mission_Retreat hook
+    /// `0x415A7A`. Only an AircraftType section reaches the Phobos reader.
+    #[cfg(feature = "phobos")]
+    phobos_retreat_to_edge: Option<crate::rules::ini_value::PhobosEdgeType>,
     /// Ares TechnoTypeExt `VoiceRepair` (ValueableIdx<VocClass>, unset -1):
     /// the attack voice of a repairing weapon (TechnoClass_SelectFiringVoice
     /// 1004B1D0, hook 0x7090A8).
@@ -4695,6 +4704,13 @@ impl ObjectType {
         self.phobos_voice_pickup.as_deref()
     }
 
+    /// Phobos `AircraftTypeExt::RetreatToEdge`, see
+    /// [`Self::phobos_retreat_to_edge`].
+    #[cfg(feature = "phobos")]
+    pub(crate) fn phobos_retreat_to_edge(&self) -> Option<crate::rules::ini_value::PhobosEdgeType> {
+        self.phobos_retreat_to_edge
+    }
+
     pub fn voice_attack(&self) -> &[String] {
         &self.voice_attack
     }
@@ -6115,6 +6131,10 @@ impl ObjectType {
             ares_voice_repair: None,
             #[cfg(feature = "phobos")]
             phobos_voice_pickup: None,
+            #[cfg(feature = "phobos")]
+            phobos_retreat_to_edge: (category == ObjectCategory::Aircraft)
+                .then(|| section.read_phobos_nullable_edge_type("RetreatToEdge", None))
+                .flatten(),
             voice_capture: None,
             prevent_attack_move: section.read_bool("PreventAttackMove", false),
             voice_die: section

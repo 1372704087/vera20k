@@ -976,6 +976,32 @@ impl IniSection {
         })
     }
 
+    /// Phobos `Nullable<EdgeType>` (`Ext/AircraftType/Body.cpp:25-26`): the
+    /// clearing tokens of [`Self::read_phobos_nullable_with`], then
+    /// `read<EdgeType>` (`Utilities/TemplateDef.h:1379..1402`), which accepts
+    /// only the three case-insensitive names; any other text keeps the
+    /// previous nullable.
+    pub fn read_phobos_nullable_edge_type(
+        &self,
+        key: &str,
+        current: Option<PhobosEdgeType>,
+    ) -> Option<PhobosEdgeType> {
+        self.read_phobos_nullable_with(key, current, parse_phobos_edge_type)
+    }
+
+    /// Phobos `Valueable<EdgeType>` (`[General] AircraftRetreatToEdge`,
+    /// `Ext/Rules/Body.cpp:194`): the same name reader; absent or rejected
+    /// text keeps `current`.
+    pub fn read_phobos_valueable_edge_type(
+        &self,
+        key: &str,
+        current: PhobosEdgeType,
+    ) -> PhobosEdgeType {
+        self.read_string_with(key, 2048, current, |current, raw| {
+            parse_phobos_edge_type(raw).unwrap_or(current)
+        })
+    }
+
     /// [`Self::read_bool`] where the caller supplies the default later: `None`
     /// wherever ReadBool would return its default argument (an absent key,
     /// or a first character outside `1TY0FN`).
@@ -2067,6 +2093,31 @@ impl PartialDoublePair {
 /// Phobos b90ab4bc Utilities/Parser.h:248..271 `Parser<double>`: `strtod`,
 /// cast to binary32, optional binary32 percent scaling, then widen to double.
 /// `None` where `strtod` converts nothing or reports ERANGE.
+/// Phobos `EdgeType` (`Utilities/Enum.h:446-451`): an aircraft's spawn or
+/// retreat edge choice. Only the `phobos` readers produce a non-`Owner`
+/// value, but the type exists in every build so the aircraft edge arm needs
+/// no feature gate.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum PhobosEdgeType {
+    Owner,
+    Closest,
+    Random,
+}
+
+/// Phobos `read<EdgeType>` (`Utilities/TemplateDef.h:1379..1402`): the three
+/// names, case-insensitive; anything else is a rejected read.
+fn parse_phobos_edge_type(raw: &str) -> Option<PhobosEdgeType> {
+    if raw.eq_ignore_ascii_case("owner") {
+        Some(PhobosEdgeType::Owner)
+    } else if raw.eq_ignore_ascii_case("closest") {
+        Some(PhobosEdgeType::Closest)
+    } else if raw.eq_ignore_ascii_case("random") {
+        Some(PhobosEdgeType::Random)
+    } else {
+        None
+    }
+}
+
 fn parse_phobos_double(raw: &str) -> Option<f64> {
     let parsed = try_parse_leading_f64(raw, FloatScanRounding::Nearest)?;
     // strtod reports ERANGE on overflow and underflow. Reuse the decimal

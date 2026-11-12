@@ -2245,7 +2245,7 @@ pub(super) fn emit_admitted_fire(
         if let Some(entity) = world.substrate.entities.get_mut(snap.stable_id) {
             entity.rearm_after_fire(binary_frame as i32, rof);
             // Phobos `SetChargeTurretDelay`'s other FireAt rearm site
-            // (`0x6FE4A4`, `0x6FE489` increments before GetROF).
+            // (`0x6FE4A4`, `0x6FE492` increments before GetROF).
             #[cfg(feature = "phobos")]
             entity.phobos_set_charge_turret_delay(
                 binary_frame as i32,

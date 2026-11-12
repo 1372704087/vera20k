@@ -234,9 +234,8 @@ pub struct WarheadType {
     /// `Ext/WarheadType/Body.cpp:408`, `Body.h:232,503`): the `DamageArea`
     /// distance tests ignore Z (`Ext/WarheadType/Hooks.cpp:63-137` replace the
     /// detonation Z with the victim's), making the splash a cylinder. The
-    /// underground collection of the same key needs the
-    /// `ScenarioExt::UndergroundTracker`, which VERA has no counterpart for
-    /// (recorded with the AffectsUnderground residuals).
+    /// underground walk (`0x4899DA`) and the per-target detonation pass read
+    /// the same key.
     #[cfg(feature = "phobos")]
     pub phobos_cell_spread_cylinder: bool,
     /// Phobos `Temporal.ApplyMultiplier=` / `.ApplyVersus=` (`Nullable<bool>`,

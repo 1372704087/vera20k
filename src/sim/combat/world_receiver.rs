@@ -4661,6 +4661,8 @@ fn emit_warhead_debris(
             &warhead.debris_maximums,
             &[],
             None,
+            false,
+            None,
             &mut host,
         )
         .map(|_| ())

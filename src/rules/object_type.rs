@@ -3052,6 +3052,12 @@ pub struct ObjectType {
     /// slot's throw, the last entry repeating for later slots and a missing
     /// list leaving the floor at 0. No stock section authors it.
     pub debris_minimums: Vec<i32>,
+    /// Phobos `TechnoTypeExt::DebrisTypes.Limit` (`Ext/TechnoType/Body.cpp:
+    /// 1146`, `Nullable<bool>`, default unset): the restored debris loop's
+    /// one-pass gate; unset keeps the `count > 1` default
+    /// (`Misc/Hooks.BugFixes.cpp:169`).
+    #[cfg(feature = "phobos")]
+    pub phobos_debris_types_limit: Option<bool>,
     /// `DebrisAnims=` CSV of `[Animations]` ids — the SHP half of the debris a
     /// death throws, as distinct from the VXL half above. 166 stock sections,
     /// all of them `[BuildingTypes]`.
@@ -4146,6 +4152,18 @@ impl ObjectType {
     #[cfg(feature = "phobos")]
     pub fn phobos_open_topped(&self) -> &crate::rules::phobos_open_topped::PhobosOpenTopped {
         &self.phobos_open_topped
+    }
+
+    /// Phobos `TechnoTypeExt::DebrisTypes.Limit`; none without the feature.
+    #[cfg(feature = "phobos")]
+    pub fn phobos_debris_types_limit(&self) -> Option<bool> {
+        self.phobos_debris_types_limit
+    }
+
+    /// Phobos is compiled out: the restored debris loop never runs.
+    #[cfg(not(feature = "phobos"))]
+    pub fn phobos_debris_types_limit(&self) -> Option<bool> {
+        None
     }
 
     /// The rider-side `OpenTransport.*` values (see
@@ -6653,6 +6671,9 @@ impl ObjectType {
             debris_maximums: section.read_int_list("DebrisMaximums").unwrap_or_default(),
             // Phobos `TechnoTypeExt::DebrisMinimums`
             // (`Ext/TechnoType/Body.cpp:1147`), beside the maximums list.
+            #[cfg(feature = "phobos")]
+            phobos_debris_types_limit: section
+                .read_phobos_nullable_bool("DebrisTypes.Limit", None),
             #[cfg(feature = "phobos")]
             debris_minimums: section.read_int_list("DebrisMinimums").unwrap_or_default(),
             #[cfg(not(feature = "phobos"))]

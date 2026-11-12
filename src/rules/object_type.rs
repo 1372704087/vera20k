@@ -1644,6 +1644,12 @@ pub struct ObjectType {
     /// Scan radius in cells for auto-targeting idle enemies. If None, defaults
     /// to the primary weapon's range at runtime.
     pub guard_range: Option<SimFixed>,
+    /// Phobos `AreaGuardRange` (`Nullable<Leptons>`, unset;
+    /// `Ext/TechnoType/Body.cpp:974`, `Body.h:217`): replaces `GuardRange=`
+    /// while the techno's current mission is Area Guard
+    /// (`TechnoClass_GetGuardRange` replacement, hook `0x707E63`).
+    #[cfg(feature = "phobos")]
+    pub phobos_area_guard_range: Option<SimFixed>,
     /// Range bonus (in cells) added to the weapon's max range when firing at
     /// high-flying targets. Read from `AirRangeBonus=` in the unit section.
     /// None means no bonus.
@@ -6080,6 +6086,8 @@ impl ObjectType {
                     .read_coord3_fold("VoxelBarrelOffsetToBuildingPivotPoint", [0; 3]),
             },
             guard_range: present_range("GuardRange"),
+            #[cfg(feature = "phobos")]
+            phobos_area_guard_range: present_range("AreaGuardRange"),
             air_range_bonus: present_range("AirRangeBonus"),
             // Default no (passive acquisition off unless the type opts in).
             opportunity_fire: section.read_bool("OpportunityFire", false),

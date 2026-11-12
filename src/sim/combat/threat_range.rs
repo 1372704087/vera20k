@@ -300,8 +300,9 @@ pub(crate) fn scan_range(
     if healer && current_mission == Some(MissionType::Guard) && mask & 3 != 0 {
         return ScanRange::Hard(HEALER_GUARD_RADIUS);
     }
+    let area_guard = current_mission == Some(MissionType::AreaGuard);
     match mask & 3 {
-        1 | 3 => range_from_leptons(threat_range_leptons(obj, 0, weapon_ranges)),
+        1 | 3 => range_from_leptons(threat_range_leptons(obj, 0, weapon_ranges, area_guard)),
         // Mask 0 never reaches the radius block at all: `TEST AL,0x3 ; JZ
         // 0x006F9B6E` at `0x006F8FE0` jumps past `Threat_Range` *and* past the
         // ring walk, so no radius is computed for Hunt and `GuardRange=` is not
@@ -319,6 +320,7 @@ pub(crate) fn scan_range(
                 1
             },
             weapon_ranges,
+            area_guard,
         )),
         _ => unreachable!("two mask bits"),
     }
@@ -337,13 +339,29 @@ fn range_from_leptons(leptons: i32) -> ScanRange {
 /// Mode0 returns a nonzero GuardRange unchanged unless vt+330 identifies an
 /// Engineer; mode1 doubles GuardRange or the wider live weapon range, then
 /// clamps0..4096. The native ADD wraps before the clamp. Mode2 applies the
-/// Patrol floor1792; mode-1 returns-1. Native execution: threat_range_cargo
-/// and anytown_damage/foot_missions (ordinary MTNK/E1 mode1 and leash rows).
-pub(crate) fn threat_range_leptons(obj: &ObjectType, mode: i32, weapon_ranges: [i32; 2]) -> i32 {
+/// Patrol floor1792; mode-1 returns-1.
+///
+/// Phobos' `TechnoClass_GetGuardRange` replacement (hook `0x707E63`,
+/// `Ext/Techno/Hooks.cpp:1923-2007`) substitutes the type's `AreaGuardRange`
+/// for `GuardRange` while `area_guard` (the caller's `+0x2B4` CurrentMission
+/// is Area Guard). Native execution: threat_range_cargo and
+/// anytown_damage/foot_missions (ordinary MTNK/E1 mode1 and leash rows).
+pub(crate) fn threat_range_leptons(
+    obj: &ObjectType,
+    mode: i32,
+    weapon_ranges: [i32; 2],
+    area_guard: bool,
+) -> i32 {
     if mode == -1 {
         return -1;
     }
-    let guard = obj.guard_range.map_or(0, |range| range.to_bits() >> 8);
+    #[cfg(not(feature = "phobos"))]
+    let _ = area_guard;
+    let mut guard = obj.guard_range.map_or(0, |range| range.to_bits() >> 8);
+    #[cfg(feature = "phobos")]
+    if area_guard && let Some(range) = obj.phobos_area_guard_range {
+        guard = range.to_bits() >> 8;
+    }
     if mode == 0 {
         return if obj.category == crate::rules::object_type::ObjectCategory::Infantry
             && obj.engineer
@@ -377,11 +395,13 @@ mod tests {
     /// observable and slot order cannot be mistaken for the answer.
     fn test_rules() -> RuleSet {
         let ini_str: &str = "\
-[VehicleTypes]\n0=NOGUARD\n1=WITHGUARD\n2=ONLYPRIMARY\n\n\
+[VehicleTypes]\n0=NOGUARD\n1=WITHGUARD\n2=ONLYPRIMARY\n3=AREAGUARD\n\n\
 [NOGUARD]\nStrength=100\nArmor=heavy\nSpeed=6\nPrimary=ShortGun\nSecondary=LongGun\n\n\
 [WITHGUARD]\nStrength=100\nArmor=heavy\nSpeed=6\nPrimary=ShortGun\nSecondary=LongGun\n\
 GuardRange=9\n\n\
 [ONLYPRIMARY]\nStrength=100\nArmor=heavy\nSpeed=6\nPrimary=ShortGun\n\n\
+[AREAGUARD]\nStrength=100\nArmor=heavy\nSpeed=6\nPrimary=ShortGun\nSecondary=LongGun\n\
+GuardRange=9\nAreaGuardRange=3\n\n\
 [ShortGun]\nDamage=50\nROF=20\nRange=4\nWarhead=AP\n\n\
 [LongGun]\nDamage=50\nROF=20\nRange=6\nWarhead=AP\n\n\
 [AP]\nVerses=100%,100%,100%,100%,100%,100%,100%,100%,100%,100%,100%\n";
@@ -492,6 +512,46 @@ GuardRange=9\n\n\
         };
         assert!(leptons > 12 * 256, "GuardRange must win: {leptons}");
         assert_eq!(clamped, ScanRange::Hard(16 * 256));
+    }
+
+    /// Phobos `AreaGuardRange` (`Ext/TechnoType/Body.cpp:974`, `Body.h:217`;
+    /// `TechnoClass_GetGuardRange` replacement `0x707E63`,
+    /// `Ext/Techno/Hooks.cpp:1932`): an Area-Guard mission replaces
+    /// `GuardRange` with the type key before the mode-1 double and clamps.
+    #[cfg(feature = "phobos")]
+    #[test]
+    fn phobos_area_guard_range_replaces_guard_range_only_in_area_guard() {
+        let rules = test_rules();
+        let object = obj(&rules, "AREAGUARD");
+        let ranges = type_weapon_ranges(&rules, object, 0);
+        // Mode0 returns the resolved guard unchanged.
+        assert_eq!(threat_range_leptons(object, 0, ranges, false), 9 * 256);
+        assert_eq!(threat_range_leptons(object, 0, ranges, true), 3 * 256);
+        // Mode1 doubles the resolved guard, then clamps to the 16-cell cap.
+        assert_eq!(threat_range_leptons(object, 1, ranges, true), 6 * 256);
+        assert_eq!(threat_range_leptons(object, 1, ranges, false), 16 * 256);
+        // The scanner threads the entity's current mission.
+        assert_eq!(
+            scan_range(
+                object,
+                ScanMission::AreaGuard.literal_mask(),
+                ranges,
+                false,
+                Some(MissionType::AreaGuard),
+            ),
+            ScanRange::Hard(6 * 256)
+        );
+        assert_eq!(
+            scan_range(
+                object,
+                ScanMission::AreaGuard.literal_mask(),
+                ranges,
+                false,
+                Some(MissionType::Guard),
+            ),
+            ScanRange::Hard(16 * 256),
+            "a Guard mission keeps GuardRange"
+        );
     }
 
     /// `tools/spatial_oracle/threat_range_cargo.json`: original
@@ -639,7 +699,7 @@ GuardRange=9\n\n\
             let native = row["threat_range"].as_array().unwrap();
             for (index, mode) in [-1, 0, 1, 2].into_iter().enumerate() {
                 assert_eq!(
-                    threat_range_leptons(obj, mode, ranges),
+                    threat_range_leptons(obj, mode, ranges, false),
                     native[index].as_i64().unwrap() as i32,
                     "{name}: scalar mode {mode}"
                 );

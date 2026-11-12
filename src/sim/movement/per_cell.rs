@@ -308,15 +308,19 @@ impl Simulation {
         ) {
             crate::sim::world::damage_consequences::admit_explosion_effect(self, rules, effect);
         }
-        self.combat_light_requests
-            .emit(crate::sim::combat::CombatLightRequest::Impact {
-                target_id: None,
-                damage: strength,
-                warhead_ref,
-                coord: crate::sim::projectile::ProjectileCoord::new(center.x, center.y, center.z),
-                force_create: false,
-                flags: 0,
-            });
+        if crate::sim::combat::combat_light_chance_admits(self, rules, warhead_ref) {
+            self.combat_light_requests
+                .emit(crate::sim::combat::CombatLightRequest::Impact {
+                    target_id: None,
+                    damage: strength,
+                    warhead_ref,
+                    coord: crate::sim::projectile::ProjectileCoord::new(
+                        center.x, center.y, center.z,
+                    ),
+                    force_create: false,
+                    flags: 0,
+                });
+        }
         self.commit_direct_damage_receiver(
             rules,
             registry,

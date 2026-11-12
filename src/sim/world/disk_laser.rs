@@ -413,16 +413,18 @@ impl Simulation {
                             log::debug!("disk laser anim did not construct: {error}");
                         }
                     }
-                    self.combat_light_requests.emit(
-                        crate::sim::combat::CombatLightRequest::Impact {
-                            target_id: None,
-                            damage: shot.damage,
-                            warhead_ref: warhead_id,
-                            coord: impact,
-                            force_create: false,
-                            flags: 0,
-                        },
-                    );
+                    if crate::sim::combat::combat_light_chance_admits(self, rules, warhead_id) {
+                        self.combat_light_requests.emit(
+                            crate::sim::combat::CombatLightRequest::Impact {
+                                target_id: None,
+                                damage: shot.damage,
+                                warhead_ref: warhead_id,
+                                coord: impact,
+                                force_create: false,
+                                flags: 0,
+                            },
+                        );
+                    }
                 }
                 self.disk_lasers.shots.get_mut(&id).unwrap().countdown = -1;
             } else {

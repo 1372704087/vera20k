@@ -5284,19 +5284,22 @@ impl Simulation {
                     return false;
                 };
                 let warhead_ref = self.interner.intern(&rules.bridge_warheads.c4_name);
-                self.combat_light_requests
-                    .emit(crate::sim::combat::CombatLightRequest::Impact {
-                        target_id: None,
-                        damage: match action.kind {
-                            64 => 50,
-                            65 => 100,
-                            _ => 300,
+                if crate::sim::combat::combat_light_chance_admits(self, rules, warhead_ref) {
+                    self.combat_light_requests.emit(
+                        crate::sim::combat::CombatLightRequest::Impact {
+                            target_id: None,
+                            damage: match action.kind {
+                                64 => 50,
+                                65 => 100,
+                                _ => 300,
+                            },
+                            warhead_ref,
+                            coord: crate::sim::projectile::ProjectileCoord::new(x, y, z),
+                            force_create: false,
+                            flags: 0,
                         },
-                        warhead_ref,
-                        coord: crate::sim::projectile::ProjectileCoord::new(x, y, z),
-                        force_create: false,
-                        flags: 0,
-                    });
+                    );
+                }
             }
             71 | 72 => {
                 let Some(bits) = value else {

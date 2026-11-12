@@ -221,16 +221,18 @@ impl RocketHost for RocketProcessHost<'_> {
             return;
         }
         let warhead_ref = self.sim.interner.intern(warhead);
-        self.sim
-            .combat_light_requests
-            .emit(crate::sim::combat::CombatLightRequest::Impact {
-                target_id: None,
-                damage,
-                warhead_ref,
-                coord: ProjectileCoord::new(coord[0], coord[1], coord[2]),
-                force_create: false,
-                flags: 0,
-            });
+        if crate::sim::combat::combat_light_chance_admits(self.sim, self.rules, warhead_ref) {
+            self.sim
+                .combat_light_requests
+                .emit(crate::sim::combat::CombatLightRequest::Impact {
+                    target_id: None,
+                    damage,
+                    warhead_ref,
+                    coord: ProjectileCoord::new(coord[0], coord[1], coord[2]),
+                    force_create: false,
+                    flags: 0,
+                });
+        }
     }
     fn area_damage(&mut self, coord: [i32; 3], damage: i32, warhead: &str) {
         let Some(warhead_type) = self.warhead(warhead) else {

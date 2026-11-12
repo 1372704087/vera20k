@@ -4076,16 +4076,18 @@ impl Simulation {
                         frame_effects,
                     )
                     .bridge_state_changed;
-                    self.combat_light_requests.emit(
-                        crate::sim::combat::CombatLightRequest::Impact {
-                            target_id: None,
-                            damage,
-                            warhead_ref,
-                            coord: impact,
-                            force_create: false,
-                            flags: 0,
-                        },
-                    );
+                    if crate::sim::combat::combat_light_chance_admits(self, rules, warhead_ref) {
+                        self.combat_light_requests.emit(
+                            crate::sim::combat::CombatLightRequest::Impact {
+                                target_id: None,
+                                damage,
+                                warhead_ref,
+                                coord: impact,
+                                force_create: false,
+                                flags: 0,
+                            },
+                        );
+                    }
                 }
             }
         }

@@ -1,9 +1,9 @@
-//! The fourteen
+//! The twenty-three
 //! [`crate::rules::phobos_techno_extras`].
 
 use crate::rules::ini_parser::IniFile;
 use crate::rules::phobos_shields::AffectedHouse;
-use crate::rules::phobos_techno_extras::PhobosTechnoExtras;
+use crate::rules::phobos_techno_extras::{PhobosTechnoExtras, TargetZoneScanType};
 
 fn read(keys: &str) -> PhobosTechnoExtras {
     PhobosTechnoExtras::from_section(
@@ -11,10 +11,11 @@ fn read(keys: &str) -> PhobosTechnoExtras {
     )
 }
 
-/// `Body.h:482-485`, `:544`, `:602`, `:709-711`, `:725-726`, `:768`, `:851`:
-/// nine unset nullables and five empty vectors.
+/// `Body.h:479`, `:509`, `:565`, `:644`, `:781`, `:803`, `:865-866`, `:727`:
+/// nine unset nullables, five empty vectors, four zeroed scalars and the one
+/// `-1` `SubterraneanSpeed` sentinel.
 #[test]
-fn the_fourteen_keys_construct_unset() {
+fn the_twenty_three_keys_construct_unset() {
     let defaults = PhobosTechnoExtras::default();
     assert_eq!(read(""), defaults);
     assert_eq!(defaults.radar_jam_houses, None);
@@ -31,6 +32,79 @@ fn the_fourteen_keys_construct_unset() {
     assert_eq!(defaults.veteran_empty_reload, None);
     assert!(defaults.spawns_queue.is_empty());
     assert_eq!(defaults.drop_crate, None);
+    assert!(!defaults.low_selection_priority);
+    assert_eq!(defaults.cameo_priority, 0);
+    assert_eq!(defaults.allow_weapon_select_against_walls, None);
+    assert_eq!(defaults.target_zone_scan_type, TargetZoneScanType::Same);
+    assert_eq!(defaults.radar_invisible_to_house, None);
+    assert_eq!(defaults.engineer_repair_amount, 0);
+    assert_eq!(defaults.subterranean_speed, -1);
+    assert_eq!(defaults.subterranean_height, None);
+    assert_eq!(defaults.veteran_range, None);
+}
+
+/// `Body.cpp:766`, `:855`, `:909`, `:972`, `:1131`, `:1144`, `:1209-1210`,
+/// `:1064`: the nine extra scalar/nullable keys read on their own.
+#[test]
+fn the_extra_scalars_and_nullables_read() {
+    let set = read(
+        "LowSelectionPriority=yes\nCameoPriority=3\nAllowWeaponSelectAgainstWalls=yes\n\
+         TargetZoneScanType=Any\nRadarInvisibleToHouse=enemies\nEngineerRepairAmount=250\n\
+         SubterraneanSpeed=50\nSubterraneanHeight=-100\nVeteranRange=1.25\n",
+    );
+    assert!(set.low_selection_priority);
+    assert_eq!(set.cameo_priority, 3);
+    assert_eq!(set.allow_weapon_select_against_walls, Some(true));
+    assert_eq!(set.target_zone_scan_type, TargetZoneScanType::Any);
+    assert_eq!(set.radar_invisible_to_house, Some(AffectedHouse::ENEMIES));
+    assert_eq!(set.engineer_repair_amount, 250);
+    // `ReadSpeed`: (50*256)/100 = 128.
+    assert_eq!(set.subterranean_speed, 128);
+    assert_eq!(set.subterranean_height, Some(-100));
+    assert_eq!(set.veteran_range, Some(1.25));
+}
+
+/// `ReadSpeed` keeps the -1 sentinel for an absent key and for a negative one
+/// (`Utilities/INIParser.h:157-163`), the enum read leaves `Same` on an unknown
+/// token, and `<default>`/blank clear the nullables.
+#[test]
+fn bad_reads_keep_the_constructor_values_and_the_general_fallbacks_resolve() {
+    let set = read(
+        "SubterraneanSpeed=-5\nTargetZoneScanType=Bogus\n\
+         AllowWeaponSelectAgainstWalls=<default>\nSubterraneanHeight=\nVeteranRange=\n",
+    );
+    assert_eq!(set.subterranean_speed, -1);
+    assert_eq!(set.target_zone_scan_type, TargetZoneScanType::Same);
+    assert_eq!(set.allow_weapon_select_against_walls, None);
+    assert_eq!(set.subterranean_height, None);
+    assert_eq!(set.veteran_range, None);
+    assert!(set.allow_weapon_select_against_walls(true));
+    assert_eq!(set.resolved_subterranean_speed(19), 19);
+    assert_eq!(set.resolved_subterranean_height(-256), -256);
+    assert_eq!(set.veteran_range_multiplier(1.0), 1.0);
+    assert_eq!(
+        set.radar_invisible_to_house_affected(AffectedHouse::ALL)
+            .bits(),
+        AffectedHouse::ALL.bits()
+    );
+}
+
+/// `TargetZoneScanType` is an `EnumReader` over `Same`/`Any`/`InRange`
+/// (`Utilities/Enum.h:251-256`), matched case-insensitively.
+#[test]
+fn target_zone_scan_type_parses_its_three_names() {
+    assert_eq!(
+        read("TargetZoneScanType=same\n").target_zone_scan_type,
+        TargetZoneScanType::Same
+    );
+    assert_eq!(
+        read("TargetZoneScanType=INRANGE\n").target_zone_scan_type,
+        TargetZoneScanType::InRange
+    );
+    assert_eq!(
+        read("TargetZoneScanType=Any\n").target_zone_scan_type,
+        TargetZoneScanType::Any
+    );
 }
 
 #[test]

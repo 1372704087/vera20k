@@ -137,6 +137,12 @@ pub struct ProjectileType {
     /// `Parachuted.MaxFallRate=` and `BombParachute=`.
     #[cfg(feature = "phobos")]
     pub phobos_parabomb: crate::rules::phobos_parabomb::PhobosParabomb,
+    /// Phobos `SubjectToLand=` / `SubjectToLand.Detonate=` /
+    /// `SubjectToWater=` / `SubjectToWater.Detonate=`
+    /// (`Ext/BulletType/Body.cpp:48-51`): the land/water half of the pre-shot
+    /// obstacle walk (`Ext/Bullet/Hooks.Obstacles.cpp:74-87`).
+    #[cfg(feature = "phobos")]
+    pub phobos_subject_to_terrain: crate::rules::phobos_bullet_terrain::PhobosSubjectToTerrain,
     /// Phobos `ReturnWeapon=` / `ReturnWeapon.ApplyFirepowerMult=`
     /// (`Ext/BulletType/Body.cpp:54-55`, declared `Ext/BulletType/Body.h:56-57`).
     #[cfg(feature = "phobos")]
@@ -639,6 +645,9 @@ impl ProjectileType {
             phobos_subject_to_ground: section.read_ares_bool("SubjectToGround", false),
             #[cfg(feature = "phobos")]
             phobos_parabomb: crate::rules::phobos_parabomb::PhobosParabomb::from_section(section),
+            #[cfg(feature = "phobos")]
+            phobos_subject_to_terrain:
+                crate::rules::phobos_bullet_terrain::PhobosSubjectToTerrain::from_section(section),
             #[cfg(feature = "phobos")]
             phobos_return_weapon:
                 crate::rules::phobos_return_weapon::PhobosReturnWeapon::from_section(section),

@@ -224,6 +224,15 @@ pub struct TeamTypeIniMetadata {
     /// (`0x0051EDD8..0x0051EDED`). No retail TeamType sets it.
     #[serde(default)]
     loadable: bool,
+    /// Phobos `ParaDropAircraft=` (`Ext/TeamType/Body.cpp:15`, declared
+    /// `Ext/TeamType/Body.h:26`, constructed nullptr): the aircraft type
+    /// `TeamTypeClass::CreateInstance` builds for a paradrop reinforcement in
+    /// place of the house's plane (hook `0x65DBD0`,
+    /// `Ext/TeamType/Hooks.cpp:9`). An unresolvable name keeps the vanilla
+    /// choice, as `read<AircraftType*>` leaves nullptr.
+    #[cfg(feature = "phobos")]
+    #[serde(default)]
+    pub para_drop_aircraft: Option<String>,
     pub source: TeamAiDefinitionSource,
 }
 
@@ -266,6 +275,8 @@ impl Default for TeamTypeIniMetadata {
             droppod: false,
             only_target_house_enemy: false,
             loadable: false,
+            #[cfg(feature = "phobos")]
+            para_drop_aircraft: None,
             source: TeamAiDefinitionSource::FixedAimd,
         }
     }

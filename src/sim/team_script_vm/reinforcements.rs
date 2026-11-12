@@ -567,8 +567,27 @@ impl Simulation {
         // Ares 3.0 TeamTypeClass_CreateInstance_Plane (1003A340, hook
         // 0x65DBB3): that owner's GetParadropPlane replaces the PDPLANE
         // literal.
-        let plane_type =
-            crate::sim::superweapon::paradrop::house_paradrop_plane(self, rules, owner);
+        // Phobos 0x65DBD0 (`Ext/TeamType/Hooks.cpp:9`, `Ext/TeamType/Body.cpp:15`)
+        // replaces CreateInstance's plane with the TeamType's
+        // `ParaDropAircraft` when that name resolves; the Ares 0x65DBB3
+        // house/country plane and the PDPLANE literal otherwise.
+        let metadata = self
+            .team_script_vm
+            .team_type_ini
+            .get(&team_type)
+            .cloned()
+            .unwrap_or_default();
+        #[cfg(feature = "phobos")]
+        let authored_plane = metadata.para_drop_aircraft.as_deref().filter(|name| {
+            rules
+                .object_in_category(ObjectCategory::Aircraft, name)
+                .is_some()
+        });
+        #[cfg(not(feature = "phobos"))]
+        let authored_plane: Option<&str> = None;
+        let plane_type = authored_plane.unwrap_or_else(|| {
+            crate::sim::superweapon::paradrop::house_paradrop_plane(self, rules, owner)
+        });
         if rules
             .object_in_category(ObjectCategory::Aircraft, plane_type)
             .is_none()
@@ -601,12 +620,6 @@ impl Simulation {
             .unwrap()
             .mission_only
             .mark();
-        let metadata = self
-            .team_script_vm
-            .team_type_ini
-            .get(&team_type)
-            .cloned()
-            .unwrap_or_default();
         let spawn_cell = if metadata.use_transport_origin {
             // GetTransportWaypoint6F18E0: -1 produces the shared zero cell;
             // other inputs read the Scenario waypoint owner68BCC0.

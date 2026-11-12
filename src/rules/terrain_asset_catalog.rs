@@ -88,6 +88,13 @@ impl TerrainAssetCatalog {
                     current = IniSection::read_color_rgb_value(raw, current);
                 }
             }
+            // Phobos `MinimapColor=` (`Ext/TerrainType/Body.cpp:75`) replaces
+            // the `Image`/`RadarColor=` result when set
+            // (`Ext/TerrainType/Hooks.cpp:334-337`).
+            #[cfg(feature = "phobos")]
+            if let Some(color) = terrain.minimap_color {
+                current = color;
+            }
             // Saved Type fields retain these historical read results. Loading
             // reconstructs presentation without performing another Rules read.
             terrain.radar_color = current;

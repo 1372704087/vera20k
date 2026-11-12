@@ -909,6 +909,72 @@ pub struct PhobosGlobals {
     /// (`Ext/Anim/Hooks.cpp:707`).
     #[serde(default = "true_bool")]
     pub anim_crater_destroy_tiberium: bool,
+    /// `[General] HarvesterDumpAmount=`, default **0.0**
+    /// (`Ext/Rules/Body.cpp:110`, constructor `Ext/Rules/Body.h:569`): ore
+    /// credited per unload tick instead of the full cargo
+    /// (`Ext/Techno/Hooks.cpp:434-460`); 0 keeps the stock full-cargo dump.
+    #[serde(default = "zero_f64")]
+    pub harvester_dump_amount: NativeF64Bits,
+    /// `[General] HarvesterScanAfterUnload=`, default `no`
+    /// (`Ext/Rules/Body.cpp:416`, constructor `Ext/Rules/Body.h:842`): a
+    /// harvester released from a refinery scans for ore in the same mission
+    /// step (`Ext/TechnoType/Hooks.cpp:...`); off keeps the delayed scan.
+    #[serde(default)]
+    pub harvester_scan_after_unload: bool,
+    /// `[AudioVisual] CombatLightDetailLevel=`, default **0**
+    /// (`Ext/Rules/Body.cpp:404`, constructor `Ext/Rules/Body.h:820`):
+    /// selects which combat-light descriptors a light flash draws
+    /// (`Ext/Render/Hooks.cpp`).
+    #[serde(default)]
+    pub combat_light_detail_level: i32,
+    /// `[General] SubterraneanSpeed=` (`Ext/Rules/Body.cpp:125`), read through
+    /// `INI_EX::ReadSpeed` into internal 256ths, constructor **19**
+    /// (`Ext/Rules/Body.h:583`): the fallback for a TechnoType's own key.
+    #[serde(default = "subterranean_speed_default")]
+    pub subterranean_speed: i32,
+    /// `[General] SubterraneanHeight=`, default **-256**
+    /// (`Ext/Rules/Body.cpp:126`, constructor `Ext/Rules/Body.h:584`): the
+    /// fallback for a TechnoType's own key.
+    #[serde(default = "subterranean_height_default")]
+    pub subterranean_height: i32,
+    /// `[General] VeteranRange=`, default **1.0**
+    /// (`Ext/Rules/Body.cpp:390`, constructor `Ext/Rules/Body.h:810`): the
+    /// fallback for a TechnoType's own key.
+    #[serde(default = "one_f64")]
+    pub veteran_range: NativeF64Bits,
+    /// `[AudioVisual] DisplayIncome=`, default `no`
+    /// (`Ext/Rules/Body.cpp:291`, constructor `Ext/Rules/Body.h:725`): a
+    /// building that leaves the key unset still shows no income label.
+    #[serde(default)]
+    pub display_income: bool,
+    /// `[AudioVisual] DisplayIncome.Delay=`, default **15**
+    /// (`Ext/Rules/Body.cpp:292-297`, constructor `Ext/Rules/Body.h:726`):
+    /// frames between the accumulated-income labels; a read of 0 is forced to
+    /// 1 because 0 crashes the native label.
+    #[serde(default = "display_income_delay_default")]
+    pub display_income_delay: i32,
+    /// `[General] SetRecruitableOnLiberate=`, default **-1**
+    /// (`Ext/Rules/Body.cpp:309`, constructor `Ext/Rules/Body.h:741`): a team
+    /// type's own unset key falls back here; -1 keeps the stock behaviour
+    /// (`Ext/Team/Body.cpp:...`).
+    #[serde(default = "minus_one_i32")]
+    pub set_recruitable_on_liberate: i32,
+    /// `[AudioVisual] NoAlphaImageOnBuildup=`, default `no`
+    /// (`Ext/Rules/Body.cpp:645`, constructor `Ext/Rules/Body.h:1038`): the
+    /// fallback for a BuildingType's own `Nullable<bool>`.
+    #[serde(default)]
+    pub no_alpha_image_on_buildup: bool,
+    /// `[General] ParadropDelay=`, default **5**
+    /// (`Ext/Rules/Body.cpp:522`, constructor `Ext/Rules/Body.h:936`): the
+    /// fallback for an AircraftType's own `Nullable<int>`
+    /// (`Ext/Aircraft/Hooks.cpp:1274`).
+    #[serde(default = "default_paradrop_delay")]
+    pub paradrop_delay: i32,
+    /// `[General] AllowWeaponSelectAgainstWalls=`, default `no`
+    /// (`Ext/Rules/Body.cpp` read through `RulesExt`, constructor
+    /// `Ext/Rules/Body.h:702`): the fallback for a TechnoType's own key.
+    #[serde(default)]
+    pub allow_weapon_select_against_walls: bool,
 }
 
 /// `RadarJamHouses=`'s constructor value (`Ext/Rules/Body.h:657`).
@@ -947,6 +1013,29 @@ fn visual_scatter_min_default() -> i32 {
 /// `VisualScatter.Max=`'s constructor value (`Ext/Rules/Body.h:759`).
 fn visual_scatter_max_default() -> i32 {
     32
+}
+
+/// `[General] SubterraneanSpeed=`'s constructor value
+/// (`Ext/Rules/Body.h:583`).
+fn subterranean_speed_default() -> i32 {
+    19
+}
+
+/// `[General] SubterraneanHeight=`'s constructor value
+/// (`Ext/Rules/Body.h:584`).
+fn subterranean_height_default() -> i32 {
+    -256
+}
+
+/// `[AudioVisual] DisplayIncome.Delay=`'s constructor value
+/// (`Ext/Rules/Body.h:726`).
+fn display_income_delay_default() -> i32 {
+    15
+}
+
+/// `[General] ParadropDelay=`'s constructor value (`Ext/Rules/Body.h:936`).
+fn default_paradrop_delay() -> i32 {
+    5
 }
 
 impl Default for PhobosGlobals {
@@ -1112,6 +1201,18 @@ impl Default for PhobosGlobals {
             hover_drownable: true,
             only_use_land_sequences: false,
             anim_crater_destroy_tiberium: true,
+            harvester_dump_amount: NativeF64Bits::POSITIVE_ZERO,
+            harvester_scan_after_unload: false,
+            combat_light_detail_level: 0,
+            subterranean_speed: subterranean_speed_default(),
+            subterranean_height: subterranean_height_default(),
+            veteran_range: NativeF64Bits::ONE,
+            display_income: false,
+            display_income_delay: display_income_delay_default(),
+            set_recruitable_on_liberate: -1,
+            no_alpha_image_on_buildup: false,
+            paradrop_delay: default_paradrop_delay(),
+            allow_weapon_select_against_walls: false,
         }
     }
 }
@@ -1119,10 +1220,34 @@ impl Default for PhobosGlobals {
 impl PhobosGlobals {
     pub fn from_ini(ini: &IniFile) -> Self {
         let mut globals = section_settings(ini.section_or_empty("CombatDamage"));
+        let combat_damage = ini.section_or_empty("CombatDamage");
+        // `Ext/Rules/Body.cpp:256`: the `[CombatDamage]` fallback a TechnoType's
+        // `AllowWeaponSelectAgainstWalls=` overrides.
+        globals.allow_weapon_select_against_walls = combat_damage.read_bool(
+            "AllowWeaponSelectAgainstWalls",
+            globals.allow_weapon_select_against_walls,
+        );
         // `RulesExt::LoadFromINIFile` reads this block in the same pass
         // (`Ext/Rules/Body.cpp:291-304`); the two sections share no key, so
         // their relative order does not matter.
         let audio_visual = ini.section_or_empty("AudioVisual");
+        // `Ext/Rules/Body.cpp:291-297`: the income-label switch and cadence. A
+        // read `DisplayIncome.Delay=0` would crash the native label, so the
+        // reader forces it to 1.
+        globals.display_income = audio_visual.read_bool("DisplayIncome", globals.display_income);
+        globals.display_income_delay =
+            audio_visual.read_int("DisplayIncome.Delay", globals.display_income_delay);
+        if globals.display_income_delay == 0 {
+            globals.display_income_delay = 1;
+        }
+        // `Ext/Rules/Body.cpp:404`: which combat-light descriptors a flash
+        // draws (`CombatLightDetailLevel.CheckColored=` is the sibling key).
+        globals.combat_light_detail_level =
+            audio_visual.read_int("CombatLightDetailLevel", globals.combat_light_detail_level);
+        // `Ext/Rules/Body.cpp:645`: the `[AudioVisual]` fallback a BuildingType's
+        // `NoAlphaImageOnBuildup=` overrides.
+        globals.no_alpha_image_on_buildup =
+            audio_visual.read_bool("NoAlphaImageOnBuildup", globals.no_alpha_image_on_buildup);
         globals.parasite_grapple_anim = audio_visual
             .read_type_name("Parasite.GrappleAnim", 0x100)
             .map(str::to_owned);
@@ -1316,6 +1441,39 @@ impl PhobosGlobals {
         globals.hover_drownable = general.read_bool("HoverDrownable", globals.hover_drownable);
         globals.only_use_land_sequences =
             general.read_bool("OnlyUseLandSequences", globals.only_use_land_sequences);
+        // `Ext/Rules/Body.cpp:110`, `:125-126`, `:390`, `:416`, `:309`: the
+        // harvester dump/scan, subterranean and veteran-range fallbacks, plus
+        // the team-type recruitable override.
+        globals.harvester_dump_amount = read_double_bits(
+            general,
+            "HarvesterDumpAmount",
+            globals.harvester_dump_amount,
+        );
+        globals.harvester_scan_after_unload = general.read_bool(
+            "HarvesterScanAfterUnload",
+            globals.harvester_scan_after_unload,
+        );
+        // `INI_EX::ReadSpeed` (`Utilities/INIParser.h:155-166`): a non-negative
+        // double becomes `min(Floor(min(v,100)*256/100), 255)`; a negative or
+        // absent read keeps the current value.
+        globals.subterranean_speed = general.read_double_with(
+            "SubterraneanSpeed",
+            globals.subterranean_speed,
+            |current, parsed| {
+                if parsed >= 0.0 {
+                    (((parsed.min(100.0) * 256.0) / 100.0) as i32).min(255)
+                } else {
+                    current
+                }
+            },
+        );
+        globals.subterranean_height =
+            general.read_int("SubterraneanHeight", globals.subterranean_height);
+        globals.veteran_range = read_double_bits(general, "VeteranRange", globals.veteran_range);
+        globals.set_recruitable_on_liberate = general.read_int(
+            "SetRecruitableOnLiberate",
+            globals.set_recruitable_on_liberate,
+        );
         // `Ext/Rules/Body.cpp:218-219`, `yes`/`no` constructor defaults.
         globals.alternate_flh_on_turret =
             general.read_bool("AlternateFLH.OnTurret", globals.alternate_flh_on_turret);
@@ -1369,6 +1527,9 @@ impl PhobosGlobals {
             globals.ai_paradrop_mission,
             |current, value| MissionType::from_map_name(value).unwrap_or(current),
         );
+        // `Ext/Rules/Body.cpp:522`: the `[General]` fallback an AircraftType's
+        // `ParadropDelay=` overrides (`Ext/Aircraft/Hooks.cpp:1274`).
+        globals.paradrop_delay = general.read_ares_int("ParadropDelay", globals.paradrop_delay);
         globals.aircraft_weapon_kick_out_passengers = general.read_bool(
             "AircraftWeapon.KickOutPassengers",
             globals.aircraft_weapon_kick_out_passengers,

@@ -334,6 +334,21 @@ pub struct AnimTypeRuntimeConfig {
     pub tiberium_chain_reaction: bool,
     pub is_tiberium: bool,
     pub hide_if_no_ore: bool,
+    /// Phobos `AnimTypeExt` keys (`Ext/AnimType/Body.cpp:93-118`) whose
+    /// consumers are the anim-runtime fire-anim, wake and palette paths.
+    #[cfg(feature = "phobos")]
+    pub phobos_attached_anim_position: crate::rules::phobos_anim_type_ext::AttachedAnimPosition,
+    #[cfg(feature = "phobos")]
+    pub phobos_wake_anim: Vec<String>,
+    #[cfg(feature = "phobos")]
+    pub phobos_visible_to: Option<crate::rules::phobos_shields::AffectedHouse>,
+    #[cfg(feature = "phobos")]
+    pub phobos_fire_anim_disallowed_land_types:
+        Option<crate::rules::phobos_anim_type_ext::LandTypeFlags>,
+    #[cfg(feature = "phobos")]
+    pub phobos_attach_fire_anims_to_parent: Option<bool>,
+    #[cfg(feature = "phobos")]
+    pub phobos_theater_palette: Option<bool>,
     /// Phobos `AnimTypeExt::HideIfNoOre_Threshold` (`src/Ext/AnimType/Body.h`,
     /// read as a `Valueable<int>` with constructor default 0): the smallest
     /// contained tiberium value at which a `HideIfNoOre=` anim still draws.
@@ -949,6 +964,28 @@ fn parse_anim_runtime_config(section: &IniSection) -> AnimTypeRuntimeConfig {
         #[cfg(feature = "phobos")]
         phobos_draw_offset:
             crate::rules::phobos_anim_draw_offset::PhobosAnimDrawOffset::from_section(section),
+        #[cfg(feature = "phobos")]
+        phobos_attached_anim_position:
+            crate::rules::phobos_anim_type_ext::PhobosAnimTypeExt::attached_anim_position(section),
+        #[cfg(feature = "phobos")]
+        phobos_wake_anim: crate::rules::phobos_anim_type_ext::PhobosAnimTypeExt::wake_anim(section),
+        #[cfg(feature = "phobos")]
+        phobos_visible_to: crate::rules::phobos_anim_type_ext::PhobosAnimTypeExt::visible_to(
+            section,
+        ),
+        #[cfg(feature = "phobos")]
+        phobos_fire_anim_disallowed_land_types:
+            crate::rules::phobos_anim_type_ext::PhobosAnimTypeExt::fire_anim_disallowed_land_types(
+                section,
+            ),
+        #[cfg(feature = "phobos")]
+        phobos_attach_fire_anims_to_parent:
+            crate::rules::phobos_anim_type_ext::PhobosAnimTypeExt::attach_fire_anims_to_parent(
+                section,
+            ),
+        #[cfg(feature = "phobos")]
+        phobos_theater_palette:
+            crate::rules::phobos_anim_type_ext::PhobosAnimTypeExt::theater_palette(section),
         z_adjust: section.read_int("ZAdjust", 0),
         // AnimType ctor42765B initializes0; ReadINI428147 uses ReadInt5276D0.
         y_sort_adjust: section.read_int("YSortAdjust", 0),

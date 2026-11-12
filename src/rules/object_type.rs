@@ -2336,6 +2336,13 @@ pub struct ObjectType {
     /// Parsed from `ExitCoord=X,Y,Z` in rules.ini. 256 leptons = 1 cell.
     /// Used by spawn logic to place newly built units near the correct factory exit.
     pub exit_coord: Option<(i32, i32, i32)>,
+    /// Phobos `BuildingTypeExt::BarracksExitCell`
+    /// (`Ext/BuildingType/Body.h:90`, `Nullable<Point2D>`, read at
+    /// `Ext/BuildingType/Body.cpp:240`): a cell offset from the building's
+    /// map coords where an infantry product leaves, replacing the flag,
+    /// offered-cell and foundation search. Only a building reads it.
+    #[cfg(feature = "phobos")]
+    barracks_exit_cell: Option<(i32, i32)>,
 
     // -- Cursor / interaction capability flags --
     // These drive which cursor is shown when hovering this unit/building.
@@ -4979,6 +4986,14 @@ impl ObjectType {
         self.yuri_barracks
     }
 
+    /// Phobos `BuildingTypeExt::BarracksExitCell`: the authored infantry exit
+    /// offset, `None` when the type leaves it unset. Consumed by
+    /// `BuildingClass::GetDockCellForObject`'s hooked head (0x44EFD8).
+    #[cfg(feature = "phobos")]
+    pub const fn barracks_exit_cell(&self) -> Option<(i32, i32)> {
+        self.barracks_exit_cell
+    }
+
     /// Native TechnoType virtual+BC (717800), used by Fly takeoff4CF9F2
     /// and Aircraft Unlimbo414383. Zero and other negatives are literal.
     pub fn flight_level(&self, general_flight_level: i32) -> i32 {
@@ -6512,6 +6527,17 @@ impl ObjectType {
             exit_coord: section
                 .read_coord3_value("ExitCoord")
                 .map(|[x, y, z]| (x, y, z)),
+            // Phobos `BuildingTypeExt::BarracksExitCell`
+            // (`Ext/BuildingType/Body.cpp:240`), a BuildingType-only key. A
+            // partial read updates a pair already set; `<default>` clears it.
+            #[cfg(feature = "phobos")]
+            barracks_exit_cell: if category == ObjectCategory::Building {
+                section
+                    .read_phobos_nullable_int_pair("BarracksExitCell", None)
+                    .map(|[x, y]| (x, y))
+            } else {
+                None
+            },
 
             // Cursor / interaction capability flags. An InfantryType's
             // Engineer, C4, Infiltrate and Agent start at the constructor's

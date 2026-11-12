@@ -136,18 +136,23 @@ impl crate::sim::world::Simulation {
             //5F402B copies current Health+6C into a local packet (not Strength).
             //
             // Phobos `ObjectClass_Update_FallingDown_ToDead` (hook `0x5F4021`,
-            // `Ext/Techno/Hooks.cpp:1014-1043`) reads and clears
+            // `Ext/Techno/Hooks.cpp:1014-1090`) reads and clears
             // `TechnoExt::HoverShutdown` inside this arm and lets the
             // `HoverDrownable` answer pick the damage. The drowning arm takes
-            // the whole current health (`:1033-1036`); the other arm is the
-            // `FallingDownDamage` model, whose default ratio of `1.0` packets
-            // the whole `Strength` (`:1074-1082`). VERA has not ported
-            // `FallingDownDamage`, so the default ratio is the one it applies.
+            // the whole current health (`:1033-1036`); the surviving arm runs
+            // the `FallingDownDamage` model below.
             #[cfg(feature = "phobos")]
-            let damage = if self.take_hover_shutdown(id) && !self.hover_drowns(id, rules) {
-                self.object_strength(id, rules).unwrap_or(health)
-            } else {
-                health
+            let damage = {
+                let took_shutdown = self.take_hover_shutdown(id);
+                if took_shutdown && !self.hover_drowns(id, rules) {
+                    self.object_strength(id, rules).unwrap_or(health)
+                } else if took_shutdown && self.hover_drowns(id, rules) {
+                    // The drowning arm keeps the whole current-Health packet
+                    // (`Ext/Techno/Hooks.cpp:1033-1036`).
+                    health
+                } else {
+                    self.phobos_falling_damage(id, health, rules)
+                }
             };
             #[cfg(not(feature = "phobos"))]
             let damage = health;
@@ -196,6 +201,80 @@ impl crate::sim::world::Simulation {
                     .phobos_hover_drown
                     .drowns(rules.phobos_globals.hover_drownable)
             })
+    }
+
+    /// The landing arm's ratio packet (`Ext/Techno/Hooks.cpp:1062-1084`): an
+    /// EMP-locked unit whose `FallingDownDamage.AllowEMP` (type else
+    /// `[CombatDamage]`, default `true`) refuses keeps the vanilla
+    /// full-current-Health packet; otherwise the ratio is the type's
+    /// `FallingDownDamage.Water` on a bridge-less water or beach cell, else
+    /// the type's `FallingDownDamage`, else the `[CombatDamage]` global. A
+    /// negative ratio takes that fraction of the current Health, one of at
+    /// most 1.0 that fraction of `Strength`, and a larger one is absolute;
+    /// each tier truncates into the `int` packet.
+    #[cfg(feature = "phobos")]
+    fn phobos_falling_damage(
+        &self,
+        id: u64,
+        health: i32,
+        rules: &crate::rules::ruleset::RuleSet,
+    ) -> i32 {
+        let Some(entity) = self.substrate.entities.get(id) else {
+            return health;
+        };
+        let type_rules = self.entity_object_type(entity, rules);
+        let allow_emp = type_rules
+            .as_ref()
+            .and_then(|object| object.phobos_falling_down_damage_allow_emp)
+            .unwrap_or(rules.combat_damage.falling_down_damage_allow_emp);
+        if !allow_emp && entity.emp_remaining() > 0 {
+            return health;
+        }
+        let strength = self.object_strength(id, rules).unwrap_or(health);
+        let ratio = if self.landing_in_water(id) {
+            type_rules
+                .as_ref()
+                .and_then(|object| {
+                    object
+                        .phobos_falling_down_damage_water
+                        .or(object.phobos_falling_down_damage)
+                })
+                .unwrap_or(rules.combat_damage.falling_down_damage)
+        } else {
+            type_rules
+                .as_ref()
+                .and_then(|object| object.phobos_falling_down_damage)
+                .unwrap_or(rules.combat_damage.falling_down_damage)
+        };
+        if ratio < 0.0 {
+            (f64::from(health) * -ratio) as i32
+        } else if ratio <= 1.0 {
+            (f64::from(strength) * ratio) as i32
+        } else {
+            ratio as i32
+        }
+    }
+
+    /// The landing cell is water or beach and carries no bridge deck
+    /// (`Ext/Techno/Hooks.cpp:1059-1061`: `!onBridge && (Water || Beach)`).
+    #[cfg(feature = "phobos")]
+    fn landing_in_water(&self, id: u64) -> bool {
+        use crate::map::resolved_terrain::NativeCellQuery;
+        use crate::rules::terrain_rules::LandType;
+
+        let Some(entity) = self.substrate.entities.get(id) else {
+            return false;
+        };
+        let coord = crate::sim::movement::ground_pose::position_world_coord(&entity.position);
+        let Some(terrain) = self.resolved_terrain.as_ref() else {
+            return false;
+        };
+        let cells = NativeCellQuery::canonical(terrain);
+        let cell = cells.lookup_world(coord.x, coord.y);
+        let land = cells.land_type(cell);
+        (land == i32::from(LandType::Water.as_index())
+            || land == i32::from(LandType::Beach.as_index()))
+            && cells.flags(cell) & 0x100 == 0
     }
 
     /// The type's `Strength=`, the not-drownable arm's whole-health packet

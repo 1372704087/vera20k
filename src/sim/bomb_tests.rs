@@ -288,7 +288,7 @@ fn native_bomb(fields: &serde_json::Value) -> Bomb {
         end_frame: int("end"),
         ticking_sound: None,
         seen_by: 0,
-        #[cfg(feature = "ares")]
+        #[cfg(any(feature = "ares", feature = "phobos"))]
         weapon: None,
         #[cfg(feature = "ares")]
         death_bomb: false,
@@ -693,6 +693,7 @@ fn native_update_all_corpus() {
             &sim.interner,
             &mut sim.substrate,
             &sim.houses,
+            &sim.house_alliances,
             &sim.resolved_terrain,
             &mut sim.bombs,
             &mut sim.sound_events,
@@ -1180,6 +1181,7 @@ fn a_bomb_survives_a_snapshot() {
         &sim.interner,
         &mut sim.substrate,
         &sim.houses,
+        &sim.house_alliances,
         &sim.resolved_terrain,
         &mut sim.bombs,
         &mut sim.sound_events,
@@ -1189,6 +1191,7 @@ fn a_bomb_survives_a_snapshot() {
         &sim.interner,
         &mut sim.substrate,
         &sim.houses,
+        &sim.house_alliances,
         &sim.resolved_terrain,
         &mut sim.bombs,
         &mut sim.sound_events,
@@ -1350,6 +1353,7 @@ fn who_sees_a_bomb_follows_the_native_refresh() {
         &sim.interner,
         &mut sim.substrate,
         &sim.houses,
+        &sim.house_alliances,
         &sim.resolved_terrain,
         &mut sim.bombs,
         &mut sim.sound_events,

@@ -18,6 +18,12 @@ pub(crate) struct TurretSelection {
     current_weapon_number: i32,
     current_turret_index: i32,
     charge_turret_delay: i32,
+    /// Phobos `TechnoExt::ChargeTurretTimer` (`Ext/Techno/Body.h:42`): the
+    /// `ChargeTurret.Delays` charge timer, started at the FireAt rearm and
+    /// cleared once expired (`Ext/Techno/Hooks.cpp:241-244`).
+    #[cfg(feature = "phobos")]
+    #[serde(default)]
+    phobos_charge_turret_timer: Option<crate::sim::combat::rof::RearmTimer>,
 }
 
 impl TurretSelection {
@@ -27,6 +33,8 @@ impl TurretSelection {
             current_weapon_number: 0,
             current_turret_index: -1,
             charge_turret_delay: 0,
+            #[cfg(feature = "phobos")]
+            phobos_charge_turret_timer: None,
         }
     }
 }
@@ -80,6 +88,34 @@ impl GameEntity {
         self.rearm_timer.start(frame, duration);
     }
 
+    /// Phobos `SetChargeTurretDelay` (`Ext/Techno/Hooks.Firing.cpp:936-976`,
+    /// hooked at both FireAt rearm sites `0x6FE4A4`/`0x6FF29E`): the
+    /// just-fired burst shot's `ChargeTurret.Delays` item overrides the saved
+    /// `+2F8` denominator and starts the ext `ChargeTurretTimer`; the real
+    /// rearm timer keeps the native duration. `Burst > 1` indexes the shot
+    /// (`CurrentBurstIndex - 1`), clamped to the last item; an item `<= 0`
+    /// keeps the native value and starts nothing.
+    #[cfg(feature = "phobos")]
+    pub(crate) fn phobos_set_charge_turret_delay(
+        &mut self,
+        frame: i32,
+        burst_index: i32,
+        delays: &[i32],
+    ) {
+        if delays.is_empty() {
+            return;
+        }
+        let index = burst_index.clamp(0, delays.len() as i32 - 1) as usize;
+        let delay = delays[index];
+        if delay <= 0 {
+            return;
+        }
+        self.turret_selection.charge_turret_delay = delay;
+        let mut timer = crate::sim::combat::rof::RearmTimer::new(frame);
+        timer.start(frame, delay);
+        self.turret_selection.phobos_charge_turret_timer = Some(timer);
+    }
+
     /// TechnoAI6FA4FB..6FA5BE, after target validity and before missions.
     /// The signed wrapping product precedes IDIV, then the result is clamped.
     /// Only drawing reads this index; no weapon, timer or RNG is changed.
@@ -91,13 +127,29 @@ impl GameEntity {
             return;
         }
         let selection = &mut self.turret_selection;
+        // Phobos `ChargeTurretTimer` (`Ext/Techno/Body.h:42`; read at
+        // `Ext/Techno/Hooks.cpp:241-244`): the `ChargeTurret.Delays` timer
+        // answers the turret progress while it runs, stops once expired and
+        // hands back to the rearm timer; without it the rearm timer answers.
+        #[cfg(feature = "phobos")]
+        let time_left = match selection.phobos_charge_turret_timer {
+            Some(timer) => {
+                let remaining = timer.remaining(frame);
+                if remaining <= 0 {
+                    selection.phobos_charge_turret_timer = None;
+                    self.rearm_timer.remaining(frame)
+                } else {
+                    remaining
+                }
+            }
+            None => self.rearm_timer.remaining(frame),
+        };
+        #[cfg(not(feature = "phobos"))]
+        let time_left = self.rearm_timer.remaining(frame);
         selection.current_turret_index = if selection.charge_turret_delay <= 0 {
             0
         } else {
-            (object
-                .turret_count
-                .wrapping_mul(self.rearm_timer.remaining(frame))
-                / selection.charge_turret_delay)
+            (object.turret_count.wrapping_mul(time_left) / selection.charge_turret_delay)
                 .clamp(0, object.turret_count - 1)
         };
     }

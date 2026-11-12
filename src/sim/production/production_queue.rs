@@ -1001,6 +1001,26 @@ fn exit_cloning_vat_copies(
         if !is_cloning_vat {
             continue;
         }
+        // Phobos `BuildingExt::KickOutClone` (`Ext/Building/Body.cpp:476-486`,
+        // reached from the replaced clone loop hook 0x4449FB): a dead,
+        // limboed or warping-out vat exits nothing, and with
+        // `Cloning.Powered=` (constructor `true`) neither does a
+        // powered-down one. The vanilla loop this call stands in for has no
+        // checks; the Ares clone path gates its sources through
+        // `building_operational_state`, which already folds the power latch.
+        #[cfg(feature = "phobos")]
+        if let Some(vat) = sim.substrate.entities.get(vat_id) {
+            let powered = sim
+                .entity_object_type(vat, rules)
+                .is_some_and(|object| object.phobos_cloning_powered);
+            if !vat.lifecycle.object_alive()
+                || vat.lifecycle.in_limbo()
+                || vat.is_warped_out()
+                || (powered && !vat.building_online())
+            {
+                continue;
+            }
+        }
         let vat_owner_name = sim.interner.resolve(vat_owner).to_owned();
         // Create_Object takes only the vat's House (`0x00444A24..0x00444A2B`);
         // the new object waits in limbo for the vat's exit to place it.

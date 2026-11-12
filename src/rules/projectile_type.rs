@@ -116,6 +116,13 @@ pub struct ProjectileType {
     /// `Misc/Hooks.BugFixes.cpp:2423`).
     #[cfg(feature = "phobos")]
     pub vertical_aircraft_fix: Option<bool>,
+    /// Phobos `Arcing.AllowElevationInaccuracy=` (`Nullable<bool>`,
+    /// `Ext/BulletType/Body.cpp:53`, `Body.h:55`): when this refuses
+    /// (the `[CombatDamage]` global defaults **`true`**), the arcing
+    /// launch velocity is recomputed by `BulletExt::ApplyArcingFix`
+    /// (`Ext/Bullet/Body.cpp:454-478`, hooks `0x6FF008`/`0x44D46E`).
+    #[cfg(feature = "phobos")]
+    pub phobos_arcing_allow_elevation_inaccuracy: Option<bool>,
     /// Phobos `SubjectToGround=` (`Ext/BulletType/Body.cpp:56`, declared
     /// `Ext/BulletType/Body.h:59`, constructed `no` `:123`): the firing
     /// techno's pre-shot obstacle scan also refuses a line that passes below
@@ -558,6 +565,9 @@ impl ProjectileType {
             vertical: section.read_bool("Vertical", false),
             #[cfg(feature = "phobos")]
             vertical_aircraft_fix: section.read_phobos_nullable_bool("Vertical.AircraftFix", None),
+            #[cfg(feature = "phobos")]
+            phobos_arcing_allow_elevation_inaccuracy: section
+                .read_phobos_nullable_bool("Arcing.AllowElevationInaccuracy", None),
             flat: false,
             // Integer fields
             #[cfg(feature = "phobos")]
@@ -945,6 +955,27 @@ mod tests {
             crate::rules::phobos_globals::PhobosGlobals::default().vertical_aircraft_fix,
             "the constructor value is yes"
         );
+    }
+
+    /// Package 45 G1.2 `Arcing.AllowElevationInaccuracy` (`Ext/BulletType/
+    /// Body.cpp:53`): a `Nullable<bool>` whose unset state defers to the
+    /// `[CombatDamage]` global (default yes). Refusing it enables
+    /// `BulletExt::ApplyArcingFix`.
+    #[cfg(feature = "phobos")]
+    #[test]
+    fn the_arcing_elevation_inaccuracy_nullable_reads_yes_no_and_unset() {
+        let ini = IniFile::from_str(
+            "[YES]\nArcing.AllowElevationInaccuracy=yes\n\
+             [NO]\nArcing.AllowElevationInaccuracy=no\n\
+             [UNSET]\nFixtureOnly=1\n",
+        );
+        let read = |id: &str| {
+            ProjectileType::from_ini_section(id, ini.section(id).unwrap(), None)
+                .phobos_arcing_allow_elevation_inaccuracy
+        };
+        assert_eq!(read("YES"), Some(true));
+        assert_eq!(read("NO"), Some(false));
+        assert_eq!(read("UNSET"), None);
     }
 }
 

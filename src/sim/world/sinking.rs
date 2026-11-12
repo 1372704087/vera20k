@@ -232,7 +232,35 @@ impl Simulation {
                 y: coord.y.wrapping_add(y),
                 z: floor,
             };
-            let type_id = self.interner.intern(&rules.general.wake.name);
+            // Phobos `Wake.Sinking` (`Ext/Techno/Hooks.Misc.cpp:404-422`,
+            // both sinking sites) falls back through the native type `Wake=`
+            // to `[General] Wake=`; an unknown name is a null pointer and
+            // takes the same fallback.
+            let wake_name = self
+                .substrate
+                .entities
+                .get(id)
+                .and_then(|entity| self.entity_object_type(entity, rules))
+                .and_then(|object| {
+                    #[cfg(feature = "phobos")]
+                    {
+                        object
+                            .phobos_wake_sinking
+                            .clone()
+                            .or_else(|| object.wake.clone())
+                    }
+                    #[cfg(not(feature = "phobos"))]
+                    {
+                        object.wake.clone()
+                    }
+                })
+                .filter(|name| {
+                    rules
+                        .anim_type_names
+                        .contains(name.to_ascii_uppercase().as_str())
+                })
+                .unwrap_or_else(|| rules.general.wake.name.clone());
+            let type_id = self.interner.intern(&wake_name);
             let (rx, ry, sub_x, sub_y, z) = wake.to_cell_sub_z();
             let descriptor = AnimClassSpawnDescriptor {
                 draw_flags: 0x600,

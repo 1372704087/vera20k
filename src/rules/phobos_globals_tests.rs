@@ -310,7 +310,10 @@ fn the_damage_multiplier_globals_default_and_read_from_combat_damage() {
     assert_eq!(defaults.damage_allies_multiplier(), 1.0);
     assert_eq!(defaults.damage_enemies_multiplier(), 1.0);
     assert_eq!(defaults.damage_owner_multiplier_not_affects_enemies(), None);
-    assert_eq!(defaults.damage_allies_multiplier_not_affects_enemies(), None);
+    assert_eq!(
+        defaults.damage_allies_multiplier_not_affects_enemies(),
+        None
+    );
     assert_eq!(defaults.damage_owner_multiplier_berzerk(), None);
     assert_eq!(defaults.damage_allies_multiplier_berzerk(), None);
     assert_eq!(defaults.damage_enemies_multiplier_berzerk(), None);
@@ -478,4 +481,36 @@ fn art_image_swap_defaults_off_and_reads_from_general() {
     assert!(read("[General]\nArtImageSwap=yes\n").art_image_swap);
     assert!(!read("[CombatDamage]\nArtImageSwap=yes\n").art_image_swap);
     assert!(!read("[General]\nArtImageSwap=no\n").art_image_swap);
+}
+
+/// Package 45 G1 `[CombatDamage]` gates (`Ext/Rules/Body.cpp:477,583-584`):
+/// `Arcing.AllowElevationInaccuracy` constructs **yes** (off means apply
+/// `BulletExt::ApplyArcingFix`), while both `Temporal.Apply*` globals
+/// construct **no**. The three share the CombatDamage section with the
+/// other Phobos combat gates, not `[General]`.
+#[cfg(feature = "phobos")]
+#[test]
+fn the_g1_combat_damage_gates_construct_and_read_from_their_own_section() {
+    let defaults = PhobosGlobals::default();
+    assert!(defaults.arcing_allow_elevation_inaccuracy);
+    assert!(!defaults.temporal_apply_multiplier);
+    assert!(!defaults.temporal_apply_versus);
+    assert_eq!(read(""), PhobosGlobals::default());
+
+    let set = read(
+        "[CombatDamage]\nArcing.AllowElevationInaccuracy=no\n\
+         Temporal.ApplyMultiplier=yes\nTemporal.ApplyVersus=yes\n",
+    );
+    assert!(!set.arcing_allow_elevation_inaccuracy);
+    assert!(set.temporal_apply_multiplier);
+    assert!(set.temporal_apply_versus);
+
+    // A `[General]` spelling belongs to no reader, so the constructors stand.
+    let wrong_section = read(
+        "[General]\nArcing.AllowElevationInaccuracy=no\n\
+         Temporal.ApplyMultiplier=yes\nTemporal.ApplyVersus=yes\n",
+    );
+    assert!(wrong_section.arcing_allow_elevation_inaccuracy);
+    assert!(!wrong_section.temporal_apply_multiplier);
+    assert!(!wrong_section.temporal_apply_versus);
 }

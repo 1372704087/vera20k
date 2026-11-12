@@ -479,15 +479,30 @@ pub struct AnimTypeRuntimeConfig {
     pub(crate) ares_spawns_particle_range: [i32; 2],
     /// Ares AnimTypeExt+0x24 `Damage.Delay` (Valueable<int>, constructor 0):
     /// above zero, an anim whose `Damage=` is at least 1 delivers its whole
-    /// Damage once every this many frames.
-    #[cfg(feature = "ares")]
+    /// Damage once every this many frames. Phobos's replaced anim damage
+    /// body (`Ext/Anim/Hooks.cpp:48`) reads the same key.
+    #[cfg(any(feature = "ares", feature = "phobos"))]
     pub(crate) ares_damage_delay: i32,
     /// Ares AnimTypeExt+0x20 `Weapon` (Valueable<WeaponTypeClass*>, Find
     /// only, constructor null): the weapon whose bullet the anim's damage
     /// detonates instead of the area damage. The ordered Rules processor
-    /// resolves it with the ART body (`AnimTypeReferences`).
-    #[cfg(feature = "ares")]
+    /// resolves it with the ART body (`AnimTypeReferences`). Phobos's
+    /// replaced anim damage body reads the same key
+    /// (`Ext/Anim/Hooks.cpp:140`).
+    #[cfg(any(feature = "ares", feature = "phobos"))]
     pub(crate) ares_weapon: Option<String>,
+    /// Phobos `Damage.DealtByInvoker=` (`Ext/AnimType/Body.cpp:96`,
+    /// `Nullable<bool>`, default unset with the `[CombatDamage]
+    /// AnimDamage.DealtByInvoker` global defaulting `false`): the anim-loop
+    /// damage's attacker becomes the stored invoker (`Ext/Anim/Hooks.cpp:102`).
+    #[cfg(feature = "phobos")]
+    pub(crate) damage_dealt_by_invoker: Option<bool>,
+    /// Phobos `Damage.ApplyOncePerLoop=` (`Ext/AnimType/Body.cpp:97`,
+    /// `Valueable<bool>`, constructor `false`): damage lands only on the
+    /// loop's first frame, `max(Damage.Delay-1, 1)`
+    /// (`Ext/Anim/Hooks.cpp:56-66`).
+    #[cfg(feature = "phobos")]
+    pub(crate) damage_apply_once_per_loop: bool,
     /// art.ini `ShouldFogRemove=`, `AnimTypeClass+0x374`.
     /// Constructor default **true**.
     pub should_fog_remove: bool,
@@ -891,10 +906,14 @@ fn parse_anim_runtime_config(section: &IniSection) -> AnimTypeRuntimeConfig {
             section.read_ares_leptons("SpawnsParticle.RangeMinimum", 0),
             section.read_ares_leptons("SpawnsParticle.RangeMaximum", 0),
         ],
-        #[cfg(feature = "ares")]
+        #[cfg(any(feature = "ares", feature = "phobos"))]
         ares_damage_delay: section.read_ares_int("Damage.Delay", 0),
-        #[cfg(feature = "ares")]
+        #[cfg(any(feature = "ares", feature = "phobos"))]
         ares_weapon: None,
+        #[cfg(feature = "phobos")]
+        damage_dealt_by_invoker: section.read_phobos_nullable_bool("Damage.DealtByInvoker", None),
+        #[cfg(feature = "phobos")]
+        damage_apply_once_per_loop: section.read_bool("Damage.ApplyOncePerLoop", false),
         // Both constructor defaults are 1, not 0.
         should_fog_remove: section.read_bool("ShouldFogRemove", true),
         should_use_cell_drawer: section.read_bool("ShouldUseCellDrawer", true),

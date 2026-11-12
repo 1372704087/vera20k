@@ -357,6 +357,19 @@ pub fn anim_class_roots(rules: &RuleSet) -> Vec<String> {
     // A chunk landing in water below the deck: `Wake=` and the first
     // `SplashList=` entry (`AnimClass::AI 0x00423D46..0x00423DDD`).
     insert(&rules.general.wake.name);
+    // The native TechnoType `Wake=` and the Phobos `Wake.Grapple=` /
+    // `Wake.Sinking=` substitutes (`Ext/Techno/Hooks.Misc.cpp:393-422`).
+    for object in rules.all_objects() {
+        if let Some(name) = &object.wake {
+            insert(name);
+        }
+        #[cfg(feature = "phobos")]
+        for name in [&object.phobos_wake_grapple, &object.phobos_wake_sinking] {
+            if let Some(name) = name {
+                insert(name);
+            }
+        }
+    }
     for name in &rules.combat_damage.splash_list {
         insert(name);
     }

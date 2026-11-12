@@ -61,5 +61,12 @@ shared `throw_typed_debris` restored loop and the warhead
 
 - The cell is the detonation impact's cell; native reads the bullet's
   current cell, which differs only across a cell boundary mid-frame.
-- `DebrisAnims` names resolve through the anim catalog; an unknown name
-  keeps a null particle, matching the prior producer.
+- `DebrisAnims` unresolvable names are dropped at use time, shrinking the
+  draw space as native's load-time filter does.
+- VERA's INI store drops an empty `DebrisAnims=` value, so an explicitly
+  empty list reads as unset and falls back to the metallic list; Phobos
+  keeps it set-but-empty (no SHP debris, no draws).
+- The SHP anims carry the firer's house (`pOwner`); the voxel pieces use
+  the same resolved house.
+- The vanilla arm's 20-lepton lift is omitted under Phobos, whose hook
+  passes its coordinate unchanged.

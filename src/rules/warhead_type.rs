@@ -397,12 +397,14 @@ pub struct WarheadType {
     /// `:302`, `Body.h:151`): per-slot floor for the restored bullet loop.
     #[cfg(feature = "phobos")]
     pub phobos_debris_minimums: Vec<i32>,
-    /// Phobos `WarheadTypeExt::DebrisAnims=` (`ValueableVector<
+    /// Phobos `WarheadTypeExt::DebrisAnims=` (`NullableVector<
     /// AnimTypeClass*>`, `:299`): the SHP debris list used before
     /// `[General] MetallicDebris=` when the typed count is zero
-    /// (`Ext/Bullet/Hooks.DetonateLogics.cpp:222-240`).
+    /// (`Ext/Bullet/Hooks.DetonateLogics.cpp:222-240`). `None` is the unset
+    /// (`<default>`) state that falls back to the metallic list; `Some`
+    /// holds the authored names with unresolvable ones dropped at load.
     #[cfg(feature = "phobos")]
-    pub phobos_debris_anims: Vec<String>,
+    pub phobos_debris_anims: Option<Vec<String>>,
     /// Phobos `WarheadTypeExt::AllowDamageOnSelf` (`Nullable<bool>`): this
     /// warhead may deal damage and damage-adjacent effects to the object that
     /// fired it even when that object's type keeps `DamageSelf=no`.
@@ -1000,10 +1002,17 @@ impl WarheadType {
             // Phobos `WarheadTypeExt`'s four debris keys, read in
             // `Ext/WarheadType/Body.cpp:299-302` order.
             #[cfg(feature = "phobos")]
-            phobos_debris_anims: section
-                .read_list("DebrisAnims", 0x800)
-                .map(|tokens| tokens.into_iter().map(str::to_owned).collect())
-                .unwrap_or_default(),
+            phobos_debris_anims: section.raw_value("DebrisAnims").and_then(|raw| {
+                if raw.trim().eq_ignore_ascii_case("<default>") {
+                    return None;
+                }
+                Some(
+                    section
+                        .read_list("DebrisAnims", 0x800)
+                        .map(|tokens| tokens.into_iter().map(str::to_owned).collect())
+                        .unwrap_or_default(),
+                )
+            }),
             #[cfg(feature = "phobos")]
             phobos_debris_conventional: section
                 .read_phobos_nullable_bool("Debris.Conventional", None),

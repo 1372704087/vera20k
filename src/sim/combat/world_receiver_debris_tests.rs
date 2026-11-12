@@ -103,12 +103,23 @@ fn the_bullet_budget_is_min_to_max_and_the_water_key_skips_it() {
         "the hook's top is MaxDebris, not MaxDebris - 1: {names:?}"
     );
     assert!(names.iter().all(|name| name.starts_with("DBRI")));
+    // One index draw per metallic piece, and no other draw.
+    let mut expected = SimRng::new(7);
+    for _ in 0..2 {
+        let _ = expected.next_range_i32_inclusive(0, 1);
+    }
+    assert_eq!(sim.scenario_rng.logical_view(), expected.logical_view());
 
     let keyed = rules("", "MinDebris=2\nMaxDebris=3\nDebris.Conventional=yes\n");
     let (mut sim, detonation) = warhead_detonation(&keyed);
     set_impact_land(&mut sim, 2);
     let (names, voxels) = emit(&mut sim, &keyed, &detonation);
     assert!(names.is_empty() && voxels == 0, "the water cell skips");
+    assert_eq!(
+        sim.scenario_rng.logical_view(),
+        SimRng::new(7).logical_view(),
+        "the skip takes no draw"
+    );
 
     let global = rules("Debris.Conventional=yes\n", "MinDebris=2\nMaxDebris=3\n");
     let (mut sim, detonation) = warhead_detonation(&global);
@@ -150,6 +161,18 @@ fn the_warhead_debris_minimums_drive_the_typed_loop() {
     let (names, voxels) = emit(&mut sim, &floored, &detonation);
     assert_eq!(voxels, 3, "the minimum of 3 fills the pinned budget");
     assert!(names.is_empty(), "the typed loop never reaches an SHP arm");
+    let mut expected = SimRng::new(7);
+    let pick = expected.next_range_i32_inclusive(3, 4);
+    assert_eq!(pick, 3, "the slot's floor");
+    for _ in 0..3 {
+        for _ in 0..4 {
+            expected.next_u32();
+        }
+        for _ in 0..3 {
+            expected.next_range_u32_inclusive(0, (0xFFFF - -0xFFFF) as u32);
+        }
+    }
+    assert_eq!(sim.scenario_rng.logical_view(), expected.logical_view());
 }
 
 /// Phobos's bullet tail throws the warhead's own `DebrisAnims` list when the

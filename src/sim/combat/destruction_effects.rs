@@ -198,6 +198,7 @@ impl Simulation {
         rules: &RuleSet,
         name: Option<&str>,
         coord: AnimWorldCoord,
+        owner_house: Option<crate::sim::intern::InternedId>,
         anims: &mut Vec<ExplosionEffect>,
     ) -> Result<(), crate::util::native_x87::NativeX87Error> {
         let native_unique_id = self.next_native_runtime_id();
@@ -214,10 +215,11 @@ impl Simulation {
         };
         draws.native_unique_id = Some(native_unique_id);
         if let Some(name) = name {
-            self.emit_death_anim(
+            self.emit_death_anim_owned(
                 rules,
                 anims,
                 name,
+                owner_house,
                 DeathAnimSpawn {
                     draws: Some(draws),
                     ..DeathAnimSpawn::at(coord, 0)
@@ -236,6 +238,17 @@ impl Simulation {
         type_name: &str,
         spawn: DeathAnimSpawn,
     ) {
+        self.emit_death_anim_owned(rules, anims, type_name, None, spawn);
+    }
+
+    fn emit_death_anim_owned(
+        &mut self,
+        rules: &RuleSet,
+        anims: &mut Vec<ExplosionEffect>,
+        type_name: &str,
+        owner_house: Option<crate::sim::intern::InternedId>,
+        spawn: DeathAnimSpawn,
+    ) {
         let shp_name = self.interner.intern(type_name);
         let (rx, ry, sub_x, sub_y, z) = spawn.coord.to_cell_sub_z();
         let effect = ExplosionEffect {
@@ -247,7 +260,7 @@ impl Simulation {
             z,
             world_z: spawn.coord.z,
             z_adjust: crate::sim::anim_class::COMBAT_EXPLOSION_Z_ADJUST,
-            owner_house: None,
+            owner_house,
             death: Some(spawn),
         };
         if super::world_receiver::callbacks_enabled(self) {

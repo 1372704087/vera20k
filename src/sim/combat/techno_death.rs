@@ -395,8 +395,13 @@ impl crate::sim::voxel_anim::ShpDebrisHost for DeathDebrisWorldHost<'_, '_> {
         index: usize,
     ) -> Result<(), crate::util::native_x87::NativeX87Error> {
         let name = self.debris_name(source, index);
-        self.world
-            .emit_debris_anim(self.rules, name, self.anim_coord, self.explosion_effects)
+        self.world.emit_debris_anim(
+            self.rules,
+            name,
+            self.anim_coord,
+            None,
+            self.explosion_effects,
+        )
     }
 }
 

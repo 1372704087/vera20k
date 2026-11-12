@@ -1935,6 +1935,12 @@ pub struct Simulation {
     /// Serialized map trigger state, initialized and mutated by trigger_runtime.
     /// Remains installed while actions call other Simulation mechanisms.
     pub(crate) trigger_runtime: TriggerRuntime,
+    /// Phobos `ScenarioExt::TransportReloaders` (`Ext/Scenario/Body.h:34`):
+    /// passengers reloaded by the pre-Logic pass while inside a transport, in
+    /// boarding order. Saved (`Ext/Scenario/Body.cpp:182`) and hashed.
+    #[cfg(feature = "phobos")]
+    #[serde(default)]
+    pub(crate) transport_reloaders: Vec<u64>,
 }
 
 #[cfg(any(test, feature = "test-support"))]
@@ -4904,6 +4910,8 @@ impl Simulation {
             #[cfg(feature = "phobos")]
             super_weapon_chain_depth: 0,
             trigger_runtime: TriggerRuntime::default(),
+            #[cfg(feature = "phobos")]
+            transport_reloaders: Vec::new(),
         };
         debug_assert_eq!(out.scenario_rng.state(), out.main_rng.state());
         // Authoritative map bounds are session state, known at construction —

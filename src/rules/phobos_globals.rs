@@ -840,6 +840,12 @@ pub struct PhobosGlobals {
     /// building-type fallback for the same key (`0x44DCB1`).
     #[serde(default)]
     pub no_queue_up_to_unload_buildings: Option<bool>,
+    /// `[General] ReloadInTransport=`, default `no`
+    /// (`Ext/Rules/Body.cpp:454`, constructor `Ext/Rules/Body.h:869`): a
+    /// passenger whose type enables it reloads while inside a transport
+    /// (`Ext/Techno/Hooks.Transport.cpp:70-165`).
+    #[serde(default)]
+    pub reload_in_transport: bool,
     /// `[General] VeteranReload=`, default **`1.0`**
     /// (`Ext/Rules/Body.cpp:388`, constructor `Ext/Rules/Body.h:808`).
     #[serde(default = "one_f64")]
@@ -1067,6 +1073,7 @@ impl Default for PhobosGlobals {
             no_queue_up_to_enter_buildings: None,
             no_queue_up_to_unload: false,
             no_queue_up_to_unload_buildings: None,
+            reload_in_transport: false,
             veteran_reload: NativeF64Bits::ONE,
             veteran_empty_reload: None,
             is_voice_created_global: false,
@@ -1243,6 +1250,8 @@ impl PhobosGlobals {
             "NoQueueUpToUnload.Buildings",
             globals.no_queue_up_to_unload_buildings,
         );
+        globals.reload_in_transport =
+            general.read_bool("ReloadInTransport", globals.reload_in_transport);
         // `Ext/Rules/Body.cpp:213-214`: the Ares radar-jam scan's House filter
         // (`Valueable<AffectedHouse>`, default Enemies) and interval.
         globals.radar_jam_houses = crate::rules::phobos_shields::read_affected_house(

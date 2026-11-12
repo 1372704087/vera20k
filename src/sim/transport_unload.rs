@@ -711,6 +711,10 @@ fn eject_head_passenger(
             if let Some(passenger) = sim.substrate.entities.get_mut(pax_id) {
                 passenger.passenger_role.clear_transporter();
             }
+            // Phobos `FootClass_LeaveTransport` (0x4DE722): the ejected
+            // passenger leaves the scenario reloader list.
+            #[cfg(feature = "phobos")]
+            sim.remove_transport_reloader(pax_id);
             sim.queue_order_mission(pax_id, MissionType::Move, rules);
             // Ares UnitClass_Mi_Unload_Decactivated1004CF80 (hook73DBF9): a
             // Deactivated passenger's locomotor is powered off, and an

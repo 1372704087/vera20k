@@ -613,3 +613,10 @@ fn no_queue_up_to_unload_globals_default_and_read() {
     assert!(set.no_queue_up_to_unload);
     assert_eq!(set.no_queue_up_to_unload_buildings, Some(false));
 }
+
+/// `[General] ReloadInTransport` (`Valueable<bool>`, false).
+#[test]
+fn reload_in_transport_defaults_and_reads() {
+    assert!(!PhobosGlobals::default().reload_in_transport);
+    assert!(read("[General]\nReloadInTransport=yes\n").reload_in_transport);
+}

@@ -1338,6 +1338,10 @@ pub(crate) fn board_passenger(
         sim.mark_boarded_transport_passenger(pax_id, carrier_id, open_topped, rules, effects);
         sim.open_topped_passengers_take_target(pax_id, None, rules, registry, effects);
     }
+    // Phobos `TechnoClass_EnterTransport` (0x71067B): a qualifying
+    // passenger joins the scenario reloader list.
+    #[cfg(feature = "phobos")]
+    sim.register_transport_reloader(rules, pax_id);
     true
 }
 
@@ -2189,6 +2193,147 @@ impl Simulation {
     }
 }
 
+/// Phobos `ReloadInTransport` (`Ext/Techno/Hooks.Transport.cpp:70-165`):
+/// the scenario reloader list, its pre-Logic pass and the infantry FireAt
+/// restart.
+#[cfg(feature = "phobos")]
+impl Simulation {
+    /// `TechnoClass_EnterTransport` (hook `0x71067B`, `:82-89`): a boarded
+    /// Infantry or Unit with a positive `Ammo=` and the resolved key joins
+    /// `ScenarioExt::TransportReloaders`.
+    pub(crate) fn register_transport_reloader(&mut self, rules: &RuleSet, pax_id: u64) {
+        let Some(entity) = self.substrate.entities.get(pax_id) else {
+            return;
+        };
+        if !matches!(
+            entity.category(),
+            EntityCategory::Infantry | EntityCategory::Unit
+        ) {
+            return;
+        }
+        let Some(object) = self.interner.object_type(entity.type_ref(), rules) else {
+            return;
+        };
+        if object.ammo <= 0
+            || !object
+                .phobos_techno_extras
+                .reload_in_transport(rules.phobos_globals.reload_in_transport)
+        {
+            return;
+        }
+        if !self.transport_reloaders.contains(&pax_id) {
+            self.transport_reloaders.push(pax_id);
+        }
+    }
+
+    /// `FootClass_LeaveTransport` (hook `0x4DE722`, `:97-105`) and
+    /// `TechnoClass::UnInit` (`Ext/Techno/Body.cpp:30`): the order-preserving
+    /// erase of `std::remove` + erase.
+    pub(crate) fn remove_transport_reloader(&mut self, pax_id: u64) {
+        if let Some(index) = self.transport_reloaders.iter().position(|&id| id == pax_id) {
+            self.transport_reloaders.remove(index);
+        }
+    }
+
+    /// `ScenarioExt::ExtData::UpdateTransportReloaders`
+    /// (`Ext/Scenario/Body.cpp:112-119`, from `LogicClass_Update_BeforeAll`
+    /// `0x55B4E1`): every listed passenger that is alive and still inside an
+    /// in-logic transport takes one `Reload()`. Native `TechnoClass::Reload`
+    /// calls `StartReloading` itself after a round (0x6FB069), so the clock
+    /// restarts here too.
+    pub(crate) fn phobos_update_transport_reloaders(&mut self, rules: &RuleSet) {
+        if self.transport_reloaders.is_empty() {
+            return;
+        }
+        let now = self.session.binary_frame() as i32;
+        let ids = std::mem::take(&mut self.transport_reloaders);
+        let mut keep = Vec::with_capacity(ids.len());
+        for id in ids {
+            let Some((category, type_ref)) = self.substrate.entities.get(id).and_then(|entity| {
+                (entity.lifecycle.object_alive()).then_some((entity.category(), entity.type_ref()))
+            }) else {
+                continue;
+            };
+            let Some(transport_id) = self
+                .substrate
+                .entities
+                .get(id)
+                .and_then(|entity| entity.passenger_role.inside_transport_id())
+            else {
+                continue;
+            };
+            keep.push(id);
+            let transport_in_logic =
+                self.substrate
+                    .entities
+                    .get(transport_id)
+                    .is_some_and(|transport| {
+                        transport.lifecycle.object_alive() && transport.in_logic_vector.is_member()
+                    });
+            if !transport_in_logic {
+                continue;
+            }
+            let Some(object) = self.interner.object_type(type_ref, rules) else {
+                continue;
+            };
+            let reloaded = self.substrate.entities.get_mut(id).is_some_and(|entity| {
+                match category {
+                    // `UnitClass::Reload736CA0` keeps the MobileFire moving
+                    // check; its error arm (no locomotion) skips the round.
+                    EntityCategory::Unit => entity.reload_unit_ammo(object, now).unwrap_or(false),
+                    _ => entity.reload_techno_ammo(object, now),
+                }
+            });
+            if reloaded {
+                crate::sim::shared_ammo::start_reloading(
+                    &mut self.substrate.entities,
+                    &self.interner,
+                    rules,
+                    id,
+                    now,
+                );
+            }
+        }
+        self.transport_reloaders = keep;
+    }
+
+    /// `InfantryClass_FireAt_ReloadInTransport` (`0x51DF82`, `:151-165`):
+    /// after a shot, a transported infantryman whose resolved key is yes and
+    /// whose magazine is below `Ammo=` restarts its reload clock.
+    pub(crate) fn reload_in_transport_after_infantry_fire(
+        &mut self,
+        rules: &RuleSet,
+        id: u64,
+        now: i32,
+    ) {
+        let Some(entity) = self.substrate.entities.get(id) else {
+            return;
+        };
+        if !entity.passenger_role.is_inside_transport() {
+            return;
+        }
+        let Some(object) = self.interner.object_type(entity.type_ref(), rules) else {
+            return;
+        };
+        let applies = object.ammo > 0
+            && entity
+                .ammo()
+                .is_some_and(|ammo| ammo.current() < object.ammo)
+            && object
+                .phobos_techno_extras
+                .reload_in_transport(rules.phobos_globals.reload_in_transport);
+        if applies {
+            crate::sim::shared_ammo::start_reloading(
+                &mut self.substrate.entities,
+                &self.interner,
+                rules,
+                id,
+                now,
+            );
+        }
+    }
+}
+
 #[cfg(test)]
 mod gunner_tests;
 
@@ -2619,5 +2764,187 @@ ConditionYellow=50%
             ),
             "the unset type keys read [General] NoQueueUpToEnter= and its 384 default"
         );
+    }
+    /// Phobos `ReloadInTransport` (`Ext/Techno/Hooks.Transport.cpp:70-165`):
+    /// a qualifying passenger joins the Scenario list on boarding, takes one
+    /// `Reload()` (plus its own StartReloading) per pre-Logic pass, leaves the
+    /// list on the leave hook, and a transported infantryman's FireAt
+    /// restarts the clock.
+    #[cfg(feature = "phobos")]
+    #[test]
+    fn phobos_reload_in_transport_registers_reloads_and_unlists() {
+        use crate::sim::ammo::TechnoAmmo;
+
+        let rules = RuleSet::from_ini(&IniFile::from_str(
+            "[InfantryTypes]
+0=E1
+[VehicleTypes]
+0=BFRT
+             [AircraftTypes]
+[BuildingTypes]
+             [E1]
+Strength=125
+Armor=none
+Speed=4
+Size=1
+             Ammo=5
+Reload=10
+ReloadInTransport=yes
+             [BFRT]
+Strength=600
+Armor=heavy
+Speed=4
+Passengers=5
+SizeLimit=2
+             [General]
+FixtureOnly=1
+",
+        ))
+        .unwrap();
+        let mut sim = Simulation::new();
+        let transport = spawn_transport(&mut sim, &rules, "BFRT", "Americans", 10, 10);
+        let passenger =
+            spawn_entering_infantry(&mut sim, &rules, "E1", "Americans", transport, 11, 10);
+        let mut ammo = TechnoAmmo::new(5);
+        ammo.set_current_for_test(0);
+        sim.substrate
+            .entities
+            .get_mut(passenger)
+            .unwrap()
+            .install_ammo_for_test(Some(ammo));
+        assert!(super::board_passenger(
+            &mut sim,
+            &rules,
+            passenger,
+            transport,
+            super::BoardingArm::InfantryTransport,
+            None,
+            crate::sim::world::FrameEffects::default(),
+        ));
+        assert_eq!(sim.transport_reloaders, vec![passenger]);
+
+        sim.session.set_binary_frame_for_test(200);
+        sim.phobos_update_transport_reloaders(&rules);
+        let entity = sim.substrate.entities.get(passenger).unwrap();
+        assert_eq!(entity.ammo().unwrap().current(), 1, "one round per pass");
+        assert!(
+            entity.ammo_reload_timer().remaining(200) > 0,
+            "TechnoClass::Reload restarts the clock (0x6FB069)"
+        );
+
+        // A running clock adds nothing on the next pass.
+        sim.phobos_update_transport_reloaders(&rules);
+        assert_eq!(
+            sim.substrate
+                .entities
+                .get(passenger)
+                .unwrap()
+                .ammo()
+                .unwrap()
+                .current(),
+            1
+        );
+        // The clock is due again ten frames later.
+        sim.session.set_binary_frame_for_test(210);
+        sim.phobos_update_transport_reloaders(&rules);
+        assert_eq!(
+            sim.substrate
+                .entities
+                .get(passenger)
+                .unwrap()
+                .ammo()
+                .unwrap()
+                .current(),
+            2
+        );
+
+        // FireAt restarts the clock for a transported infantryman.
+        sim.session.set_binary_frame_for_test(400);
+        sim.reload_in_transport_after_infantry_fire(&rules, passenger, 400);
+        assert!(
+            sim.substrate
+                .entities
+                .get(passenger)
+                .unwrap()
+                .ammo_reload_timer()
+                .remaining(400)
+                > 0,
+            "the FireAt hook starts the clock"
+        );
+
+        // The leave hook erases the entry; the pass then reloads nothing.
+        sim.remove_transport_reloader(passenger);
+        assert!(sim.transport_reloaders.is_empty());
+        sim.session.set_binary_frame_for_test(500);
+        sim.phobos_update_transport_reloaders(&rules);
+        assert_eq!(
+            sim.substrate
+                .entities
+                .get(passenger)
+                .unwrap()
+                .ammo()
+                .unwrap()
+                .current(),
+            2
+        );
+    }
+
+    /// The same registration reads `[General] ReloadInTransport` when the
+    /// type key is unset, and a type with `Ammo=-1` never joins the list.
+    #[cfg(feature = "phobos")]
+    #[test]
+    fn phobos_reload_in_transport_reads_the_general_and_skips_infinite_ammo() {
+        let rules = RuleSet::from_ini(&IniFile::from_str(
+            "[InfantryTypes]
+0=E1
+1=E2
+[VehicleTypes]
+0=BFRT
+             [AircraftTypes]
+[BuildingTypes]
+             [E1]
+Strength=125
+Armor=none
+Speed=4
+Size=1
+Ammo=5
+Reload=10
+             [E2]
+Strength=125
+Armor=none
+Speed=4
+Size=1
+Ammo=-1
+             ReloadInTransport=yes
+             [BFRT]
+Strength=600
+Armor=heavy
+Speed=4
+Passengers=5
+SizeLimit=2
+             [General]
+FixtureOnly=1
+ReloadInTransport=yes
+",
+        ))
+        .unwrap();
+        let mut sim = Simulation::new();
+        let transport = spawn_transport(&mut sim, &rules, "BFRT", "Americans", 10, 10);
+        let global_pax =
+            spawn_entering_infantry(&mut sim, &rules, "E1", "Americans", transport, 11, 10);
+        let infinite =
+            spawn_entering_infantry(&mut sim, &rules, "E2", "Americans", transport, 12, 10);
+        for pax in [global_pax, infinite] {
+            assert!(super::board_passenger(
+                &mut sim,
+                &rules,
+                pax,
+                transport,
+                super::BoardingArm::InfantryTransport,
+                None,
+                crate::sim::world::FrameEffects::default(),
+            ));
+        }
+        assert_eq!(sim.transport_reloaders, vec![global_pax]);
     }
 }

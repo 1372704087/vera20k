@@ -39,7 +39,11 @@ struct Arena {
 }
 
 fn arena(land: &str) -> Arena {
-    let ini = IniFile::from_str(&format!("{RULES}{land}"));
+    arena_from(&format!("{RULES}{land}"))
+}
+
+fn arena_from(text: &str) -> Arena {
+    let ini = IniFile::from_str(text);
     let ini = if ini.section("Tiberiums").is_some() {
         crate::rules::tiberium_type::with_tiberium_image_slots(&ini)
     } else {
@@ -220,4 +224,179 @@ fn a_laser_fence_may_stand_on_ore() {
     let mut without = arena(CLEAR_BUILDABLE);
     without.overlay((10, 10), "TIB01", 3, None);
     assert!(!without.cell_clear((10, 10), "GAFENCE", None));
+}
+
+#[cfg(feature = "phobos")]
+mod can_be_built_on {
+    use super::*;
+    use crate::sim::movement::locomotor::MovementLayer;
+    use crate::sim::occupancy::CellObjectMember;
+    use crate::sim::terrain_object::TerrainObjectState;
+
+    const TERRAIN_TYPES: &str = "[TerrainTypes]\n0=TREE\n1=ROCK\n\
+        [TREE]\nSpawnsTiberium=yes\nTemperateOccupationBits=7\n{tree}\
+        [ROCK]\nTemperateOccupationBits=7\n{rock}";
+
+    fn terrain_arena(general: &str, tree: &str, rock: &str) -> Arena {
+        arena_from(&format!(
+            "{RULES}{}{CLEAR_BUILDABLE}",
+            TERRAIN_TYPES
+                .replace("{tree}", tree)
+                .replace("{rock}", rock)
+                .replace(
+                    "[TerrainTypes]",
+                    &format!("[General]\n{general}[TerrainTypes]")
+                )
+        ))
+    }
+
+    fn put_terrain(a: &mut Arena, name: &str, cell: (u16, u16)) -> u64 {
+        let ty = a
+            .rules
+            .terrain_object_type_case_insensitive(name)
+            .expect("terrain type")
+            .clone();
+        let type_ref = a.sim.interner.intern(name);
+        let state = TerrainObjectState::new(
+            900,
+            type_ref,
+            cell,
+            &ty,
+            false,
+            a.sim.resolved_terrain.as_ref(),
+        );
+        a.sim
+            .terrain_objects
+            .insert_constructed(state, ty.spawns_tiberium);
+        a.sim.terrain_objects.add_to_cell(900, cell);
+        assert_eq!(a.sim.terrain_objects.id_at(cell), Some(900));
+        900
+    }
+
+    /// Phobos `CanBeBuiltOn=` (`Ext/TerrainType/Body.h:34`) resolves the type
+    /// key else `Tibtree.CanBeBuiltOn=`/`Terrain.CanBeBuiltOn=` by
+    /// `SpawnsTiberium=` (`Ext/Rules/Body.cpp:481-482`, default no).
+    #[test]
+    fn the_type_key_and_globals_resolve_by_spawns_tiberium() {
+        let yes = |a: &Arena, name: &str| {
+            a.rules
+                .terrain_object_type_case_insensitive(name)
+                .expect("terrain type")
+                .can_be_built_on()
+        };
+        let keyed = terrain_arena("", "CanBeBuiltOn=yes\n", "");
+        assert!(yes(&keyed, "TREE"));
+        assert!(!yes(&keyed, "ROCK"));
+        let terrain = terrain_arena("Terrain.CanBeBuiltOn=yes\n", "", "");
+        assert!(yes(&terrain, "ROCK"), "ordinary terrain global");
+        assert!(!yes(&terrain, "TREE"), "tiberium tree untouched");
+        let tibtree = terrain_arena("Tibtree.CanBeBuiltOn=yes\n", "", "");
+        assert!(yes(&tibtree, "TREE"), "tiberium tree global");
+        assert!(!yes(&tibtree, "ROCK"));
+        let no = terrain_arena(
+            "Terrain.CanBeBuiltOn=yes\nTibtree.CanBeBuiltOn=yes\n",
+            "CanBeBuiltOn=no\n",
+            "",
+        );
+        assert!(!yes(&no, "TREE"), "explicit no beats globals");
+    }
+
+    /// Phobos `CanBeBuiltOn` hooks: the admission (`0x47C640` ordinary arm),
+    /// the placement flush (`0x45EF3A`) and the PlaceDown removal
+    /// (`0x5684B1`) all read the resolved key.
+    #[test]
+    fn a_buildable_terrain_is_admitted_flushed_and_removed_with_the_building() {
+        use crate::sim::house_state::HouseState;
+        let mut a = terrain_arena("", "CanBeBuiltOn=yes\n", "");
+        let owner = a.house("Americans");
+        a.sim
+            .houses
+            .register(HouseState::new(owner, 0, None, true, 0, 10));
+        put_terrain(&mut a, "TREE", (16, 16));
+        assert!(a.cell_clear((16, 16), "GAPOWR", None), "admitted");
+        assert!(a.can_place("GAPOWR", (16, 16), None));
+        let power = a.ty("GAPOWR").clone();
+        assert_eq!(power.foundation.dimensions(), (2, 2), "fixture foundation");
+        assert!(
+            a.sim.map_cell_in_bounds((16, 16)),
+            "fixture cell on the map"
+        );
+        assert_eq!(
+            flush_for_placement(
+                &mut a.sim,
+                &a.rules,
+                Some(&a.registry),
+                &power,
+                (16, 16),
+                owner,
+                FrameEffects::default(),
+            ),
+            Flush::Clear,
+            "the buildable terrain does not block the flush"
+        );
+        let building = a
+            .sim
+            .construct_object_limbo_at_height(
+                "GAPOWR",
+                "Americans",
+                0,
+                0,
+                0,
+                0,
+                &a.rules,
+                FrameEffects::default(),
+            )
+            .expect("limbo building");
+        let placed = a.sim.place_building_with_cleared_foundation(
+            building,
+            crate::sim::components::DriveCoord::cell(16, 16, 0),
+            0,
+            &a.rules,
+            Some(&a.registry),
+            FrameEffects::default(),
+        );
+        assert_eq!(placed, Some(building));
+        assert_eq!(
+            a.sim.terrain_objects.id_at((16, 16)),
+            None,
+            "PlaceDown removed the buildable terrain"
+        );
+
+        // The same cell with an ordinary terrain refuses both the admission
+        // and the flush, and keeps the object.
+        let mut a = terrain_arena("", "", "");
+        let owner = a.house("Americans");
+        a.sim
+            .houses
+            .register(HouseState::new(owner, 0, None, true, 0, 10));
+        put_terrain(&mut a, "ROCK", (16, 16));
+        assert!(
+            !a.sim
+                .terrain_objects
+                .get(900)
+                .expect("rock")
+                .can_be_built_on()
+        );
+        assert!(
+            a.sim
+                .cell_objects((16, 16), MovementLayer::Ground)
+                .any(|member| matches!(member, CellObjectMember::Terrain(900))),
+            "the rock heads the cell content"
+        );
+        assert!(!a.cell_clear((16, 16), "GAPOWR", None));
+        assert!(!a.can_place("GAPOWR", (16, 16), None));
+        let power = a.ty("GAPOWR").clone();
+        assert_eq!(
+            flush_for_placement(
+                &mut a.sim,
+                &a.rules,
+                Some(&a.registry),
+                &power,
+                (16, 16),
+                owner,
+                FrameEffects::default(),
+            ),
+            Flush::Blocked
+        );
+    }
 }

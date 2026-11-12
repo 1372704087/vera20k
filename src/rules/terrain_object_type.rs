@@ -63,11 +63,21 @@ pub struct TerrainObjectType {
     /// the type's own override; unset keeps the selected `[General]` fallback.
     #[cfg(feature = "phobos")]
     is_passable: Option<bool>,
+    /// Phobos `CanBeBuiltOn=` (`Ext/TerrainType/Body.h:34`, a `Nullable<bool>`):
+    /// a building may be placed over this terrain, which is then removed
+    /// (`Ext/TerrainType/Hooks.Passable.cpp:104-190`).
+    #[cfg(feature = "phobos")]
+    can_be_built_on_key: Option<bool>,
     /// Resolved Phobos `IsPassable` (`Ext/TerrainType/Hooks.Passable.cpp:10-18`):
     /// the type key else `Tibtree.IsPassable`/`Terrain.IsPassable` selected by
     /// `SpawnsTiberium=`. False without the phobos feature.
     #[serde(default)]
     passable: bool,
+    /// Resolved Phobos `CanBeBuiltOn`: the type key else
+    /// `Tibtree.CanBeBuiltOn`/`Terrain.CanBeBuiltOn` by `SpawnsTiberium=`.
+    /// False without the phobos feature.
+    #[serde(default)]
+    can_be_built_on: bool,
     /// `IsAnimated=yes` — required gate for SpawnsTiberium logic.
     pub is_animated: bool,
     /// Signed logic frames per animation step; native ReadInt stores without clamps.
@@ -189,7 +199,10 @@ impl TerrainObjectType {
             spawns_tiberium: section.read_bool("SpawnsTiberium", false),
             #[cfg(feature = "phobos")]
             is_passable: section.read_phobos_nullable_bool("IsPassable", None),
+            #[cfg(feature = "phobos")]
+            can_be_built_on_key: section.read_phobos_nullable_bool("CanBeBuiltOn", None),
             passable: false,
+            can_be_built_on: false,
             is_animated: section.read_bool("IsAnimated", false),
             animation_rate: section.read_int("AnimationRate", 0),
             animation_probability,
@@ -299,16 +312,23 @@ impl TerrainObjectType {
         self.passable
     }
 
-    /// Resolve the Phobos passability fallback once the globals are known.
+    /// Whether a resolved `CanBeBuiltOn` key lets a building replace it.
+    pub(crate) fn can_be_built_on(&self) -> bool {
+        self.can_be_built_on
+    }
+
+    /// Resolve the Phobos terrain-type overrides once the globals are known.
     #[cfg(feature = "phobos")]
-    pub(crate) fn project_passability(
-        &mut self,
-        globals: &crate::rules::phobos_globals::PhobosGlobals,
-    ) {
+    pub(crate) fn project_phobos(&mut self, globals: &crate::rules::phobos_globals::PhobosGlobals) {
         self.passable = self.is_passable.unwrap_or(if self.spawns_tiberium {
             globals.tibtree_is_passable
         } else {
             globals.terrain_is_passable
+        });
+        self.can_be_built_on = self.can_be_built_on_key.unwrap_or(if self.spawns_tiberium {
+            globals.tibtree_can_be_built_on
+        } else {
+            globals.terrain_can_be_built_on
         });
     }
 

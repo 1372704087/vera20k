@@ -796,6 +796,14 @@ pub struct CellRectOccupancyContext<'a> {
     pub occupancy: Option<&'a OccupancyGrid>,
     /// Derived index of live TerrainClass objects in the active ground list.
     pub terrain_object_cells: Option<&'a BTreeMap<(u16, u16), u64>>,
+    /// The live Terrain objects behind [`Self::terrain_object_cells`], for the
+    /// Phobos `CanBeBuiltOn` arm.
+    pub terrain_objects: Option<&'a crate::sim::terrain_object::TerrainObjectStore>,
+    /// Phobos `MapClass_IsAreaFree_Wrapper @ 0x5069DB`: only the AI's building
+    /// site search sets this. While it is set, a `CanBeBuiltOn` Terrain no
+    /// longer blocks, and the passability byte also admits `HasFreeSpots`
+    /// (`Ext/TerrainType/Hooks.Passable.cpp:222-262`).
+    pub ai_build_location: bool,
     pub resolved_terrain: Option<&'a ResolvedTerrainGrid>,
     pub overlay_grid: Option<&'a OverlayGrid>,
     /// The configured map's final normalized isometric-diamond fields. Absence
@@ -866,11 +874,25 @@ fn occupancy_blocker_at(
         CellRef::Dummy { .. } => None,
     };
 
-    if canonical.is_some_and(|cell| {
-        ctx.terrain_object_cells
-            .is_some_and(|terrain| terrain.contains_key(&cell))
-    }) {
-        return Some(OccupancyBlocker::TerrainObject);
+    // Phobos `MapClass_IsAreaFree @ 0x586780` (`Ext/TerrainType/Hooks.Passable
+    // .cpp:222-262`): during the AI's building-site search a `CanBeBuiltOn`
+    // Terrain stops blocking and the passability byte also admits
+    // `HasFreeSpots` (the enum's second value, VERA's zone 1).
+    let mut built_on_terrain = false;
+    if let Some(terrain_id) = canonical
+        .and_then(|cell| ctx.terrain_object_cells.and_then(|index| index.get(&cell)))
+        .copied()
+    {
+        let can_be_built_on = ctx.ai_build_location
+            && ctx.terrain_objects.is_some_and(|objects| {
+                objects
+                    .get(terrain_id)
+                    .is_some_and(|terrain| terrain.can_be_built_on())
+            });
+        if !can_be_built_on {
+            return Some(OccupancyBlocker::TerrainObject);
+        }
+        built_on_terrain = true;
     }
     let reserved = reservation_mask != 0
         && ctx.reservations.is_some_and(|reservations| {
@@ -893,7 +915,14 @@ fn occupancy_blocker_at(
         return Some(OccupancyBlocker::Overlay);
     }
 
-    if matches!(&cell, CellRef::Real(cell) if cell.zone_type != zone_class::GROUND) {
+    let passable_zone = |zone: u8| {
+        if built_on_terrain {
+            zone == zone_class::GROUND || zone == zone_class::CRUSHABLE
+        } else {
+            zone == zone_class::GROUND
+        }
+    };
+    if matches!(&cell, CellRef::Real(cell) if !passable_zone(cell.zone_type)) {
         return Some(OccupancyBlocker::ZoneType);
     }
     if match &cell {
@@ -1635,6 +1664,8 @@ mod tests {
             reservations: None,
             occupancy: None,
             terrain_object_cells: None,
+            terrain_objects: None,
+            ai_build_location: false,
             resolved_terrain: terrain,
             overlay_grid: None,
             playfield_bounds: Some(wide_test_playfield()),
@@ -2011,6 +2042,8 @@ mod tests {
             reservations: None,
             occupancy: Some(&occupancy),
             terrain_object_cells: None,
+            terrain_objects: None,
+            ai_build_location: false,
             resolved_terrain: Some(&terrain),
             overlay_grid: None,
             playfield_bounds: Some(wide_test_playfield()),
@@ -2149,6 +2182,8 @@ mod tests {
             reservations: None,
             occupancy: None,
             terrain_object_cells: None,
+            terrain_objects: None,
+            ai_build_location: false,
             resolved_terrain: None,
             overlay_grid: None,
             playfield_bounds: Some(diamond_bounds()),
@@ -2295,6 +2330,8 @@ mod tests {
             reservations: Some(&grid),
             occupancy: None,
             terrain_object_cells: None,
+            terrain_objects: None,
+            ai_build_location: false,
             resolved_terrain: Some(&terrain),
             overlay_grid: None,
             playfield_bounds: None,
@@ -2367,6 +2404,8 @@ mod tests {
                         reservations: Some(&reservations),
                         occupancy: Some(&occupancy),
                         terrain_object_cells: Some(&terrain_objects),
+                        terrain_objects: None,
+                        ai_build_location: false,
                         resolved_terrain: Some(&terrain),
                         overlay_grid: Some(&overlays),
                         playfield_bounds: None,
@@ -2421,6 +2460,8 @@ mod tests {
                         reservations: None,
                         occupancy: Some(&occupancy),
                         terrain_object_cells: None,
+                        terrain_objects: None,
+                        ai_build_location: false,
                         resolved_terrain: Some(&terrain),
                         overlay_grid: None,
                         playfield_bounds: None,

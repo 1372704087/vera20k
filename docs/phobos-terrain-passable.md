@@ -34,7 +34,7 @@ instead of an attack order unless force-firing.
 `PhobosGlobals::terrain_is_passable` / `tibtree_is_passable` read the
 `[General]` pair, and `TerrainObjectType::is_passable` holds the per-type
 Nullable. The RuleSet constructor projects the resolved value
-(`project_passability`, type key else the global selected by
+(`project_phobos`, type key else the global selected by
 `SpawnsTiberium=`). `TerrainObjectType::raw_occupation_bits` returns 0 for a
 passable type, and the live/map cell projection stores **no**
 `terrain_object_occupation` at all (rather than `Some(0)`, which would map to
@@ -53,5 +53,5 @@ types installed after the RuleSet constructor are projected too.
 - The `WhatAction` arm (`0x7002E9`) selects a Move order/action and is not
   ported; clicking passable terrain keeps the stock attack order unless
   force-firing. This is a player-visible input gap.
-- The buildable-upon half of the same Phobos family (`CanBeBuiltOn`) is a
-  separate chain.
+- The buildable-upon half of the same Phobos family is
+  [its own page](phobos-terrain-can-be-built-on.md).

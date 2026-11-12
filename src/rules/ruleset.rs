@@ -7591,7 +7591,7 @@ impl RuleSet {
                 ..
             } = &mut rules;
             for ty in terrain_object_types.values_mut() {
-                ty.project_passability(phobos_globals);
+                ty.project_phobos(phobos_globals);
             }
         }
         rules.rebuild_animation_sequences();
@@ -8116,7 +8116,7 @@ impl RuleSet {
         // A map-only type is created after the RuleSet constructor, so its
         // Phobos passability fallback is projected here.
         #[cfg(feature = "phobos")]
-        terrain.project_passability(&self.phobos_globals);
+        terrain.project_phobos(&self.phobos_globals);
         // This name-keyed projection covers distinct short stored IDs.
         // Repeated >24-byte inputs can allocate equal-ID native slots; their
         // separate per-slot identity remains outside this projection's scope.

@@ -1670,6 +1670,16 @@ impl Simulation {
                     }
                 }
             }
+            // Phobos `CanBeBuiltOn` (0x5684B1, `Ext/TerrainType/Hooks.Passable.cpp`
+            // :145-170): PlaceDown removes a buildable Terrain in the cell.
+            if let Some(terrain_id) = self.terrain_objects.id_at((at.0 as u16, at.1 as u16))
+                && self
+                    .terrain_objects
+                    .get(terrain_id)
+                    .is_some_and(|terrain| terrain.can_be_built_on())
+            {
+                let _ = self.retire_non_entity_object(terrain_id, context);
+            }
             if !self.clear_mobile_placement_cell(cell, &mut displaced, context) {
                 self.restore_displaced_placement_technos(
                     displaced,

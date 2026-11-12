@@ -258,6 +258,15 @@ pub struct PhobosGlobals {
     /// same for a `SpawnsTiberium=` type.
     #[serde(default)]
     pub tibtree_is_passable: bool,
+    /// `[General] Terrain.CanBeBuiltOn=`, default `no`
+    /// (`Ext/Rules/Body.cpp:481`, constructor `Ext/Rules/Body.h:896`): a
+    /// building may replace an ordinary terrain type with the resolved key.
+    #[serde(default)]
+    pub terrain_can_be_built_on: bool,
+    /// `[General] Tibtree.CanBeBuiltOn=`, default `no` (`:482`, `:897`): the
+    /// same for a `SpawnsTiberium=` type.
+    #[serde(default)]
+    pub tibtree_can_be_built_on: bool,
     /// `[General] ApplyModifiersOnNegativeDamage=`, default `no`
     /// (`Ext/Rules/Body.cpp:492`, constructor `Ext/Rules/Body.h:907`): the
     /// fallback for an unset warhead key; a negative packet keeps the stock
@@ -889,6 +898,8 @@ impl Default for PhobosGlobals {
             ambient_damage_ignore_target: false,
             terrain_is_passable: false,
             tibtree_is_passable: false,
+            terrain_can_be_built_on: false,
+            tibtree_can_be_built_on: false,
             apply_modifiers_on_negative_damage: false,
             force_weapon_in_range_techno_only: true,
             force_weapon_in_range_apply_range_modifiers: false,
@@ -1120,6 +1131,10 @@ impl PhobosGlobals {
             general.read_bool("Terrain.IsPassable", globals.terrain_is_passable);
         globals.tibtree_is_passable =
             general.read_bool("Tibtree.IsPassable", globals.tibtree_is_passable);
+        globals.terrain_can_be_built_on =
+            general.read_bool("Terrain.CanBeBuiltOn", globals.terrain_can_be_built_on);
+        globals.tibtree_can_be_built_on =
+            general.read_bool("Tibtree.CanBeBuiltOn", globals.tibtree_can_be_built_on);
         // `Ext/Rules/Body.cpp:492`: the negative-damage modifier fallback,
         // constructed false.
         globals.apply_modifiers_on_negative_damage = general.read_bool(

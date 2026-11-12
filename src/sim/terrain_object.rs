@@ -70,6 +70,11 @@ pub struct TerrainObjectState {
     /// (0x483DDF forces the RecalcZoneType terrain arm to Passable).
     #[serde(default)]
     passable: bool,
+    /// Phobos `CanBeBuiltOn` resolved for this type: a building may replace
+    /// this object, and the placement flush removes it
+    /// (`Ext/TerrainType/Hooks.Passable.cpp:104-190`).
+    #[serde(default)]
+    can_be_built_on: bool,
     /// Immutable type projection used to maintain cell admission after unlink.
     spawns_tiberium: bool,
     lifecycle: TerrainObjectLifecycle,
@@ -92,6 +97,7 @@ impl std::hash::Hash for TerrainObjectState {
         self.max_health.hash(state);
         self.occupation_bits.hash(state);
         self.passable.hash(state);
+        self.can_be_built_on.hash(state);
         self.spawns_tiberium.hash(state);
         self.lifecycle.hash(state);
         #[cfg(feature = "ares")]
@@ -151,6 +157,7 @@ impl TerrainObjectState {
             max_health: terrain_type.strength,
             occupation_bits: terrain_type.raw_occupation_bits(snow_theater),
             passable: terrain_type.passable(),
+            can_be_built_on: terrain_type.can_be_built_on(),
             spawns_tiberium: terrain_type.spawns_tiberium,
             lifecycle,
             #[cfg(feature = "ares")]
@@ -253,6 +260,7 @@ impl TerrainObjectState {
             max_health: 100,
             occupation_bits: 0,
             passable: false,
+            can_be_built_on: false,
             spawns_tiberium: false,
             lifecycle: TerrainObjectLifecycle::Live,
             #[cfg(feature = "ares")]
@@ -408,6 +416,12 @@ impl TerrainObjectState {
     /// The type's full signed occupation value for the theater.
     pub const fn occupation_bits(&self) -> i32 {
         self.occupation_bits
+    }
+
+    /// Whether a building may replace this terrain
+    /// (`CanBeBuiltOn`, Phobos `Ext/TerrainType/Hooks.Passable.cpp`).
+    pub(crate) const fn can_be_built_on(&self) -> bool {
+        self.can_be_built_on
     }
 
     pub const fn lifecycle(&self) -> TerrainObjectLifecycle {
@@ -1793,18 +1807,30 @@ TemperateOccupationBits=7
                 .unwrap()
                 .raw_occupation_bits(false)
         };
-        let keyed = build("", "IsPassable=yes
-", "");
+        let keyed = build(
+            "",
+            "IsPassable=yes
+",
+            "",
+        );
         assert_eq!(bits(&keyed, "TREE"), 0, "type key");
         let stock = build("", "", "");
         assert_eq!(bits(&stock, "TREE"), 7);
         assert_eq!(bits(&stock, "ROCK"), 7);
-        let tibtree = build("Tibtree.IsPassable=yes
-", "", "");
+        let tibtree = build(
+            "Tibtree.IsPassable=yes
+",
+            "",
+            "",
+        );
         assert_eq!(bits(&tibtree, "TREE"), 0, "tiberium tree global");
         assert_eq!(bits(&tibtree, "ROCK"), 7, "ordinary terrain untouched");
-        let terrain = build("Terrain.IsPassable=yes
-", "", "");
+        let terrain = build(
+            "Terrain.IsPassable=yes
+",
+            "",
+            "",
+        );
         assert_eq!(bits(&terrain, "ROCK"), 0, "ordinary global");
         assert_eq!(bits(&terrain, "TREE"), 7, "tiberium tree untouched");
         let explicit_no = build(
@@ -1817,9 +1843,7 @@ Tibtree.IsPassable=yes
         );
         assert_eq!(bits(&explicit_no, "TREE"), 7, "explicit no beats globals");
 
-        let terrain_type = keyed
-            .terrain_object_type_case_insensitive("TREE")
-            .unwrap();
+        let terrain_type = keyed.terrain_object_type_case_insensitive("TREE").unwrap();
         let mut interner = StringInterner::default();
         let type_ref = interner.intern("TREE");
         let terrain = TerrainObjectState::new(1, type_ref, (1, 1), terrain_type, false, None);

@@ -709,6 +709,12 @@ pub(super) struct TrackSpeedPrefix {
     pub slowdown_distance: i32,
     pub sinking: bool,
     pub crush_slowdown: bool,
+    /// Phobos `UnitTypeExt::SkipCrushSlowdown` (`Ext/UnitType/Body.cpp:74`,
+    /// then `[General]`, `Ext/Rules/Body.cpp:274`): the Drive/Ship WhileMoving
+    /// crush arm (`Ext/Unit/Hooks.Crushing.cpp:104-109`, hooks
+    /// `0x4B1146`/`0x6A0809`) jumps to origin+0x3C, so the Foot+6B5 block that
+    /// caps class+50 never runs. The flag itself is neither read nor cleared.
+    pub skip_crush_slowdown: bool,
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -794,7 +800,10 @@ pub(super) fn track_speed_prefix(
 
     // Native computes/spills any brake candidate before testing Foot+6B5,
     // even though the crush arm subsequently overwrites that local argument.
-    if input.crush_slowdown {
+    // Phobos' SkipCrushSlowdown hook replaces the whole block after the
+    // 6-byte flag test (0x4B1146/0x6A0809 -> origin+0x3C), so the cap and its
+    // class+50 store are skipped while the flag stays set.
+    if input.crush_slowdown && !input.skip_crush_slowdown {
         let selected = if track_c0_set(M::compare(
             M::load_f64(target),
             M::load_f64(CRUSH_SLOWDOWN_CAP),
@@ -978,6 +987,7 @@ mod tests {
             slowdown_distance,
             sinking: false,
             crush_slowdown: false,
+            skip_crush_slowdown: false,
         }
     }
 

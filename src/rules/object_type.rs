@@ -1103,6 +1103,15 @@ pub struct ObjectType {
     /// Read only for a UnitType.
     #[cfg(feature = "phobos")]
     pub phobos_turret_response: Option<bool>,
+    /// Phobos `SkipCrushSlowdown=` (`Ext/UnitType/Body.cpp:74`,
+    /// `Nullable<bool>`, constructor `Body.h:122`): a crushing Unit keeps its
+    /// speed instead of the Foot+6B5 0.2 cap; unset takes
+    /// `[General] SkipCrushSlowdown` (`Ext/Rules/Body.cpp:274`, default
+    /// false). Read only for a UnitType. Consumer: the Drive/Ship WhileMoving
+    /// crush arm (`Ext/Unit/Hooks.Crushing.cpp:104-109`, hooks
+    /// `0x4B1146`/`0x6A0809`), which jumps to origin+0x3C.
+    #[cfg(feature = "phobos")]
+    pub phobos_skip_crush_slowdown: Option<bool>,
     /// Phobos `RecountBurst=` (`Ext/TechnoType/Body.cpp:1031`,
     /// `Nullable<bool>`): unset falls back to `[General] RecountBurst=`. A
     /// weapon change or idle timeout recounts the burst index and re-arms the
@@ -5618,6 +5627,10 @@ impl ObjectType {
             #[cfg(feature = "phobos")]
             phobos_turret_response: (category == ObjectCategory::Vehicle)
                 .then(|| section.read_phobos_nullable_bool("TurretResponse", None))
+                .flatten(),
+            #[cfg(feature = "phobos")]
+            phobos_skip_crush_slowdown: (category == ObjectCategory::Vehicle)
+                .then(|| section.read_phobos_nullable_bool("SkipCrushSlowdown", None))
                 .flatten(),
             #[cfg(feature = "phobos")]
             phobos_recount_burst: section.read_phobos_nullable_bool("RecountBurst", None),

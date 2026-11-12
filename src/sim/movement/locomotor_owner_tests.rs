@@ -785,5 +785,6 @@ fn non_accelerating_prefix() -> super::super::drive_locomotion::TrackSpeedPrefix
         slowdown_distance: 0,
         sinking: false,
         crush_slowdown: false,
+        skip_crush_slowdown: false,
     }
 }

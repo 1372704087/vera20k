@@ -926,6 +926,16 @@ pub struct ObjectType {
     /// techno skip at `:111-120`, `0x4AC534`).
     #[cfg(feature = "phobos")]
     pub phobos_ignore_for_base_center: bool,
+    /// Phobos `Sinkable` (`Nullable<bool>`, unset; `Ext/UnitType/Body.cpp:30`,
+    /// `Body.h:15`): overrides whether the unit takes the sinking path on
+    /// death (`UnitClass_ReceiveDamage_Sinkable @ 0x737DE2`).
+    #[cfg(feature = "phobos")]
+    pub phobos_sinkable: Option<bool>,
+    /// Phobos `SinkSpeed` (`Nullable<int>`, unset; `Ext/UnitType/Body.cpp:29`,
+    /// `Body.h:14`): leptons per frame, replacing `[General] SinkSpeed=`
+    /// (`UnitClass_Update_SinkSpeed @ 0x7364DC`).
+    #[cfg(feature = "phobos")]
+    pub phobos_sink_speed: Option<i32>,
     /// Phobos `BunkerROFMultMultiplier` (`Nullable<float>`, unset;
     /// `Ext/BuildingType/Body.cpp:250`, `Body.h:99`): the per-bunker ROF
     /// multiplier (`TechnoClass_RearmDelay_BuildingBunkerROFMult @ 0x6FD1C7`),
@@ -5853,6 +5863,10 @@ impl ObjectType {
             // Constructor-false `Valueable<bool>` (`Body.h:77,515`).
             #[cfg(feature = "phobos")]
             phobos_ignore_for_base_center: section.read_bool("IgnoreForBaseCenter", false),
+            #[cfg(feature = "phobos")]
+            phobos_sinkable: section.read_phobos_nullable_bool("Sinkable", None),
+            #[cfg(feature = "phobos")]
+            phobos_sink_speed: section.read_phobos_nullable_int("SinkSpeed", None),
             #[cfg(feature = "phobos")]
             phobos_bunker_rof_multiplier: section
                 .read_phobos_nullable_double("BunkerROFMultMultiplier", None)

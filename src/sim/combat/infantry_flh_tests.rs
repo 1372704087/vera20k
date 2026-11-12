@@ -2,9 +2,9 @@
 //! prone burst rows, then `InfantryExt::GetSimpleFLH`, through the production
 //! fire coordinate.
 
+use super::TargetKind;
 use super::fire_coord::{FireSource, fire_coordinate};
 use super::laser;
-use super::TargetKind;
 use crate::map::entities::EntityCategory;
 use crate::rules::art_data::ArtRegistry;
 use crate::rules::flh::Flh;
@@ -26,6 +26,11 @@ const ART: &str = "[EUART]\nPrimaryFireFLH=100,20,30\n\
                   [SIMPART]\nPrimaryFireFLH=100,20,30\n\
                   DeployedPrimaryFireFLH=500,10,10\n\
                   [SIMCART]\nPrimaryFireFLH=500,10,10\n\
+                  [SECART]\nPrimaryFireFLH=100,20,30\n\
+                  SecondaryFireFLH=111,22,33\n\
+                  ProneSecondaryFireFLH=7,8,9\n\
+                  [SECCART]\nPrimaryFireFLH=100,20,30\n\
+                  SecondaryFireFLH=7,8,9\n\
                   [CHASERART]\nPrimaryFireFLH=0,0,0\n";
 
 fn rules() -> RuleSet {
@@ -33,6 +38,7 @@ fn rules() -> RuleSet {
     let mut rules = RuleSet::from_ini_with_fixed_art_for_test(
         &crate::sim::arena_fixture::clear_ground_ini(
             "[InfantryTypes]\n0=EU\n1=DEP\n2=PRO\n3=BASE\n4=SIMP\n5=SIMC\n\
+             6=SEC\n7=SECC\n\
              [VehicleTypes]\n0=CHASER\n\
              [EU]\nImage=EUART\nStrength=100\nPrimary=GUN\n\
              [DEP]\nImage=DEPART\nStrength=100\nPrimary=GUN\n\
@@ -40,6 +46,8 @@ fn rules() -> RuleSet {
              [BASE]\nImage=BASEART\nStrength=100\nPrimary=GUN\n\
              [SIMP]\nImage=SIMPART\nStrength=100\nPrimary=GUN\n\
              [SIMC]\nImage=SIMCART\nStrength=100\nPrimary=GUN\n\
+             [SEC]\nImage=SECART\nStrength=100\nPrimary=GUN\nSecondary=GUN\n\
+             [SECC]\nImage=SECCART\nStrength=100\nPrimary=GUN\nSecondary=GUN\n\
              [CHASER]\nImage=CHASERART\nStrength=1000\n\
              [GUN]\nIsLaser=yes\nIsHouseColor=yes\nLaserDuration=15\n\
              LaserInnerColor=100,120,140\nLaserOuterColor=10,20,30\n\
@@ -91,6 +99,18 @@ fn assert_flh_matches_at_burst(
     burst_index: u8,
     what: &str,
 ) {
+    assert_flh_matches_at(kind, deployed, prone, control, 0, burst_index, what);
+}
+
+fn assert_flh_matches_at(
+    kind: &str,
+    deployed: bool,
+    prone: bool,
+    control: &str,
+    weapon_index: i32,
+    burst_index: u8,
+    what: &str,
+) {
     let mut sim = Simulation::new();
     let rules = rules();
     spawn(&mut sim, 1, kind, deployed, prone);
@@ -102,7 +122,7 @@ fn assert_flh_matches_at_burst(
             &rules,
             &FireSource::of_entity(source),
             rules.object(if id == 1 { kind } else { control }).unwrap(),
-            0,
+            weapon_index,
             burst_index,
             Flh::default(),
         )
@@ -144,6 +164,14 @@ fn a_state_vector_without_rows_falls_to_the_simple_override() {
     // SIMPART has DeployedPrimaryFireFLH but no deployed burst row, so
     // GetBurstFLH finds nothing and GetSimpleFLH supplies the offset.
     assert_flh_matches("SIMP", true, false, "SIMC", "InfantryExt::GetSimpleFLH");
+}
+
+#[test]
+fn the_secondary_slot_takes_only_its_prone_key() {
+    // `InfantryExt::GetSimpleFLH` (`Ext/Infantry/Body.cpp:27-31`) answers
+    // weapon index 1 from ProneSecondaryFireFLH alone; the ordinary
+    // SecondaryFireFLH record is what it replaces.
+    assert_flh_matches_at("SEC", false, true, "SECC", 1, 0, "ProneSecondaryFireFLH");
 }
 
 #[test]

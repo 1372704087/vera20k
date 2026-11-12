@@ -126,6 +126,11 @@ pub struct PhobosGlobals {
     /// (`Ext/Rules/Body.cpp:222`, constructor `Ext/Rules/Body.h:666`): the
     /// fallback for a type's `Convert.ResetMindControl` when it is unset.
     pub convert_reset_mind_control: bool,
+    /// `[General] BuildingGuardRetryDelay=`, default unset
+    /// (`Ext/Rules/Body.cpp:579`): the fallback armed building guard recheck
+    /// delay for a BuildingType whose `GuardRetryDelay` is unset
+    /// (`Ext/Building/Hooks.cpp:1288`).
+    pub building_guard_retry_delay: Option<crate::rules::ini_value::PartialIntPair>,
     /// `[General] Explodes.KillPassengers=`, default **`yes`**
     /// (`Ext/Rules/Body.cpp:470`, constructor `Ext/Rules/Body.h:885`): the
     /// fallback for a type's key; `no` leaves a destroyed object's passengers
@@ -843,6 +848,7 @@ impl Default for PhobosGlobals {
             auto_death_on_owner_change_ignore_revert_on_exit: false,
             auto_death_allow_limboed: true,
             convert_reset_mind_control: false,
+            building_guard_retry_delay: None,
             explodes_kill_passengers: true,
             explodes_during_buildup: true,
             not_human_random_death_sequence: false,
@@ -1084,6 +1090,12 @@ impl PhobosGlobals {
         globals.convert_reset_mind_control = general.read_bool(
             "Convert.ResetMindControl",
             globals.convert_reset_mind_control,
+        );
+        // `Ext/Rules/Body.cpp:579`: the armed building guard recheck fallback
+        // for a BuildingType that leaves `GuardRetryDelay` unset.
+        globals.building_guard_retry_delay = general.read_phobos_nullable_partial_int_pair(
+            "BuildingGuardRetryDelay",
+            globals.building_guard_retry_delay,
         );
         // `Ext/Rules/Body.cpp:470-471`, both constructed `true`.
         globals.explodes_kill_passengers =

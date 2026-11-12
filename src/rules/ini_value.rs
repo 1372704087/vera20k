@@ -872,6 +872,28 @@ impl IniSection {
         self.read_phobos_nullable_with(key, current, parse_ares_int)
     }
 
+    /// Phobos `Nullable<PartialVector2D<int>>`
+    /// (`Ext/BuildingType/Body.cpp:258` `GuardRetryDelay`): the clearing
+    /// tokens of [`Self::read_phobos_nullable_with`], then
+    /// [`Self::read_ares_partial_int_pair`]'s scan. A read that converts no
+    /// token keeps the previous nullable; a one-token read leaves the second
+    /// slot and marks the pair single.
+    pub fn read_phobos_nullable_partial_int_pair(
+        &self,
+        key: &str,
+        current: Option<PartialIntPair>,
+    ) -> Option<PartialIntPair> {
+        self.read_phobos_nullable_with(key, current, |raw| {
+            let mut fields = [0, 0];
+            let values = scan_partial_int_fields(raw, &mut fields);
+            (values > 0).then_some(PartialIntPair {
+                low: fields[0],
+                high: fields[1],
+                values,
+            })
+        })
+    }
+
     /// Phobos `Nullable<DirType>` (the reused `nLandingDir` reader at
     /// `Ext/BuildingType/Body.cpp:292`): `Parser<int>` then `read<DirType>`'s
     /// check `DirType::North..=DirType::NorthWest` (`0..=224`; a `DirType` is

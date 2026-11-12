@@ -1416,6 +1416,13 @@ pub struct ObjectType {
     /// `HouseClass::GetFactoryCount @ 0x00500910` answers for production speed
     /// (`Ext/House/Hooks.cpp:543-575`). Only a building reads it.
     exclude_from_multiple_factory_bonus: bool,
+    /// Phobos `BuildingTypeExt::GuardRetryDelay`
+    /// (`Ext/BuildingType/Body.h:114`, `Nullable<PartialVector2D<int>>`, read
+    /// at `Ext/BuildingType/Body.cpp:258`): the frames an armed building waits
+    /// before rechecking its target, replacing the `[Guard]` `AARate` delay.
+    /// Unset falls back to `[General] BuildingGuardRetryDelay`
+    /// (`Ext/Rules/Body.cpp:579`). Only a building reads it.
+    guard_retry_delay: Option<crate::rules::ini_value::PartialIntPair>,
     /// Installed Ares TypeExt+504/+508 and+50C/+510 (ctor1003CE14..2E).
     /// Unset, explicit silence and a resolved Voc ID remain distinct.
     #[cfg(feature = "ares")]
@@ -5095,6 +5102,12 @@ impl ObjectType {
         self.exclude_from_multiple_factory_bonus
     }
 
+    /// Phobos `BuildingTypeExt::GuardRetryDelay`: the armed building's guard
+    /// recheck delay, `None` when the type leaves it unset.
+    pub const fn guard_retry_delay(&self) -> Option<crate::rules::ini_value::PartialIntPair> {
+        self.guard_retry_delay
+    }
+
     /// BuildingClass::CanBeSelectedNow's type test (`0x00459C03`): whether a
     /// band box may select the building, [`Self::is_vehicle`] (vt+0x80); Ares
     /// 3.0 BuildingClass_CanBeSelectedNow_MassSelectable 10013CF0 lets
@@ -6033,6 +6046,16 @@ impl ObjectType {
                 && section.read_bool("ExcludeFromMultipleFactoryBonus", false),
             #[cfg(not(feature = "phobos"))]
             exclude_from_multiple_factory_bonus: false,
+            // Phobos `BuildingTypeExt::GuardRetryDelay`
+            // (`Ext/BuildingType/Body.cpp:258`), a BuildingType-only key.
+            #[cfg(feature = "phobos")]
+            guard_retry_delay: if category == ObjectCategory::Building {
+                section.read_phobos_nullable_partial_int_pair("GuardRetryDelay", None)
+            } else {
+                None
+            },
+            #[cfg(not(feature = "phobos"))]
+            guard_retry_delay: None,
             #[cfg(feature = "ares")]
             promotion_sounds: [None, None],
             #[cfg(feature = "ares")]

@@ -10,7 +10,7 @@ use crate::map::playfield::PlayfieldBounds;
 use crate::map::resolved_terrain::NativeCellQuery;
 use crate::rules::ini_parser::IniFile;
 use crate::rules::ruleset::RuleSet;
-use crate::sim::aircraft::drop_payload::{OBSERVED, Observed, drop_payload};
+use crate::sim::aircraft::drop_payload::{OBSERVED, Observed, drop_payload, paradrop_mission};
 use crate::sim::combat::TargetKind;
 use crate::sim::components::NavTargetRef;
 use crate::sim::game_entity::GameEntity;
@@ -1077,6 +1077,80 @@ fn spawn_parachuted_matches_native() {
             assert_eq!(entity.mission.queued(), *mission, "{row}");
         }
     }
+}
+
+/// Phobos `AIParadropMission` (`Ext/TechnoType/Body.cpp:1172`, fallback
+/// `[General] AIParadropMission` `Ext/Rules/Body.cpp:521`, consumer
+/// `FootClass_Paradrop` `Ext/Techno/Hooks.cpp:1880-1889`): a passenger of a
+/// house not controlled by a human queues its type's mission, else the
+/// global, and the arm reaches units as well as infantry. A human passenger
+/// keeps stock: Guard for infantry, no mission for a unit.
+#[test]
+fn ai_paradrop_mission_replaces_the_ai_passengers_mission() {
+    let rules = RuleSet::from_ini(&IniFile::from_str(
+        "[General]\nAIParadropMission=Sticky\nFlightLevel=1500\n\
+         [InfantryTypes]\n0=E1\n1=E2\n[VehicleTypes]\n0=MTNK\n\
+         [AircraftTypes]\n0=PDPLANE\n[BuildingTypes]\n\
+         [E1]\nStrength=125\nAIParadropMission=Guard\n\
+         [E2]\nStrength=125\n\
+         [MTNK]\nStrength=100\nSpeed=6\nAIParadropMission=Ambush\n\
+         [PDPLANE]\nStrength=400\nSpeed=15\nROT=2\nAmmo=100\nLandable=no\n\
+         Selectable=no\nSpawned=yes\nSight=0\nLocomotor={FLY}\n",
+    ))
+    .unwrap();
+    assert_eq!(
+        rules.phobos_globals.ai_paradrop_mission,
+        MissionType::Sticky
+    );
+    let type_mission = |name: &str| rules.object(name).unwrap().phobos_paradrop_mission();
+    assert_eq!(type_mission("E1"), Some(MissionType::Guard));
+    assert_eq!(type_mission("E2"), None, "an unset type key");
+    assert_eq!(type_mission("MTNK"), Some(MissionType::Ambush));
+
+    let (rules, mut sim, americans) = paradrop_world(rules);
+    let decide = |sim: &mut Simulation, type_id: &str, human: bool| {
+        let house = sim.houses.get_mut(&americans).unwrap();
+        house.set_is_human_for_test(human);
+        house.set_player_control_for_test(human);
+        let passenger = sim
+            .construct_object_limbo_at_height(
+                type_id,
+                "Americans",
+                0,
+                0,
+                0,
+                0,
+                &rules,
+                crate::sim::world::FrameEffects::default(),
+            )
+            .expect("passenger constructed");
+        paradrop_mission(sim, &rules, passenger)
+    };
+    assert_eq!(
+        decide(&mut sim, "E1", false),
+        Some(MissionId::from_known(MissionType::Guard)),
+        "the type's own mission"
+    );
+    assert_eq!(
+        decide(&mut sim, "E2", false),
+        Some(MissionId::from_known(MissionType::Sticky)),
+        "the [General] fallback"
+    );
+    assert_eq!(
+        decide(&mut sim, "MTNK", false),
+        Some(MissionId::from_known(MissionType::Ambush)),
+        "a unit passenger is re-tasked too"
+    );
+    assert_eq!(
+        decide(&mut sim, "E1", true),
+        Some(MissionId::from_known(MissionType::Guard)),
+        "stock human infantry Guard"
+    );
+    assert_eq!(
+        decide(&mut sim, "MTNK", true),
+        None,
+        "stock leaves a human unit's mission alone"
+    );
 }
 
 /// Retail rules (the lib suite loads no SHP; the canopy draws nothing).

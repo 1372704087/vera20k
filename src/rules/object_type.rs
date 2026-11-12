@@ -1412,6 +1412,17 @@ pub struct ObjectType {
     /// AircraftType section reaches the Phobos reader.
     #[cfg(feature = "phobos")]
     phobos_firing_force_scatter: Option<bool>,
+    /// Phobos `TechnoTypeExt::AIParadropMission`
+    /// (`Ext/TechnoType/Body.cpp:1172`, `Nullable<Mission>`, constructor
+    /// `Body.h:412` leaves it unset): the mission a house not controlled by a
+    /// human takes once its paradropped passenger is placed; unset takes
+    /// `[General] AIParadropMission` (`Ext/Rules/Body.cpp:521`, default
+    /// `Hunt`). Consumer: `FootClass_Paradrop`
+    /// (`Ext/Techno/Hooks.cpp:1874-1902`, VTABLE jumps `0x7EB140`/`0x7F5D58`)
+    /// through `aircraft::drop_payload::spawn_parachuted`. Every TechnoType
+    /// family reaches the reader.
+    #[cfg(feature = "phobos")]
+    phobos_paradrop_mission: Option<crate::rules::mission_data::MissionType>,
     /// Ares TechnoTypeExt `VoiceRepair` (ValueableIdx<VocClass>, unset -1):
     /// the attack voice of a repairing weapon (TechnoClass_SelectFiringVoice
     /// 1004B1D0, hook 0x7090A8).
@@ -4746,6 +4757,15 @@ impl ObjectType {
         self.phobos_firing_force_scatter
     }
 
+    /// Phobos `TechnoTypeExt::AIParadropMission`, see
+    /// [`Self::phobos_paradrop_mission`].
+    #[cfg(feature = "phobos")]
+    pub(crate) fn phobos_paradrop_mission(
+        &self,
+    ) -> Option<crate::rules::mission_data::MissionType> {
+        self.phobos_paradrop_mission
+    }
+
     pub fn voice_attack(&self) -> &[String] {
         &self.voice_attack
     }
@@ -6178,6 +6198,14 @@ impl ObjectType {
             phobos_firing_force_scatter: (category == ObjectCategory::Aircraft)
                 .then(|| section.read_phobos_nullable_bool("FiringForceScatter", None))
                 .flatten(),
+            // `TechnoTypeExt::LoadFromINIFile` (`Ext/TechnoType/Body.cpp:1171-1172`)
+            // reads the mission keys for every TechnoType family.
+            #[cfg(feature = "phobos")]
+            phobos_paradrop_mission: crate::rules::phobos_create_unit::read_nullable_mission(
+                section,
+                "AIParadropMission",
+                None,
+            ),
             voice_capture: None,
             prevent_attack_move: section.read_bool("PreventAttackMove", false),
             voice_die: section

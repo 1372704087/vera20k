@@ -131,6 +131,12 @@ pub struct PhobosGlobals {
     /// delay for a BuildingType whose `GuardRetryDelay` is unset
     /// (`Ext/Building/Hooks.cpp:1288`).
     pub building_guard_retry_delay: Option<crate::rules::ini_value::PartialIntPair>,
+    /// `[General] AIParadropMission=`, default `Hunt` (`Ext/Rules/Body.cpp:521`,
+    /// constructor `Ext/Rules/Body.h:935`): the mission a house not controlled
+    /// by a human takes once its paradropped passenger is placed, the fallback
+    /// for a TechnoType's own `AIParadropMission`
+    /// (`Ext/Techno/Hooks.cpp:1885`).
+    pub ai_paradrop_mission: crate::rules::mission_data::MissionType,
     /// `[General] Explodes.KillPassengers=`, default **`yes`**
     /// (`Ext/Rules/Body.cpp:470`, constructor `Ext/Rules/Body.h:885`): the
     /// fallback for a type's key; `no` leaves a destroyed object's passengers
@@ -849,6 +855,7 @@ impl Default for PhobosGlobals {
             auto_death_allow_limboed: true,
             convert_reset_mind_control: false,
             building_guard_retry_delay: None,
+            ai_paradrop_mission: crate::rules::mission_data::MissionType::Hunt,
             explodes_kill_passengers: true,
             explodes_during_buildup: true,
             not_human_random_death_sequence: false,
@@ -1097,6 +1104,13 @@ impl PhobosGlobals {
             "BuildingGuardRetryDelay",
             globals.building_guard_retry_delay,
         );
+        // `Ext/Rules/Body.cpp:521`: `Valueable<Mission>`; a named mission
+        // replaces the constructor's `Hunt`, any other text keeps it
+        // (`Utilities/TemplateDef.h:510-528`).
+        globals.ai_paradrop_mission = general
+            .read_name("AIParadropMission", 0x80)
+            .and_then(crate::rules::mission_data::MissionType::from_map_name)
+            .unwrap_or(globals.ai_paradrop_mission);
         // `Ext/Rules/Body.cpp:470-471`, both constructed `true`.
         globals.explodes_kill_passengers =
             general.read_bool("Explodes.KillPassengers", globals.explodes_kill_passengers);

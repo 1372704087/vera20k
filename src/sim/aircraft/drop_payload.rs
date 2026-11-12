@@ -282,6 +282,14 @@ fn drop_passenger(
 /// house controlled by a human, else Hunt (`HouseClass::IsControlledByHuman
 /// @ 0x0050B730`, Queue_Mission at `0x00521788`/`0x00521798`), and a forced
 /// Paradrop action (Do_Action `0x21`, `0x005217A8`).
+///
+/// Phobos replaces the infantry and unit `SpawnParachuted` vtable slots with
+/// `FootClass_Paradrop` (`Ext/Techno/Hooks.cpp:1874-1902`, VTABLE jumps
+/// `0x7EB140`/`0x7F5D58`): every paradropped FootClass queues a mission, and
+/// a house not controlled by a human takes the type's
+/// `AIParadropMission` (`Ext/TechnoType/Body.cpp:1172`) over
+/// `[General] AIParadropMission` (`Ext/Rules/Body.cpp:521`, default `Hunt`).
+/// The human arm's `ParadropMission` is not ported here.
 pub(crate) fn spawn_parachuted(
     sim: &mut Simulation,
     rules: &RuleSet,
@@ -300,19 +308,16 @@ pub(crate) fn spawn_parachuted(
     let Some(rider) = sim.substrate.entities.get(passenger) else {
         return Ok(());
     };
-    if rider.category() != EntityCategory::Infantry {
-        return Ok(());
+    let infantry = rider.category() == EntityCategory::Infantry;
+    if let Some(mission) = paradrop_mission(sim, rules, passenger) {
+        #[cfg(any(test, feature = "test-support"))]
+        observe(Observed::Queue(passenger, mission));
+        if let Some(rider) = sim.substrate.entities.get_mut(passenger) {
+            crate::sim::mission::authority::queue_entity_mission_deferred(rider, mission);
+        }
     }
-    let human = sim.owner_is_human(rider.owner());
-    let mission = MissionId::from_known(if human {
-        MissionType::Guard
-    } else {
-        MissionType::Hunt
-    });
-    #[cfg(any(test, feature = "test-support"))]
-    observe(Observed::Queue(passenger, mission));
-    if let Some(rider) = sim.substrate.entities.get_mut(passenger) {
-        crate::sim::mission::authority::queue_entity_mission_deferred(rider, mission);
+    if !infantry {
+        return Ok(());
     }
     #[cfg(any(test, feature = "test-support"))]
     observe(Observed::DoAction(passenger, DO_PARADROP, true));
@@ -320,6 +325,41 @@ pub(crate) fn spawn_parachuted(
         log::debug!("paradrop passenger {passenger} Do_Action: {cause}");
     }
     Ok(())
+}
+
+/// The mission the placed passenger queues. Stock `InfantryClass::SpawnParachuted`
+/// retasks only infantry, to Guard for a house controlled by a human and Hunt
+/// otherwise. Phobos' `FootClass_Paradrop` (`Ext/Techno/Hooks.cpp:1886-1889`)
+/// retasks every FootClass: a house not controlled by a human takes the
+/// techno's `AIParadropMission` (`Ext/TechnoType/Body.cpp:1172`) over
+/// `[General] AIParadropMission` (`Ext/Rules/Body.cpp:521`, default `Hunt`).
+/// The human arm's `ParadropMission` key is not ported here, so a human
+/// infantry keeps stock Guard and a human unit keeps its orders.
+pub(crate) fn paradrop_mission(
+    sim: &Simulation,
+    rules: &RuleSet,
+    passenger: u64,
+) -> Option<MissionId> {
+    let rider = sim.substrate.entities.get(passenger)?;
+    let human = sim.owner_is_human(rider.owner());
+    let infantry = rider.category() == EntityCategory::Infantry;
+    let type_ref = rider.type_ref();
+    if human {
+        return infantry.then(|| MissionId::from_known(MissionType::Guard));
+    }
+    #[cfg(feature = "phobos")]
+    {
+        Some(MissionId::from_known(
+            sim.object_type(type_ref, rules)
+                .and_then(|object| object.phobos_paradrop_mission())
+                .unwrap_or(rules.phobos_globals.ai_paradrop_mission),
+        ))
+    }
+    #[cfg(not(feature = "phobos"))]
+    {
+        let _ = (type_ref, rules);
+        infantry.then(|| MissionId::from_known(MissionType::Hunt))
+    }
 }
 
 /// `ObjectClass::Paradrop @ 0x005F5940` at `landing`, in order:

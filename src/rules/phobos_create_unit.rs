@@ -64,7 +64,7 @@ impl CreateUnitSettings {
                 .read_name("CreateUnit.Mission", 0x80)
                 .and_then(MissionType::from_map_name)
                 .unwrap_or(MissionType::Guard),
-            ai_unit_mission: read_nullable_mission(section, "CreateUnit.AIMission"),
+            ai_unit_mission: read_nullable_mission(section, "CreateUnit.AIMission", None),
             owner: HouseSelector::Victim.read(section, "CreateUnit.Owner"),
             require_owner: section.read_bool("CreateUnit.RequireOwner", false),
             always_spawn_on_ground: section.read_bool("CreateUnit.AlwaysSpawnOnGround", false),
@@ -78,15 +78,16 @@ impl CreateUnitSettings {
     }
 }
 
-/// `Nullable<Mission>`: absent or empty keeps the field, `none`/`<none>`
-/// clears it, and a named `[Basic]`-style mission replaces it.
-fn read_nullable_mission(section: &IniSection, key: &str) -> Option<MissionType> {
-    let name = section.read_name(key, 0x80)?;
-    if crate::rules::ini_parser::is_native_none_type_name(name) {
-        None
-    } else {
-        MissionType::from_map_name(name)
-    }
+/// `Nullable<Mission>` (`Utilities/Template.h:223`, `Utilities/TemplateDef.h:1833-1850`
+/// with `allowNone=false`): `<default>`, `none` and `<none>` clear the field;
+/// absent, empty and a rejected name keep `current`; a named `[Basic]`-style
+/// mission replaces it (`Utilities/TemplateDef.h:510-528`).
+pub(crate) fn read_nullable_mission(
+    section: &IniSection,
+    key: &str,
+    current: Option<MissionType>,
+) -> Option<MissionType> {
+    section.read_phobos_nullable_with(key, current, MissionType::from_map_name)
 }
 
 #[cfg(test)]

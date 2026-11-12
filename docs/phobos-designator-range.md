@@ -53,7 +53,8 @@ color, radius, false, true)`.
   Action Lines early-out) and `push_designator_rings`, a presentation-side
   enumerator over `sim.entities()`. It checks the armed superweapon's switch,
   reads the `SuperWeaponInfluence` lists and reuses the shared
-  `RadialIndicatorDraw`/`radius_pixels` pipeline and `HouseColorMap`.
+  `RadialIndicatorDraw`/`radius_pixels` pipeline, `HouseColorMap` and the
+  `ground_pose::query_ground_height` floor query.
 
 The Ares launch-validation scan `sim/superweapon/targeting.rs::scan_influences`
 is left untouched; its owner-less `RangedSite` is built for launch validation,
@@ -64,8 +65,10 @@ not presentation.
 - The hook reads only the explicit `SW.Designators`/`SW.Inhibitors` lists; it
   ignores `SW.AnyDesignator`/`SW.AnyInhibitor` (unlike the launch scan), and
   applies none of the launch scan's health/deactivated/building-power gates.
-- Centre Z uses the coordinate helper's Z; VERA issues no separate
-  `GetCellFloorHeight` query at this call site.
+- Centre Z is sampled through the canonical `GetCellFloorHeight @ 0x00578080`
+  ground query (`ground_pose::query_ground_height`) with an isolated cell
+  identity so rendering does not stamp the sim's shared dummy; absent terrain
+  or an unsupported slope retains the coordinate helper's Z.
 - Without `ares` the nullable `DesignatorRange`/`InhibitorRange` keys are
   unread, so every ring falls back to `Sight`.
 - The client switch arrives from the imported profile; a default Phobos

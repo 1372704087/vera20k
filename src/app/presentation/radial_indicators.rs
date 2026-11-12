@@ -371,9 +371,21 @@ fn push_designator_rings(
         let range = ty.sight;
         let coords =
             crate::sim::movement::ground_pose::object_get_coords(entity, sim.resolved_terrain());
-        // Residual: the hook overwrites coords.Z with GetCellFloorHeight; VERA
-        // keeps the centre helper's Z, with no separate floor-height query.
-        let center = screen_center(viewport, coords.x, coords.y, coords.z);
+        // The hook overwrites coords.Z with GetCellFloorHeight @ 0x00578080.
+        // Reuse the canonical ground query through an isolated cell identity so
+        // rendering does not stamp the sim's shared dummy; absent terrain or an
+        // unsupported slope keeps the centre helper's Z.
+        let floor_z = sim
+            .resolved_terrain()
+            .and_then(|terrain| {
+                crate::sim::movement::ground_pose::query_ground_height(
+                    &crate::map::resolved_terrain::NativeCellQuery::isolated(terrain),
+                    coords,
+                )
+                .ok()
+            })
+            .unwrap_or(coords.z);
+        let center = screen_center(viewport, coords.x, coords.y, floor_z);
         let index = colors
             .get(sim.interner().resolve(owner))
             .copied()

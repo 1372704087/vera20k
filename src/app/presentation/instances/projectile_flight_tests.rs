@@ -108,6 +108,10 @@ fn original_cannon_launch_motion_and_live_bridge_draw_form_one_production_chain(
         vertical: kind.vertical,
         heading: None,
         arcing: kind.arcing,
+        #[cfg(feature = "phobos")]
+        arcing_fix: false,
+        #[cfg(feature = "phobos")]
+        lobber: false,
         gravity: projectile_gravity(rules.general.gravity, kind.gravity(), kind.floater),
         high_root: launch::high_arc_root(weapon.lobber, origin, Some(target)),
         voxel_downward: None,

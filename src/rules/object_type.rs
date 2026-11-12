@@ -1409,6 +1409,13 @@ pub struct ObjectType {
     /// type (`Ext/BuildingType/Hooks.cpp:154-168`, hook `0x465D40`). Unset
     /// keeps the stock 1x1 `UndeploysInto=` body; only a building reads it.
     considered_vehicle: Option<bool>,
+    /// Phobos `BuildingTypeExt::ExcludeFromMultipleFactoryBonus`
+    /// (`Ext/BuildingType/Body.h:35`, `Valueable<bool>` seeded false, read at
+    /// `Ext/BuildingType/Body.cpp:198`): the building still joins the house
+    /// factory counter, but not the count
+    /// `HouseClass::GetFactoryCount @ 0x00500910` answers for production speed
+    /// (`Ext/House/Hooks.cpp:543-575`). Only a building reads it.
+    exclude_from_multiple_factory_bonus: bool,
     /// Installed Ares TypeExt+504/+508 and+50C/+510 (ctor1003CE14..2E).
     /// Unset, explicit silence and a resolved Voc ID remain distinct.
     #[cfg(feature = "ares")]
@@ -5081,6 +5088,13 @@ impl ObjectType {
             .unwrap_or_else(|| self.is_1x1_with_undeploy())
     }
 
+    /// Phobos `BuildingTypeExt::ExcludeFromMultipleFactoryBonus`: whether the
+    /// building stays out of the `0x00500910` factory count that drives the
+    /// multiple-factory speed-up.
+    pub const fn exclude_from_multiple_factory_bonus(&self) -> bool {
+        self.exclude_from_multiple_factory_bonus
+    }
+
     /// BuildingClass::CanBeSelectedNow's type test (`0x00459C03`): whether a
     /// band box may select the building, [`Self::is_vehicle`] (vt+0x80); Ares
     /// 3.0 BuildingClass_CanBeSelectedNow_MassSelectable 10013CF0 lets
@@ -6012,6 +6026,13 @@ impl ObjectType {
             },
             #[cfg(not(feature = "phobos"))]
             considered_vehicle: None,
+            // Phobos `BuildingTypeExt::ExcludeFromMultipleFactoryBonus`
+            // (`Ext/BuildingType/Body.cpp:198`), a BuildingType-only key.
+            #[cfg(feature = "phobos")]
+            exclude_from_multiple_factory_bonus: category == ObjectCategory::Building
+                && section.read_bool("ExcludeFromMultipleFactoryBonus", false),
+            #[cfg(not(feature = "phobos"))]
+            exclude_from_multiple_factory_bonus: false,
             #[cfg(feature = "ares")]
             promotion_sounds: [None, None],
             #[cfg(feature = "ares")]

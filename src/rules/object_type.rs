@@ -1146,6 +1146,13 @@ pub struct ObjectType {
     /// `[General] ParadropDelay` (5). Aircraft types only.
     #[cfg(feature = "phobos")]
     pub phobos_paradrop_delay: Option<i32>,
+    /// Phobos `ParadropEndDelay=` (`Ext/AircraftType/Body.cpp:38`,
+    /// `Nullable<int>` `Body.h:29`, constructed unset `Body.h:53`): the
+    /// ParadropOverfly return once the plane holds no passengers; unset takes
+    /// `[General] ParadropEndDelay` (5), negative keeps it flying
+    /// (`Ext/Aircraft/Hooks.cpp:1278-1281`). Aircraft types only.
+    #[cfg(feature = "phobos")]
+    pub phobos_paradrop_end_delay: Option<i32>,
     /// Phobos `SpawnHeight=` (`Ext/AircraftType/Body.cpp:27`,
     /// `Nullable<int>`): a spawning aircraft's Unlimbo height; unset keeps its
     /// `FlightLevel` (`Ext/Aircraft/Body.cpp:77`). Aircraft types only.
@@ -5769,6 +5776,10 @@ impl ObjectType {
                 .then(|| section.read_phobos_nullable_int("ParadropDelay", None))
                 .flatten(),
             #[cfg(feature = "phobos")]
+            phobos_paradrop_end_delay: (category == ObjectCategory::Aircraft)
+                .then(|| section.read_phobos_nullable_int("ParadropEndDelay", None))
+                .flatten(),
+            #[cfg(feature = "phobos")]
             phobos_spawn_height: (category == ObjectCategory::Aircraft)
                 .then(|| section.read_phobos_nullable_int("SpawnHeight", None))
                 .flatten(),
@@ -7641,7 +7652,7 @@ mod tests {
         );
 
         let aircraft = IniFile::from_str(
-            "[AIR]\nStrength=100\nLandingAnim=LAND\nParadropDelay=8\nSpawnHeight=200\n",
+            "[AIR]\nStrength=100\nLandingAnim=LAND\nParadropDelay=8\nParadropEndDelay=12\nSpawnHeight=200\n",
         );
         let object = ObjectType::from_ini_section(
             "AIR",
@@ -7650,6 +7661,7 @@ mod tests {
         );
         assert_eq!(object.phobos_landing_anim.as_deref(), Some("LAND"));
         assert_eq!(object.phobos_paradrop_delay, Some(8));
+        assert_eq!(object.phobos_paradrop_end_delay, Some(12));
         assert_eq!(object.phobos_spawn_height, Some(200));
 
         let unset = IniFile::from_str("[UNT]\nStrength=100\n");
@@ -7667,6 +7679,7 @@ mod tests {
         assert_eq!(object.phobos_crush_overlay_extra_forward_tilt, 0.02);
         assert_eq!(object.phobos_landing_anim, None);
         assert_eq!(object.phobos_paradrop_delay, None);
+        assert_eq!(object.phobos_paradrop_end_delay, None);
         assert_eq!(object.phobos_spawn_height, None);
     }
 

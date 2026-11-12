@@ -964,6 +964,14 @@ pub struct PhobosGlobals {
     /// (`Ext/Aircraft/Hooks.cpp:1274`).
     #[serde(default = "default_paradrop_delay")]
     pub paradrop_delay: i32,
+    /// `[General] ParadropEndDelay=`, default **5**
+    /// (`Ext/Rules/Body.cpp:523`, constructor `Ext/Rules/Body.h:937`): the
+    /// fallback for an AircraftType's own `Nullable<int>`, used once the
+    /// ParadropOverfly plane holds no passengers (`Ext/Aircraft/Hooks.cpp:1278`);
+    /// a negative value never lets it leave, the hook mapping it to
+    /// `INT32_MAX` (`:1280-1281`).
+    #[serde(default = "default_paradrop_end_delay")]
+    pub paradrop_end_delay: i32,
     /// `[General] AllowWeaponSelectAgainstWalls=`, default `no`
     /// (`Ext/Rules/Body.cpp` read through `RulesExt`, constructor
     /// `Ext/Rules/Body.h:702`): the fallback for a TechnoType's own key.
@@ -1035,6 +1043,11 @@ fn display_income_delay_default() -> i32 {
 
 /// `[General] ParadropDelay=`'s constructor value (`Ext/Rules/Body.h:936`).
 fn default_paradrop_delay() -> i32 {
+    5
+}
+
+/// `[General] ParadropEndDelay=`'s constructor value (`Ext/Rules/Body.h:937`).
+fn default_paradrop_end_delay() -> i32 {
     5
 }
 
@@ -1211,6 +1224,7 @@ impl Default for PhobosGlobals {
             set_recruitable_on_liberate: -1,
             no_alpha_image_on_buildup: false,
             paradrop_delay: default_paradrop_delay(),
+            paradrop_end_delay: default_paradrop_end_delay(),
             allow_weapon_select_against_walls: false,
             aircraft_spawn_from_edge: crate::rules::phobos_aircraft_edge::PhobosEdgeType::Owner,
         }
@@ -1530,6 +1544,8 @@ impl PhobosGlobals {
         // `Ext/Rules/Body.cpp:522`: the `[General]` fallback an AircraftType's
         // `ParadropDelay=` overrides (`Ext/Aircraft/Hooks.cpp:1274`).
         globals.paradrop_delay = general.read_ares_int("ParadropDelay", globals.paradrop_delay);
+        globals.paradrop_end_delay =
+            general.read_ares_int("ParadropEndDelay", globals.paradrop_end_delay);
         // `Ext/Rules/Body.cpp:193`: the `[General]` fallback an AircraftType's
         // `SpawnFromEdge=` overrides (`Ext/Aircraft/Body.cpp:88`).
         globals.aircraft_spawn_from_edge = general.read_string_with(

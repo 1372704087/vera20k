@@ -22,10 +22,12 @@ both false) and `Ext/TerrainType/Body.h:33` (the per-type Nullable, read in
 `TerrainClass_SetOccupyBit_PassableTerrain` (`0x71C110`,
 `Ext/TerrainType/Hooks.Passable.cpp:7-25`) returns before the occupation-bit
 store when the resolved value is true, so the terrain contributes no cell
-occupation. Companion arms treat the object as completely passable for
-`CellClass::CheckPassability` (`0x483DDF`) and `UnitClass::CanEnterCell`
-(`0x73FB71`), and show a move cursor instead of the attack cursor unless
-force-firing (`0x7002E9`).
+occupation. The `0x483DDF` arm sits inside `CellClass::RecalcZoneType`
+(`0x483C80`): for a passable Terrain it sets `Passability = Passable` and
+returns before the type-dword comparison that would classify the cell as zone
+2 (Wall) or 5 (Building), so the cell keeps zone 0. `UnitClass::CanEnterCell`
+(`0x73FB71`) skips the terrain checks, and `0x7002E9` selects a Move order
+instead of an attack order unless force-firing.
 
 ## VERA
 
@@ -34,8 +36,11 @@ force-firing (`0x7002E9`).
 Nullable. The RuleSet constructor projects the resolved value
 (`project_passability`, type key else the global selected by
 `SpawnsTiberium=`). `TerrainObjectType::raw_occupation_bits` returns 0 for a
-passable type, which is the single source for the live Terrain unlimbo mask,
-the map-authored terrain-object occupation and the pathfinding block bits.
+passable type, and the live/map cell projection stores **no**
+`terrain_object_occupation` at all (rather than `Some(0)`, which would map to
+zone 5): the object keeps its cell-list membership but contributes neither an
+occupation mask nor a zone class, matching `0x483DDF`. The map-only terrain
+types installed after the RuleSet constructor are projected too.
 
 ## Tests
 
@@ -45,7 +50,8 @@ the map-authored terrain-object occupation and the pathfinding block bits.
 
 ## Residuals
 
-- The `WhatAction` cursor arm (`0x7002E9`) is client presentation and is not
-  ported; passable terrain keeps the stock attack cursor unless force-firing.
+- The `WhatAction` arm (`0x7002E9`) selects a Move order/action and is not
+  ported; clicking passable terrain keeps the stock attack order unless
+  force-firing. This is a player-visible input gap.
 - The buildable-upon half of the same Phobos family (`CanBeBuiltOn`) is a
   separate chain.

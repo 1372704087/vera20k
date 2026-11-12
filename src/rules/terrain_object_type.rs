@@ -294,6 +294,11 @@ impl TerrainObjectType {
         }
     }
 
+    /// Whether a resolved `IsPassable` key removed this type's occupation.
+    pub(crate) fn passable(&self) -> bool {
+        self.passable
+    }
+
     /// Resolve the Phobos passability fallback once the globals are known.
     #[cfg(feature = "phobos")]
     pub(crate) fn project_passability(

@@ -65,6 +65,11 @@ pub struct TerrainObjectState {
     /// Immutable current-theater type projection. Keep the full dword for
     /// CellClass::RecalcZoneType483C80; Mark/Unmark use only bits1/2/4.
     occupation_bits: i32,
+    /// Phobos `IsPassable` resolved for this type: the object stays in the
+    /// cell's object list but contributes no occupation or zone class
+    /// (0x483DDF forces the RecalcZoneType terrain arm to Passable).
+    #[serde(default)]
+    passable: bool,
     /// Immutable type projection used to maintain cell admission after unlink.
     spawns_tiberium: bool,
     lifecycle: TerrainObjectLifecycle,
@@ -86,6 +91,7 @@ impl std::hash::Hash for TerrainObjectState {
         self.health.hash(state);
         self.max_health.hash(state);
         self.occupation_bits.hash(state);
+        self.passable.hash(state);
         self.spawns_tiberium.hash(state);
         self.lifecycle.hash(state);
         #[cfg(feature = "ares")]
@@ -144,6 +150,7 @@ impl TerrainObjectState {
             health: terrain_type.strength,
             max_health: terrain_type.strength,
             occupation_bits: terrain_type.raw_occupation_bits(snow_theater),
+            passable: terrain_type.passable(),
             spawns_tiberium: terrain_type.spawns_tiberium,
             lifecycle,
             #[cfg(feature = "ares")]
@@ -245,6 +252,7 @@ impl TerrainObjectState {
             health: 100,
             max_health: 100,
             occupation_bits: 0,
+            passable: false,
             spawns_tiberium: false,
             lifecycle: TerrainObjectLifecycle::Live,
             #[cfg(feature = "ares")]
@@ -740,7 +748,13 @@ impl TerrainObjectStore {
     /// RecalcZone483C80 reads the actual recipient's first Terrain, which
     /// can be anchored elsewhere after shared-Next writes or a saved load.
     pub(crate) fn project_cell_occupation(&self, grid: &mut ResolvedTerrainGrid, cell: (u16, u16)) {
-        let occupation = self.id_at(cell).map(|id| self.objects[&id].occupation_bits);
+        // A passable Terrain keeps its list membership but no occupation or
+        // zone class (Phobos 0x483DDF returns Passable before the type-dword
+        // comparison that would give zone 2/5).
+        let occupation = self.id_at(cell).and_then(|id| {
+            let object = &self.objects[&id];
+            (!object.passable).then_some(object.occupation_bits)
+        });
         grid.set_terrain_object_occupation(cell, occupation);
     }
 
@@ -1293,7 +1307,8 @@ pub fn mark_terrain_occupation(
     resolved_terrain: Option<&mut ResolvedTerrainGrid>,
 ) {
     if let Some(grid) = resolved_terrain {
-        grid.set_terrain_object_occupation(terrain.cell(), Some(terrain.occupation_bits));
+        let occupation = (!terrain.passable).then_some(terrain.occupation_bits);
+        grid.set_terrain_object_occupation(terrain.cell(), occupation);
     }
 }
 
@@ -1811,7 +1826,17 @@ Tibtree.IsPassable=yes
         assert_eq!(terrain.occupation_bits(), 0);
         let mut grid = resolved_clear_grid();
         mark_terrain_occupation(&terrain, Some(&mut grid));
-        assert!(!grid.cell(1, 1).unwrap().terrain_object_blocks);
+        let cell = grid.cell(1, 1).unwrap();
+        assert!(!cell.terrain_object_blocks);
+        assert_eq!(
+            cell.terrain_object_occupation, None,
+            "passable terrain contributes no occupation"
+        );
+        assert_eq!(
+            cell.zone_type,
+            zone_class::GROUND,
+            "0x483DDF returns Passable before the zone 2/5 classification"
+        );
     }
 
     #[test]

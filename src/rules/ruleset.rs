@@ -8112,7 +8112,11 @@ impl RuleSet {
 
     /// Incremental projection of the retained FindOrAllocate71E2A0 result.
     /// Existing types keep their bound assets; no global Rules/ART rebuild.
-    pub(crate) fn install_map_terrain_type(&mut self, terrain: TerrainObjectType) {
+    pub(crate) fn install_map_terrain_type(&mut self, mut terrain: TerrainObjectType) {
+        // A map-only type is created after the RuleSet constructor, so its
+        // Phobos passability fallback is projected here.
+        #[cfg(feature = "phobos")]
+        terrain.project_passability(&self.phobos_globals);
         // This name-keyed projection covers distinct short stored IDs.
         // Repeated >24-byte inputs can allocate equal-ID native slots; their
         // separate per-slot identity remains outside this projection's scope.

@@ -111,6 +111,24 @@ impl TerrainAnimationState {
         spawns_tiberium: bool,
         rng: &mut SimRng,
     ) -> bool {
+        if !self.update(binary_frame, is_animated, rng) {
+            return false;
+        }
+        if is_animated && spawns_tiberium && self.current_frame == i32::from(self.frame_count) / 2 {
+            let now = binary_frame as i32;
+            self.current_frame = 0;
+            self.rate = 0;
+            self.timer.start(now, 0);
+            return true;
+        }
+        false
+    }
+
+    /// `StageClass::Update` as TerrainClass::AI71C7C2..71C807 runs it: the
+    /// IsAnimated probability start at71C745..71C7BF, then one Step when the
+    /// timer expired and Rate is non-zero. True when the stage stepped, which
+    /// is the only visit that reaches the IsCrumbling test at71C80A.
+    fn update(&mut self, binary_frame: u32, is_animated: bool, rng: &mut SimRng) -> bool {
         let now = binary_frame as i32;
         if is_animated
             && self.rate == 0
@@ -125,13 +143,18 @@ impl TerrainAnimationState {
         }
         self.current_frame = self.current_frame.wrapping_add(1);
         self.timer.start(now, self.rate);
-        if is_animated && spawns_tiberium && self.current_frame == i32::from(self.frame_count) / 2 {
-            self.current_frame = 0;
-            self.rate = 0;
-            self.timer.start(now, 0);
-            return true;
-        }
-        false
+        true
+    }
+
+    /// Phobos `Start_To_Crumble @ 0x0071C8E0`: Rate 2, Value 0 and the timer
+    /// restarted at71C900..71C917. Step keeps the constructor's 1
+    /// (`TerrainClass::Constructor @ 0x0071BBC7`), so the stage advances one
+    /// frame every two logic frames.
+    #[cfg(feature = "phobos")]
+    pub(crate) fn start_crumbling(&mut self, now: i32) {
+        self.current_frame = 0;
+        self.rate = 2;
+        self.timer.start(now, 2);
     }
 
     #[cfg(any(test, feature = "test-support"))]
@@ -544,7 +567,8 @@ pub fn construct_terrain_objects_with_rules(
 /// The authoritative raw SHP count is already bound on `RuleSet`; the renderer
 /// neither supplies nor mutates this state.
 ///
-/// Returns the number of animated live terrain objects indexed.
+/// Returns the number of live terrain objects indexed: every animated one,
+/// plus every Phobos crumbling type.
 pub fn seed_terrain_spawner_animation(
     interner: &StringInterner,
     terrain_objects: &mut TerrainObjectStore,
@@ -566,7 +590,14 @@ pub fn seed_terrain_spawner_animation(
         let Some(t) = rules.terrain_object_type_case_insensitive(&name) else {
             continue;
         };
-        if !t.is_animated {
+        // Native embeds one StageClass in every TerrainClass; VERA's index is
+        // sparse. A Phobos crumbling type needs its Stage even when it is not
+        // animated (`TerrainClass_AI_Crumbling`, `0x71C812`).
+        #[cfg(feature = "phobos")]
+        let crumbling = t.has_crumbling_frames;
+        #[cfg(not(feature = "phobos"))]
+        let crumbling = false;
+        if !t.is_animated && !crumbling {
             continue;
         }
         let frame_count = rules.terrain_spawner_frame_count(&name).unwrap_or(0);

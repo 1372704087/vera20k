@@ -84,6 +84,13 @@ pub struct TerrainObjectState {
     #[cfg(feature = "ares")]
     #[serde(default)]
     on_fire: bool,
+    /// `TerrainClass+0xCD` IsCrumbling, cleared by the constructor at
+    /// `0x71BBE0`. Phobos `Start_To_Crumble @ 0x0071C8E0` sets it together with
+    /// Stage rate 2/value 0; `TerrainClass_AI_Crumbling` (`0x71C812`) and
+    /// `TerrainClass_Draw_PickFrame` (`0x71C1FE`) read it.
+    #[cfg(feature = "phobos")]
+    #[serde(default)]
+    is_crumbling: bool,
 }
 
 impl std::hash::Hash for TerrainObjectState {
@@ -103,6 +110,10 @@ impl std::hash::Hash for TerrainObjectState {
         #[cfg(feature = "ares")]
         if self.on_fire {
             b"ares-terrain-on-fire-v1".hash(state);
+        }
+        #[cfg(feature = "phobos")]
+        if self.is_crumbling {
+            b"phobos-terrain-crumbling-v1".hash(state);
         }
     }
 }
@@ -162,6 +173,8 @@ impl TerrainObjectState {
             lifecycle,
             #[cfg(feature = "ares")]
             on_fire: false,
+            #[cfg(feature = "phobos")]
+            is_crumbling: false,
         }
     }
 
@@ -265,6 +278,8 @@ impl TerrainObjectState {
             lifecycle: TerrainObjectLifecycle::Live,
             #[cfg(feature = "ares")]
             on_fire: false,
+            #[cfg(feature = "phobos")]
+            is_crumbling: false,
         }
     }
 
@@ -480,6 +495,12 @@ impl TerrainObjectState {
     #[cfg(feature = "ares")]
     pub(crate) const fn on_fire(&self) -> bool {
         self.on_fire
+    }
+
+    /// `TerrainClass+0xCD` IsCrumbling.
+    #[cfg(feature = "phobos")]
+    pub(crate) const fn is_crumbling(&self) -> bool {
+        self.is_crumbling
     }
 }
 
@@ -804,6 +825,35 @@ impl TerrainObjectStore {
         };
         terrain.in_logic_vector = member;
         true
+    }
+
+    /// Phobos `Start_To_Crumble @ 0x0071C8E0`: the IsCrumbling guard, then the
+    /// flag and the Stage restart. The Stage belongs to the animation index,
+    /// which admits crumbling types at load
+    /// (`terrain_spawn::seed_terrain_spawner_animation`).
+    #[cfg(feature = "phobos")]
+    pub(crate) fn begin_crumbling(&mut self, stable_id: u64, binary_frame: u32) -> bool {
+        let Some(terrain) = self.objects.get_mut(&stable_id) else {
+            return false;
+        };
+        if terrain.is_crumbling {
+            return false;
+        }
+        terrain.is_crumbling = true;
+        if let Some(animation) = self.animations.get_mut(&stable_id) {
+            animation.start_crumbling(binary_frame as i32);
+        }
+        true
+    }
+
+    /// `TerrainClass_AI_Crumbling`'s `HasDamagedFrames && Health > 0` arm
+    /// (`Ext/TerrainType/Hooks.cpp:74-82`) clears only IsCrumbling: the Stage
+    /// keeps its rate and value, so the ordinary draw arm resumes from it.
+    #[cfg(feature = "phobos")]
+    pub(crate) fn end_crumbling(&mut self, stable_id: u64) {
+        if let Some(terrain) = self.objects.get_mut(&stable_id) {
+            terrain.is_crumbling = false;
+        }
     }
 
     /// Every object leaves LogicClass before the membership is rebuilt from

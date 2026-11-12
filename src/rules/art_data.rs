@@ -445,6 +445,13 @@ pub struct AnimTypeRuntimeConfig {
     /// `RandomRanged(0, last)` instead of the meteor/first default.
     #[cfg(feature = "phobos")]
     pub splash_anims_pick_random: bool,
+    /// Phobos `AnimTypeExt::ExplodeOnWater` (`Ext/AnimType/Body.cpp:99`,
+    /// `Body.h:54`, constructor `Body.h:106` false): a water landing below
+    /// the bridge deck takes the explosion arm (Warhead/ExpireAnim) instead
+    /// of the stock Wake and SplashList. Consumer: `HandleDebrisImpact`
+    /// (`Ext/Anim/Body.cpp:252`, `Ext/Anim/Hooks.cpp:236-241`).
+    #[cfg(feature = "phobos")]
+    pub explode_on_water: bool,
     /// Phobos `Crater.DestroyTiberium=` (`Ext/AnimType/Body.cpp:126`,
     /// `Ext/AnimType/Body.h:81`, a `Nullable<bool>`): unset keeps the
     /// `[General] AnimCraterDestroyTiberium=` fallback; false makes
@@ -891,8 +898,9 @@ fn parse_anim_runtime_config(section: &IniSection) -> AnimTypeRuntimeConfig {
         #[cfg(feature = "phobos")]
         splash_anims_pick_random: section.read_bool("SplashAnims.PickRandom", false),
         #[cfg(feature = "phobos")]
-        crater_destroy_tiberium: section
-            .read_phobos_nullable_bool("Crater.DestroyTiberium", None),
+        explode_on_water: section.read_bool("ExplodeOnWater", false),
+        #[cfg(feature = "phobos")]
+        crater_destroy_tiberium: section.read_phobos_nullable_bool("Crater.DestroyTiberium", None),
         sticky: section.read_bool("Sticky", false),
         psi_warning: section.read_bool("PsiWarning", false),
         double_thick: section.read_bool("DoubleThick", false),

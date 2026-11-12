@@ -3944,7 +3944,14 @@ impl Simulation {
             crate::sim::projectile::ProjectileCoord::new(position.x, position.y, position.z),
         );
         let above_deck = position.z >= ground.wrapping_add(BRIDGE_DECK_HEIGHT_LEPTONS);
-        if self.bounce_cell_is_water(position, rules) && !above_deck {
+        //Phobos `ExplodeOnWater=` (`Ext/AnimType/Body.cpp:99`,
+        //`Ext/Anim/Body.cpp:252`): a water landing still takes the explosion
+        //arm when the type sets the key.
+        #[cfg(feature = "phobos")]
+        let explode_on_water = config.explode_on_water;
+        #[cfg(not(feature = "phobos"))]
+        let explode_on_water = false;
+        if self.bounce_cell_is_water(position, rules) && !above_deck && !explode_on_water {
             //423CDB..423DE2: a meteor uses the LAST splash, without a Wake.
             //Phobos `SplashAnims=`/`SplashAnims.PickRandom=`
             //(`Ext/AnimType/Body.cpp:102-103`, `Ext/Anim/Hooks.cpp:236-241`):

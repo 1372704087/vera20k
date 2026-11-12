@@ -12269,9 +12269,14 @@ fn gsi_05_14_a_dying_building_uses_its_own_debris_anims() {
         .map(|effect| interner.resolve(effect.shp_name))
         .collect();
     let own: usize = names.iter().filter(|n| n.starts_with("DBRI-WM")).count();
-    // `MinDebris=3`, `MaxDebris=4` pins the budget at 3 with no draw.
-    assert_eq!(
-        own, 3,
+    // Vanilla pins the budget at `MaxDebris - 1` = 3; Phobos's Techno hook
+    // draws `RandomRanged(3, 4)`.
+    #[cfg(feature = "phobos")]
+    let budget = 3..=4;
+    #[cfg(not(feature = "phobos"))]
+    let budget = 3..=3;
+    assert!(
+        budget.contains(&own),
         "the whole budget comes from DebrisAnims=: {names:?}"
     );
     assert!(
@@ -12322,10 +12327,20 @@ fn a_dying_buildings_debris_leaves_from_its_centre() {
         .filter(|effect| effect.shp_name == debris)
         .map(|effect| effect.death.expect("an exact construction").coord)
         .collect();
-    assert_eq!(spawns.len(), 1, "MinDebris=1, MaxDebris=2 pins one piece");
-    assert_eq!(
-        (spawns[0].x, spawns[0].y),
-        (location.0 + 256, location.1 + 256),
+    // Vanilla pins the budget at `MaxDebris - 1` = 1; Phobos's Techno hook
+    // draws `RandomRanged(1, 2)`.
+    #[cfg(feature = "phobos")]
+    let budget = 1..=2;
+    #[cfg(not(feature = "phobos"))]
+    let budget = 1..=1;
+    assert!(
+        budget.contains(&spawns.len()),
+        "MinDebris=1, MaxDebris=2 pins one or two pieces"
+    );
+    assert!(
+        spawns
+            .iter()
+            .all(|spawn| (spawn.x, spawn.y) == (location.0 + 256, location.1 + 256)),
         "one cell in from the top-left for a 3x3"
     );
 }

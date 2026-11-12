@@ -100,6 +100,51 @@ pub(crate) fn landing_direction(
     pose_dir
 }
 
+/// Phobos `AircraftExt::GetLandingDir` (`Ext/Aircraft/Body.cpp:128-166`) for
+/// the three hooks that replace a stock `Landing_Direction` use with
+/// `DirStruct(GetLandingDir(...)).Raw`: the landing face in 16-bit raw units.
+///
+/// A dock slot with an authored `AircraftDockingDir(N)` wins over the dock's
+/// own facing (`BuildingTypeExt::LoadFromINIFile`,
+/// `Ext/BuildingType/Body.cpp:287-305`). The slot is the aircraft's link index
+/// in the dock's radio contacts (`BuildingClass::FindLinkIndex`); a link index
+/// outside `NumberOfDocks` falls back to slot 0's entry. The returned
+/// `DirType` byte scales as `DirType << 8`; the stock arms scale the
+/// direction of eight as `<< 13`.
+///
+/// RESIDUAL: the other `GetLandingDir` arms — a spawnee's spawner facing,
+/// `AircraftTypeExt::LandingDir`, `AircraftDockingDir.DefaultToPoseDir`
+/// (whose `<default>` is true) and the airport-bound link fallthrough — are
+/// separate keys/owners and stay unported; those paths keep the stock
+/// `Landing_Direction` result, including its passenger-facing arm, which
+/// `GetLandingDir` does not read.
+pub(crate) fn get_landing_dir(
+    entity: &GameEntity,
+    entities: &EntityStore,
+    frame: u32,
+    pose_dir: i32,
+    rules_context: Option<(&RuleSet, &StringInterner)>,
+) -> u16 {
+    if let Some((rules, interner)) = rules_context
+        && let Some(contact) = entity
+            .radio_contacts
+            .slot(0)
+            .and_then(|id| entities.get(id))
+        && contact.category() == EntityCategory::Structure
+        && let Some(object) = interner.object_type(contact.type_ref(), rules)
+        && object.number_of_docks > 0
+    {
+        let slot = match contact.radio_contacts.find_slot(entity.stable_id()) {
+            Some(index) if (index as i32) < object.number_of_docks => index,
+            _ => 0,
+        };
+        if let Some(dir) = object.aircraft_docking_dirs().get(slot).copied().flatten() {
+            return u16::from(dir) << 8;
+        }
+    }
+    (landing_direction(entity, entities, frame, pose_dir) as u16).wrapping_shl(13)
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;

@@ -719,17 +719,21 @@ impl Simulation {
                 }),
                 None => {
                     let direction = if aircraft {
-                        crate::sim::aircraft::landing_base::landing_direction(
+                        // Phobos `FlyLocomotionClass_FlightUpdate_LandingDir`
+                        // (`Ext/Aircraft/Hooks.cpp:382-407`, hook `0x4CF31C`)
+                        // replaces `iFly->Landing_Direction() << 13` with the
+                        // aircraft's `GetLandingDir` raw facing.
+                        crate::sim::aircraft::landing_base::get_landing_dir(
                             entity,
                             &self.substrate.entities,
                             frame,
                             rules.general.pose_dir,
+                            Some((rules, &self.interner)),
                         )
-                        .wrapping_shl(13)
                     } else {
                         0
                     };
-                    (!locked).then_some(direction as u16)
+                    (!locked).then_some(direction)
                 }
             }
         } else {
@@ -867,15 +871,16 @@ impl Simulation {
                 return None;
             }
             let entity = self.substrate.entities.get(id)?;
-            let landing = crate::sim::aircraft::landing_base::landing_direction(
+            // `DirStruct(AircraftExt::GetLandingDir(pAircraft)).Raw` replaces
+            // the vanilla `iFly->Landing_Direction() << 13` here
+            // (`Ext/Aircraft/Hooks.cpp:596-676`, hook `0x4CF190`).
+            let landing_dir = crate::sim::aircraft::landing_base::get_landing_dir(
                 entity,
                 &self.substrate.entities,
                 frame,
                 rules.general.pose_dir,
+                Some((rules, &self.interner)),
             );
-            // `DirStruct(AircraftExt::GetLandingDir(pAircraft))` for the vanilla
-            // landing direction (`iFly->Landing_Direction() << 13`).
-            let landing_dir = (landing as u32 as u16).wrapping_shl(13);
             let turning = crate::sim::aircraft::turning_radius(entity, object.speed);
             let cells = (object.slowdown_distance / 256).max(turning / 128);
             let current = crate::util::direction_tables::facing16_between(
@@ -1013,13 +1018,15 @@ impl Simulation {
                 });
             }
             let aligned = !flags.rear_approach || {
-                let landing = crate::sim::aircraft::landing_base::landing_direction(
+                // `DirStruct(AircraftExt::GetLandingDir(pAircraft)).Raw`
+                // (`Ext/Aircraft/Hooks.cpp:698-705`, hook `0x4CF3D0`).
+                let landing = crate::sim::aircraft::landing_base::get_landing_dir(
                     entity,
                     &self.substrate.entities,
                     frame,
                     rules.general.pose_dir,
+                    Some((rules, &self.interner)),
                 );
-                let landing = (landing as u32 as u16).wrapping_shl(13);
                 i32::from(landing.wrapping_sub(entity.body_facing.current(frame)) as i16).abs()
                     < 16384
             };

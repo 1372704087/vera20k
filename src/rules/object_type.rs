@@ -2873,7 +2873,13 @@ pub struct ObjectType {
     /// ReadInteger46492E preserves zero/negative counts for coordinate queries.
     /// Contact allocation applies its separate minimum through `dock_contact_capacity`.
     pub number_of_docks: i32,
-
+    /// Phobos `BuildingTypeExt::AircraftDockingDirs`
+    /// (`Ext/BuildingType/Body.h:71`, `std::vector<std::optional<DirType>>`):
+    /// the landing face each `DockingOffset` slot uses, indexed like the dock's
+    /// radio links. Sized to a positive `NumberOfDocks`; empty otherwise and
+    /// for every non-building. An empty slot leaves the landing face to the
+    /// next arm. Values are `DirType` bytes (`0..=224`).
+    pub aircraft_docking_dirs: Vec<Option<u8>>,
     /// Whether this building can be toggled on/off by the player.
     /// Parsed from `TogglePower=yes` in rules.ini.
     /// Defaults to true for buildings (most can be powered down).
@@ -4725,6 +4731,12 @@ impl ObjectType {
         self.disable_damage_sound
     }
 
+    /// Phobos `BuildingTypeExt::AircraftDockingDirs`: the authored landing face
+    /// per dock slot, all-empty when the building authors none.
+    pub fn aircraft_docking_dirs(&self) -> &[Option<u8>] {
+        &self.aircraft_docking_dirs
+    }
+
     pub fn secret_lab(&self) -> &crate::rules::secret_lab::SecretLabRules {
         &self.secret_lab
     }
@@ -5244,6 +5256,40 @@ impl ObjectType {
         let max_debris = section.read_int("MaxDebris", 0);
         let min_debris = section.read_int("MinDebris", 0).max(0);
         let max_debris = max_debris.max(min_debris);
+        let number_of_docks = section.read_int("NumberOfDocks", 1);
+        // Phobos `BuildingTypeExt::LoadFromINIFile`
+        // (`Ext/BuildingType/Body.cpp:287-305`): with a positive NumberOfDocks
+        // the vector is sized to it, `AircraftDockingDir` fills slot 0, then
+        // `AircraftDockingDir{i}` overwrites each indexed slot. One
+        // `Nullable<DirType> nLandingDir` is reused for all reads, so a key
+        // that is absent, unparsed or outside `0..=224` leaves the previous
+        // read in place: an accepted direction carries into every later slot
+        // until another numbered key replaces it, and `<default>`/`<none>`
+        // clears the reader without touching the slots already written.
+        #[cfg(feature = "phobos")]
+        let aircraft_docking_dirs = {
+            if category == ObjectCategory::Building && number_of_docks > 0 {
+                let mut dirs = vec![None; number_of_docks as usize];
+                let mut landing_dir = section.read_phobos_nullable_dir("AircraftDockingDir", None);
+                if landing_dir.is_some() {
+                    dirs[0] = landing_dir;
+                }
+                for index in 0..dirs.len() {
+                    landing_dir = section.read_phobos_nullable_dir(
+                        &format!("AircraftDockingDir{index}"),
+                        landing_dir,
+                    );
+                    if landing_dir.is_some() {
+                        dirs[index] = landing_dir;
+                    }
+                }
+                dirs
+            } else {
+                Vec::new()
+            }
+        };
+        #[cfg(not(feature = "phobos"))]
+        let aircraft_docking_dirs: Vec<Option<u8>> = Vec::new();
 
         Self {
             id: id.to_string(),
@@ -6570,7 +6616,8 @@ impl ObjectType {
             unit_reload: section.read_bool("UnitReload", false),
             bunker: section.read_bool("Bunker", false),
             helipad: section.read_bool("Helipad", false),
-            number_of_docks: section.read_int("NumberOfDocks", 1),
+            number_of_docks,
+            aircraft_docking_dirs,
             // TogglePower defaults to true for buildings, false for units.
             toggle_power: section.read_bool("TogglePower", category == ObjectCategory::Building),
             // BuildingType+0x1564/+0x1568. The native constructor does not write
@@ -8251,6 +8298,49 @@ mod tests {
         assert!(obj.debris_types.is_empty());
         assert!(obj.debris_maximums.is_empty());
         assert!(obj.debris_anims.is_empty());
+    }
+
+    /// Phobos `BuildingTypeExt::LoadFromINIFile`
+    /// (`Ext/BuildingType/Body.cpp:287-305`): `AircraftDockingDir` fills slot
+    /// 0, then one reused `Nullable<DirType>` reader walks
+    /// `AircraftDockingDir{i}`. A rejected (`> DirType::NorthWest`) or absent
+    /// numbered key leaves the previous read in place, so an accepted
+    /// direction carries into every later slot until another key replaces it.
+    #[cfg(feature = "phobos")]
+    #[test]
+    fn phobos_aircraft_docking_dirs_reuse_one_nullable_dir_reader() {
+        let ini = IniFile::from_str(
+            "[PAD]\nNumberOfDocks=4\nAircraftDockingDir=32\nAircraftDockingDir1=225\n\
+             AircraftDockingDir2=160\n\
+             [NODIR]\nNumberOfDocks=2\n",
+        );
+        let pad = ObjectType::from_ini_section(
+            "PAD",
+            ini.section("PAD").unwrap(),
+            ObjectCategory::Building,
+        );
+        assert_eq!(
+            pad.aircraft_docking_dirs(),
+            [Some(32), Some(32), Some(160), Some(160)],
+            "225 is outside the DirType range and keeps slot 0's 32; 160 then \
+             carries into slot 3"
+        );
+
+        let nodir = ObjectType::from_ini_section(
+            "NODIR",
+            ini.section("NODIR").unwrap(),
+            ObjectCategory::Building,
+        );
+        assert_eq!(nodir.aircraft_docking_dirs(), [None, None]);
+        let vehicle = ObjectType::from_ini_section(
+            "NODIR",
+            ini.section("NODIR").unwrap(),
+            ObjectCategory::Vehicle,
+        );
+        assert!(
+            vehicle.aircraft_docking_dirs().is_empty(),
+            "only a building reads the vector"
+        );
     }
 
     /// `TechnoTypeClass::ReadINI @ 0x007125BD` floors `MinDebris` at 0, then

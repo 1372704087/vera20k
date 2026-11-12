@@ -2704,6 +2704,24 @@ pub struct ObjectType {
     /// `pip_max` with that empty outline (`Ext/Techno/Hooks.Pips.cpp:287-305`).
     empty_ammo_pip_frame: i32,
 
+    /// Phobos `TechnoTypeExt` spawn-pip row (`Ext/TechnoType/Body.h:243-247`,
+    /// constructor defaults `Body.h:672-676`): `ShowSpawnsPips` (true),
+    /// `SpawnsPipFrame` (1), `EmptySpawnsPipFrame` (0), `SpawnsPipSize`
+    /// (`Nullable<Point2D>`, unset = `[AudioVisual] Pips.Generic.Size` /
+    /// `.Buildings.Size`) and `SpawnsPipOffset` (`Point2D`). Consumed by
+    /// `TechnoClass_DrawPips_Spawns` (`0x709B8B`,
+    /// `Ext/Techno/Hooks.Pips.cpp:187-226`).
+    #[cfg(feature = "phobos")]
+    phobos_show_spawns_pips: bool,
+    #[cfg(feature = "phobos")]
+    phobos_spawns_pip_frame: i32,
+    #[cfg(feature = "phobos")]
+    phobos_empty_spawns_pip_frame: i32,
+    #[cfg(feature = "phobos")]
+    phobos_spawns_pip_size: Option<[i32; 2]>,
+    #[cfg(feature = "phobos")]
+    phobos_spawns_pip_offset: [i32; 2],
+
     /// Whether this building absorbs infantry (Yuri Bio Reactor).
     /// Parsed from `InfantryAbsorb=yes` in rules.ini.
     pub infantry_absorb: bool,
@@ -4545,6 +4563,36 @@ impl ObjectType {
     /// Phobos `EmptyAmmoPipFrame`: negative draws no empty Ammo outlines.
     pub const fn empty_ammo_pip_frame(&self) -> i32 {
         self.empty_ammo_pip_frame
+    }
+
+    /// Phobos `ShowSpawnsPips=`: draw the spawn-pip row.
+    #[cfg(feature = "phobos")]
+    pub const fn phobos_show_spawns_pips(&self) -> bool {
+        self.phobos_show_spawns_pips
+    }
+
+    /// Phobos `SpawnsPipFrame=`: the docked slot's frame.
+    #[cfg(feature = "phobos")]
+    pub const fn phobos_spawns_pip_frame(&self) -> i32 {
+        self.phobos_spawns_pip_frame
+    }
+
+    /// Phobos `EmptySpawnsPipFrame=`: the empty slot's frame.
+    #[cfg(feature = "phobos")]
+    pub const fn phobos_empty_spawns_pip_frame(&self) -> i32 {
+        self.phobos_empty_spawns_pip_frame
+    }
+
+    /// Phobos `SpawnsPipSize=`: the per-slot advance, unset for the generic size.
+    #[cfg(feature = "phobos")]
+    pub const fn phobos_spawns_pip_size(&self) -> Option<[i32; 2]> {
+        self.phobos_spawns_pip_size
+    }
+
+    /// Phobos `SpawnsPipOffset=`: the row anchor offset in pixels.
+    #[cfg(feature = "phobos")]
+    pub const fn phobos_spawns_pip_offset(&self) -> [i32; 2] {
+        self.phobos_spawns_pip_offset
     }
 
     /// Building4598A0's current-type query: UnitAbsorb OR InfantryAbsorb.
@@ -6859,6 +6907,20 @@ impl ObjectType {
             empty_ammo_pip_frame: section.read_int("EmptyAmmoPipFrame", -1),
             #[cfg(not(feature = "phobos"))]
             empty_ammo_pip_frame: -1,
+            // Phobos `TechnoTypeExt::ShowSpawnsPips`/`SpawnsPipFrame`/
+            // `EmptySpawnsPipFrame`/`SpawnsPipSize`/`SpawnsPipOffset`
+            // (`Ext/TechnoType/Body.cpp:1008-1012`).
+            #[cfg(feature = "phobos")]
+            phobos_show_spawns_pips: section.read_bool("ShowSpawnsPips", true),
+            #[cfg(feature = "phobos")]
+            phobos_spawns_pip_frame: section.read_int("SpawnsPipFrame", 1),
+            #[cfg(feature = "phobos")]
+            phobos_empty_spawns_pip_frame: section.read_int("EmptySpawnsPipFrame", 0),
+            #[cfg(feature = "phobos")]
+            phobos_spawns_pip_size: section
+                .read_phobos_nullable_int_pair("SpawnsPipSize", None),
+            #[cfg(feature = "phobos")]
+            phobos_spawns_pip_offset: section.read_phobos_int_pair("SpawnsPipOffset", [0, 0]),
             unit_absorb: section.read_bool("UnitAbsorb", false),
             infantry_absorb: section.read_bool("InfantryAbsorb", false),
             grinding: section.read_bool("Grinding", false),

@@ -1995,6 +1995,29 @@ pub(crate) fn scale_pip_draws(
         && let Some(manager) = entity.spawn_manager.as_ref()
     {
         let docked = manager.count_docked_spawns();
+        // Phobos `TechnoClass_DrawPips_Spawns` (`0x709B8B`,
+        // `Ext/Techno/Hooks.Pips.cpp:187-226`): ShowSpawnsPips=no skips the
+        // row; otherwise SpawnsPipFrame/EmptySpawnsPipFrame select the frames,
+        // SpawnsPipSize (else the generic class size) the per-slot advance and
+        // SpawnsPipOffset the row anchor.
+        #[cfg(feature = "phobos")]
+        if object.phobos_show_spawns_pips() {
+            let size =
+                object
+                    .phobos_spawns_pip_size()
+                    .unwrap_or(if building { [4, 2] } else { [4, 0] });
+            let offset = object.phobos_spawns_pip_offset();
+            let filled = object.phobos_spawns_pip_frame().max(0) as usize;
+            let empty = object.phobos_empty_spawns_pip_frame().max(0) as usize;
+            pips.extend((0..object.spawns_number as usize).map(|slot| ScalePipDraw {
+                frame: if slot < docked { filled } else { empty },
+                offset_pixels: [
+                    slot as i32 * size[0] + offset[0],
+                    row_y + slot as i32 * size[1] + offset[1],
+                ],
+            }));
+        }
+        #[cfg(not(feature = "phobos"))]
         pips.extend(
             (0..object.spawns_number as usize)
                 .map(|slot| pip(slot, usize::from(slot < docked), row_y)),

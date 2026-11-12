@@ -115,6 +115,7 @@ Supported extensions:
 - [Tiberium ramps](phobos-allow-ramps.md) (`AllowRamps` lets a tiberium type grow and spread onto cardinal ramp cells when its ramp art exists, and raises `NumSlopes` to 8; 1 key)
 - [Terrain passability](phobos-terrain-passable.md) (`IsPassable` per terrain type plus `[General] Terrain.IsPassable` / `Tibtree.IsPassable` make a terrain object contribute no occupation; 3 keys)
 - [Terrain CanBeBuiltOn](phobos-terrain-can-be-built-on.md) (`CanBeBuiltOn` per terrain type plus `[General] Terrain.CanBeBuiltOn` / `Tibtree.CanBeBuiltOn` let a building replace the object; admission, flush, PlaceDown removal and the AI site search; 3 keys)
+- [Terrain crumbling frames](phobos-crumbling-frames.md) (`HasCrumblingFrames` keeps a lethally hit terrain object alive to play a crumbling stage, removed at `Frames/2` with `DestroySound`/`DestroyAnim`; `CrumblingSound`, `AnimationLength`, `HasDamagedFrames`)
 - [Warhead debris block](phobos-warhead-debris.md) (`Debris.Conventional` water skip, `RandomRanged(MinDebris, MaxDebris)` budget, the warhead `DebrisMinimums`/`DebrisTypes.Limit` restored loop and `DebrisAnims` fallback; 4 keys)
 - [TurretRecoil.Suppress](phobos-turret-recoil.md) (a weapon's fired shot skips the unit recoil record; 1 key)
 - [FireOnce.ResetSequence](phobos-fire-once-reset-sequence.md) (`no` keeps an infantryman's firing sequence and action across the target clear his own `FireOnce=` shot causes; 1 key)

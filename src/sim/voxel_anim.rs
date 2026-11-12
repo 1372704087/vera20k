@@ -1084,6 +1084,14 @@ mod tests {
             );
             let mut expected = SimRng::new(seed);
             let _ = expected.next_range_i32_inclusive(4, 5);
+            // The picked piece constructs at once: four `Random__Next` and
+            // three bounce ranges (`gsi_05_14_each_voxel_piece_costs_exactly_seven_draws`).
+            for _ in 0..4 {
+                expected.next_u32();
+            }
+            for _ in 0..3 {
+                expected.next_range_u32_inclusive(0, (0xFFFF - -0xFFFF) as u32);
+            }
             assert_eq!(
                 rng.logical_view(),
                 expected.logical_view(),

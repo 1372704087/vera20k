@@ -926,6 +926,16 @@ pub struct ObjectType {
     /// techno skip at `:111-120`, `0x4AC534`).
     #[cfg(feature = "phobos")]
     pub phobos_ignore_for_base_center: bool,
+    /// Phobos `AIGuardAreaTargetingDelay` (`Nullable<int>`, unset;
+    /// `Ext/TechnoType/Body.cpp:1076`, `Body.h:307`): the AI-controlled Area
+    /// Guard scan-delay override; unset keeps the `[General]` fallback.
+    #[cfg(feature = "phobos")]
+    pub phobos_ai_guard_area_targeting_delay: Option<i32>,
+    /// Phobos `CrushSlowdownMultiplier` (`Nullable<double>`, unset;
+    /// `Ext/UnitType/Body.cpp:73`, `Body.h:58`): the UnitType override for
+    /// the Drive/Ship crush slowdown cap (`0x4B1150`, `0x6A0813`).
+    #[cfg(feature = "phobos")]
+    pub phobos_crush_slowdown_multiplier: Option<crate::util::native_x87::NativeF64Bits>,
     /// Phobos `FactoryPlant.AllowTypes` / `.DisallowTypes` / `.MaxCount`
     /// (`Ext/BuildingType/Body.cpp:224-226`, declarations `Body.h:74-76`,
     /// constructors `:199-201`): the restricted-plant settings.
@@ -5833,6 +5843,13 @@ impl ObjectType {
             // Constructor-false `Valueable<bool>` (`Body.h:77,515`).
             #[cfg(feature = "phobos")]
             phobos_ignore_for_base_center: section.read_bool("IgnoreForBaseCenter", false),
+            #[cfg(feature = "phobos")]
+            phobos_ai_guard_area_targeting_delay: section
+                .read_phobos_nullable_int("AIGuardAreaTargetingDelay", None),
+            #[cfg(feature = "phobos")]
+            phobos_crush_slowdown_multiplier: section
+                .read_phobos_nullable_double("CrushSlowdownMultiplier", None)
+                .map(|value| crate::util::native_x87::NativeF64Bits::from_bits(value.to_bits())),
             // `BuildingTypeExt::LoadFromINI` reads these three only on a
             // BuildingType section; VERA's ObjectType reader is shared.
             #[cfg(feature = "phobos")]

@@ -183,6 +183,18 @@ pub(super) fn advance(
         slowdown_distance: object.map_or(0, |o| o.slowdown_distance),
         sinking: entity.sinking.is_active(),
         crush_slowdown: entity.foot_speed.crush_slowdown(),
+        crush_slowdown_cap: {
+            #[cfg(feature = "phobos")]
+            {
+                object
+                    .and_then(|object| object.phobos_crush_slowdown_multiplier)
+                    .unwrap_or(rules.phobos_globals.crush_slowdown_multiplier)
+            }
+            #[cfg(not(feature = "phobos"))]
+            {
+                super::drive_locomotion::CRUSH_SLOWDOWN_CAP
+            }
+        },
     };
     if let Some(target) = retained_target {
         let step = super::drive_locomotion::track_speed_prefix(
@@ -426,7 +438,9 @@ mod tests {
     /// invocation budget from the production getter of the resulting fraction.
     #[test]
     fn speed_prefix_matches_original_rows_exactly() {
-        use crate::sim::movement::drive_locomotion::{TrackSpeedPrefix, track_speed_prefix};
+        use crate::sim::movement::drive_locomotion::{
+            CRUSH_SLOWDOWN_CAP, TrackSpeedPrefix, track_speed_prefix,
+        };
         use crate::util::native_x87::{NativeF32Bits, NativeF64Bits};
         let corpus: serde_json::Value = serde_json::from_str(crate::test_fixture::text(
             "tools/spatial_oracle/track_speed_native.json",
@@ -453,6 +467,7 @@ mod tests {
                 slowdown_distance: integer(input, "slowdown", 500),
                 sinking: input["sinking"].as_bool().unwrap_or(false),
                 crush_slowdown: input["crush"].as_bool().unwrap_or(false),
+                crush_slowdown_cap: CRUSH_SLOWDOWN_CAP,
             };
             let mut measured = false;
             let step = track_speed_prefix(

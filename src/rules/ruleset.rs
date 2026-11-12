@@ -12117,6 +12117,16 @@ impl RuleSet {
         self.object_list[handle.0 as usize].size = size;
     }
 
+    /// Install a Phobos AircraftType `SpawnDistanceFromTarget=` the retail
+    /// fixtures leave unset, as the exact leptons the INI reader stores.
+    #[cfg(all(feature = "phobos", any(test, feature = "test-support")))]
+    pub fn set_object_spawn_distance_from_target_for_test(&mut self, type_id: &str, leptons: i32) {
+        let handle = self
+            .type_handle(type_id)
+            .expect("native fixture type exists");
+        self.object_list[handle.0 as usize].phobos_spawn_distance_from_target = Some(leptons);
+    }
+
     #[cfg(any(test, feature = "test-support"))]
     pub(crate) fn art_entry_mut_for_test(
         &mut self,

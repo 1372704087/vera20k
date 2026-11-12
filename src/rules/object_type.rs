@@ -1391,6 +1391,16 @@ pub struct ObjectType {
     /// `0x415A7A`. Only an AircraftType section reaches the Phobos reader.
     #[cfg(feature = "phobos")]
     phobos_retreat_to_edge: Option<crate::rules::ini_value::PhobosEdgeType>,
+    /// Phobos `AircraftTypeExt::SpawnDistanceFromTarget`
+    /// (`Ext/AircraftType/Body.cpp:26`, `Nullable<Leptons>`, constructor
+    /// `Body.h:41` leaves it unset): the reinforcement aircraft spawns that
+    /// far from its target instead of on the picked edge cell, on the same
+    /// edge-to-target line. Consumer: `AircraftExt::PlaceReinforcementAircraft`
+    /// (`Ext/Aircraft/Body.cpp:61-69` -> `GeneralUtils::CalculateCoordsFromDistance`,
+    /// `Utilities/GeneralUtils.cpp:215-222`), the Spy Plane/Airstrike/Paradrop
+    /// placement hooks. Only an AircraftType section reaches the reader.
+    #[cfg(feature = "phobos")]
+    pub phobos_spawn_distance_from_target: Option<i32>,
     /// Ares TechnoTypeExt `VoiceRepair` (ValueableIdx<VocClass>, unset -1):
     /// the attack voice of a repairing weapon (TechnoClass_SelectFiringVoice
     /// 1004B1D0, hook 0x7090A8).
@@ -4711,6 +4721,13 @@ impl ObjectType {
         self.phobos_retreat_to_edge
     }
 
+    /// Phobos `AircraftTypeExt::SpawnDistanceFromTarget`, see
+    /// [`Self::phobos_spawn_distance_from_target`].
+    #[cfg(feature = "phobos")]
+    pub(crate) fn phobos_spawn_distance_from_target(&self) -> Option<i32> {
+        self.phobos_spawn_distance_from_target
+    }
+
     pub fn voice_attack(&self) -> &[String] {
         &self.voice_attack
     }
@@ -6134,6 +6151,10 @@ impl ObjectType {
             #[cfg(feature = "phobos")]
             phobos_retreat_to_edge: (category == ObjectCategory::Aircraft)
                 .then(|| section.read_phobos_nullable_edge_type("RetreatToEdge", None))
+                .flatten(),
+            #[cfg(feature = "phobos")]
+            phobos_spawn_distance_from_target: (category == ObjectCategory::Aircraft)
+                .then(|| section.read_phobos_nullable_leptons("SpawnDistanceFromTarget", None))
                 .flatten(),
             voice_capture: None,
             prevent_attack_move: section.read_bool("PreventAttackMove", false),

@@ -627,6 +627,99 @@ pub fn current_weapon<'r>(
     get_weapon(entity, obj, index, entities, rules, interner)
 }
 
+/// Phobos `TechnoExt::GetWeaponIndexAgainstWall`
+/// (`Ext/Techno/WeaponHelpers.cpp:196-236`): the slot whose warhead the wall
+/// checks read, replacing the native's hardcoded `GetWeapon(0)` at
+/// `0x51C1F1`, `0x73F495` and `0x70095A`. The hook always swaps the slot,
+/// even when the key is off: the answer is then `GetCurrentWeapon`'s index
+/// (`0x70E1A0`: the gunner slot for a `TurretCount>0` non-gattling type, the
+/// gattling stage pair, else slot 0). With
+/// `AllowWeaponSelectAgainstWalls` resolved true (the type's `Nullable`
+/// falls back to `[CombatDamage]`), a non-gattling type whose current weapon
+/// cannot hurt that wall overlay — no `Wall=` and no `Wood=` against
+/// `Armor=wood`, `CanFireNoAmmoWeapon(1)`, or the current weapon's
+/// `AttachEffect.CheckOnFirer` gate refusing its firer — retries the
+/// secondary slot (`stage*2+1` for a gattling type, else 1) when that
+/// weapon can hurt the wall and `NoSecondaryWeaponFallback` allows it.
+///
+/// `SkipWeaponPicking` is not consulted: Phobos derives it false whenever an
+/// AE required list exists, and the AE gate can only refuse a firer when one
+/// does, so the term is dead in this expression.
+#[cfg(feature = "phobos")]
+pub(crate) fn weapon_index_against_wall(
+    world: &Simulation,
+    entity: &GameEntity,
+    obj: &ObjectType,
+    rules: &RuleSet,
+    wall: &crate::rules::overlay_types::OverlayTypeFlags,
+) -> i32 {
+    let facts = attacker_facts(entity, obj);
+    let index = if obj.turret_count > 0 && !obj.is_gattling {
+        if facts.current_weapon_number == -1 {
+            0
+        } else {
+            facts.current_weapon_number
+        }
+    } else if obj.is_gattling {
+        facts.gattling_stage.wrapping_mul(2)
+    } else {
+        0
+    };
+    let allow = obj
+        .phobos_allow_weapon_select_against_walls
+        .unwrap_or(rules.phobos_globals.allow_weapon_select_against_walls);
+    if (obj.turret_count > 0 && !obj.is_gattling) || !wall.wall || !allow {
+        return index;
+    }
+    if index == -1 {
+        return 0;
+    }
+    let entities = &world.substrate.entities;
+    let interner = &world.interner;
+    let hurts_wall = |weapon: Option<&crate::rules::weapon_type::WeaponType>| {
+        weapon.is_some_and(|weapon| {
+            rules
+                .weapon_warhead(weapon)
+                .is_some_and(|warhead| warhead.wall || (warhead.wood && wall.armor_is_wood))
+        })
+    };
+    let ae_forbids = |weapon: Option<&crate::rules::weapon_type::WeaponType>| {
+        weapon.is_some_and(|weapon| {
+            weapon.attach_effect_check_on_firer
+                && !world.weapon_attach_effects_allow(weapon, None, Some(entity), rules)
+        })
+    };
+    // Phobos `TechnoExt::CanFireNoAmmoWeapon(pThis, 1)`: only a type with
+    // `Ammo= > 0` runs out. Without Ares extension data the constructor
+    // values apply (`NoAmmoAmount=0`, `NoAmmoWeapon=-1` accepts any slot).
+    #[cfg(feature = "ares")]
+    let no_ammo_secondary = obj.ammo > 0
+        && obj
+            .techno_combat()
+            .ammo()
+            .can_fire_no_ammo_weapon(facts.ammo, 1);
+    #[cfg(not(feature = "ares"))]
+    let no_ammo_secondary = obj.ammo > 0 && facts.ammo <= 0;
+    let current = get_weapon(entity, obj, index, entities, rules, interner);
+    let current_ae = ae_forbids(current);
+    if hurts_wall(current) && !no_ammo_secondary && !current_ae {
+        return index;
+    }
+    let secondary_index = if obj.is_gattling {
+        facts.gattling_stage.wrapping_mul(2).wrapping_add(1)
+    } else {
+        1
+    };
+    let secondary = get_weapon(entity, obj, secondary_index, entities, rules, interner);
+    if hurts_wall(secondary)
+        && (!obj.phobos_multi_weapon.no_secondary_weapon_fallback || current_ae)
+        && !ae_forbids(secondary)
+    {
+        return secondary_index;
+    }
+    index
+}
+
 /// [`current_weapon`] of a freshly constructed object that is not on the map,
 /// such as the building being placed (`Display+0x11A4`). It has no upgrades,
 /// occupants or elite rank, and every retail building has `TurretCount=0`, so

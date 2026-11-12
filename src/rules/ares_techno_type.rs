@@ -714,6 +714,15 @@ impl AmmoTypeRules {
     pub(crate) fn no_ammo_weapon(&self, ammo: i32) -> Option<i32> {
         (self.no_ammo_weapon >= 0 && ammo <= self.no_ammo_amount).then_some(self.no_ammo_weapon)
     }
+
+    /// Phobos `TechnoExt::CanFireNoAmmoWeapon` (`Ext/Techno/WeaponHelpers.cpp:107-123`):
+    /// the count is at or below `NoAmmoAmount` and `NoAmmoWeapon` names this
+    /// slot or the `-1` constructor default (any slot). The caller gates on
+    /// the type's `Ammo= > 0`.
+    pub(crate) fn can_fire_no_ammo_weapon(&self, ammo: i32, weapon_index: i32) -> bool {
+        ammo <= self.no_ammo_amount
+            && (self.no_ammo_weapon == weapon_index || self.no_ammo_weapon == -1)
+    }
 }
 
 /// TechnoTypeExt+0x470..+0x4A8, the self-heal pulse that

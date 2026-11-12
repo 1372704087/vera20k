@@ -465,6 +465,12 @@ pub struct PhobosGlobals {
     /// (`Ext/Rules/Body.cpp:498`, `Body.h:913`).
     #[serde(default)]
     pub interceptor_guard_range_is_cylindrical: bool,
+    /// `[CombatDamage] AllowWeaponSelectAgainstWalls=`, default `no`
+    /// (`Ext/Rules/Body.cpp:256`, `Body.h:174,702`): the per-type fallback
+    /// for picking a secondary wall-breaking weapon against a wall overlay
+    /// (`Ext/Techno/WeaponHelpers.cpp:196-236`).
+    #[serde(default)]
+    pub allow_weapon_select_against_walls: bool,
     /// `[CombatDamage] Interceptor.ApplyFirepowerMult=`, default **`yes`**
     /// (`Ext/Rules/Body.cpp:499`, `Body.h:914`).
     #[serde(default = "true_bool")]
@@ -955,6 +961,7 @@ impl Default for PhobosGlobals {
             shrapnel_obey_warhead_trigger_conditions: true,
             projectile_interceptable: false,
             interceptor_guard_range_is_cylindrical: false,
+            allow_weapon_select_against_walls: false,
             interceptor_apply_firepower_mult: true,
             return_weapon_apply_firepower_mult: false,
             overload_particle_sys_count: 5,
@@ -1676,6 +1683,10 @@ fn section_settings(section: &crate::rules::ini_parser::IniSection) -> PhobosGlo
         interceptor_guard_range_is_cylindrical: section.read_bool(
             "Interceptor.GuardRange.IsCylindrical",
             defaults.interceptor_guard_range_is_cylindrical,
+        ),
+        allow_weapon_select_against_walls: section.read_bool(
+            "AllowWeaponSelectAgainstWalls",
+            defaults.allow_weapon_select_against_walls,
         ),
         interceptor_apply_firepower_mult: section.read_bool(
             "Interceptor.ApplyFirepowerMult",

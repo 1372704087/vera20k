@@ -1187,6 +1187,14 @@ pub struct ObjectType {
     /// `0x483CD4`, `0x440D01` and `0x445D87`). Read only for a BuildingType.
     #[cfg(feature = "phobos")]
     pub phobos_destroyable_obstacle: bool,
+    /// Phobos `AllowWeaponSelectAgainstWalls=` (`Ext/TechnoType/Body.cpp:909`,
+    /// `Nullable<bool>` field `Body.h:169,565`): unset falls back to
+    /// `[CombatDamage] AllowWeaponSelectAgainstWalls`. `yes` lets
+    /// `TechnoExt::GetWeaponIndexAgainstWall` fall back to the secondary when
+    /// the current weapon cannot hurt a wall overlay
+    /// (`Ext/Techno/WeaponHelpers.cpp:196-236`).
+    #[cfg(feature = "phobos")]
+    pub phobos_allow_weapon_select_against_walls: Option<bool>,
     /// Phobos `AmphibiousEnter=` (`Ext/TechnoType/Body.cpp:1107`,
     /// `Nullable<bool>` field `Body.h:342`): unset falls back to
     /// `[General] AmphibiousEnter`. `yes` admits boarding a transport that sits
@@ -5724,6 +5732,9 @@ impl ObjectType {
             #[cfg(feature = "phobos")]
             phobos_destroyable_obstacle: category == ObjectCategory::Building
                 && section.read_bool("IsDestroyableObstacle", false),
+            #[cfg(feature = "phobos")]
+            phobos_allow_weapon_select_against_walls: section
+                .read_phobos_nullable_bool("AllowWeaponSelectAgainstWalls", None),
             #[cfg(feature = "phobos")]
             phobos_amphibious_enter: section.read_phobos_nullable_bool("AmphibiousEnter", None),
             #[cfg(feature = "phobos")]

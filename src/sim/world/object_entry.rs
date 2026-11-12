@@ -37,6 +37,10 @@ mod infantry_entry_priority_tests;
 #[path = "wall_entry_tests.rs"]
 mod wall_entry_tests;
 
+#[cfg(all(test, feature = "phobos"))]
+#[path = "phobos_wall_weapon_tests.rs"]
+mod phobos_wall_weapon_tests;
+
 #[cfg(test)]
 #[path = "plain_entry_tests.rs"]
 mod plain_entry_tests;
@@ -1109,7 +1113,22 @@ fn full_foot_entry<'a>(
             let allied = live_overlay
                 .wall_owner
                 .is_some_and(|o| mover.allied_with(live, o));
-            let warhead = weapon0.and_then(|w| live.rules.weapon_warhead(w));
+            // Phobos hooks `0x51C1F1`/`0x73F495` replace the native's
+            // `GetWeapon(0)` with `GetWeapon(GetWeaponIndexAgainstWall(..))`
+            // (`Ext/Techno/WeaponHelpers.cpp:196-236`), so the secondary may
+            // answer the wall test.
+            #[cfg(feature = "phobos")]
+            let wall_weapon = combat_weapon::get_weapon(
+                e,
+                obj,
+                combat_weapon::weapon_index_against_wall(live.sim, e, obj, live.rules, flags),
+                &live.sim.substrate.entities,
+                live.rules,
+                &live.sim.interner,
+            );
+            #[cfg(not(feature = "phobos"))]
+            let wall_weapon = weapon0;
+            let warhead = wall_weapon.and_then(|w| live.rules.weapon_warhead(w));
             if infantry {
                 //51C1BB..51C223: a wall at damage stage DamageLevels (+0x2A0)
                 //is no wall to Infantry. Otherwise the primary warhead needs

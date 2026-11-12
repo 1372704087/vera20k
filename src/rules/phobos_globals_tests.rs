@@ -550,3 +550,55 @@ fn sinkable_and_sink_speed_default_and_read() {
     assert_eq!(set.sinkable, Some(true));
     assert_eq!(set.sink_speed, 2);
 }
+
+/// `[General] ParadropMission` (Guard) and `AIParadropMission` (Hunt), read
+/// through the same mission-name table as map `MISSION=`; an unknown name
+/// keeps the constructor value (`Ext/Rules/Body.h:934-935`).
+#[test]
+fn paradrop_mission_globals_default_and_read() {
+    use crate::rules::mission_data::MissionType;
+    let defaults = PhobosGlobals::default();
+    assert_eq!(defaults.paradrop_mission, MissionType::Guard);
+    assert_eq!(defaults.ai_paradrop_mission, MissionType::Hunt);
+    let set = read("[General]\nParadropMission=Move\nAIParadropMission=Area Guard\n");
+    assert_eq!(set.paradrop_mission, MissionType::Move);
+    assert_eq!(set.ai_paradrop_mission, MissionType::AreaGuard);
+    let invalid = read("[General]\nParadropMission=Wibble\n");
+    assert_eq!(invalid.paradrop_mission, MissionType::Guard);
+}
+
+/// `[General] AircraftWeapon.KickOutPassengers` (`Valueable<bool>`, true).
+#[test]
+fn aircraft_weapon_kick_out_passengers_defaults_and_reads() {
+    assert!(PhobosGlobals::default().aircraft_weapon_kick_out_passengers);
+    assert!(
+        !read("[General]\nAircraftWeapon.KickOutPassengers=no\n")
+            .aircraft_weapon_kick_out_passengers
+    );
+}
+
+/// `[General] SecondaryFireSequenceLandOnly` (`Valueable<bool>`, true).
+#[test]
+fn secondary_fire_sequence_land_only_defaults_and_reads() {
+    assert!(
+        PhobosGlobals::default().secondary_fire_sequence_land_only,
+        "the global constructs yes (stock remap)"
+    );
+    assert!(
+        !read("[General]\nSecondaryFireSequenceLandOnly=no\n").secondary_fire_sequence_land_only
+    );
+}
+
+/// `[General] DamagedSpeed` (`Valueable<double>`, 0.75).
+#[test]
+fn damaged_speed_defaults_and_reads() {
+    assert_eq!(
+        PhobosGlobals::default().damaged_speed.bits(),
+        0.75f64.to_bits(),
+        "the constructor keeps the stock factor"
+    );
+    assert_eq!(
+        read("[General]\nDamagedSpeed=0.5\n").damaged_speed.bits(),
+        0.5f64.to_bits()
+    );
+}

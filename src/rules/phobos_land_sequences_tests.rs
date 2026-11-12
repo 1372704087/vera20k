@@ -52,3 +52,30 @@ fn a_default_or_none_read_clears_the_key() {
         None
     );
 }
+
+/// `Ext/InfantryType/Body.cpp:33`, `Rules/Body.h:1018`: the art key defaults
+/// unset and the global constructs yes; a type's no disables the wet-attack
+/// remap for SecondaryFire/SecondaryProne.
+#[test]
+fn secondary_fire_land_only_defaults_on_and_the_type_can_disable_it() {
+    let unset = read("");
+    assert_eq!(unset.secondary_fire_sequence_land_only, None);
+    assert!(
+        unset.secondary_fire_land_only(true),
+        "the global defaults yes"
+    );
+    assert!(
+        !unset.secondary_fire_land_only(false),
+        "a set global applies"
+    );
+
+    let no = read("SecondaryFireSequenceLandOnly=no\n");
+    assert!(!no.secondary_fire_land_only(true), "the type's no wins");
+    let yes = read("SecondaryFireSequenceLandOnly=yes\n");
+    assert!(yes.secondary_fire_land_only(false), "the type's yes wins");
+    assert_eq!(
+        read("SecondaryFireSequenceLandOnly=none\n").secondary_fire_sequence_land_only,
+        None,
+        "none resets to the global"
+    );
+}

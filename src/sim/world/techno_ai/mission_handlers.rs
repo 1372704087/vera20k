@@ -1900,7 +1900,9 @@ fn foot_threat_range(sim: &Simulation, id: u64, rules: &RuleSet) -> i32 {
     } else {
         [0, 0]
     };
-    crate::sim::combat::threat_range::threat_range_leptons(object, 1, ranges)
+    let area_guard =
+        actor.mission.effective().known() == Some(crate::sim::mission::MissionType::AreaGuard);
+    crate::sim::combat::threat_range::threat_range_leptons(object, 1, ranges, area_guard)
 }
 
 fn scaled_area_guard_leash(range: i32) -> i32 {

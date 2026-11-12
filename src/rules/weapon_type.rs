@@ -470,6 +470,13 @@ pub struct WeaponType {
     /// (`Ext/Techno/Hooks.Firing.cpp:1265-1274`).
     #[cfg(feature = "phobos")]
     pub phobos_cylinder_rangefinding: Option<bool>,
+    /// Phobos `WeaponTypeExt::KickOutPassengers` (`Nullable<bool>`, unset;
+    /// `Ext/WeaponType/Body.cpp:183`, `Body.h:91,186`): with a passenger
+    /// aboard, a firing aircraft still drops one (`AircraftClass::Fire_At`
+    /// `0x415EEE`) only when this key, else
+    /// `[General] AircraftWeapon.KickOutPassengers=`, is yes.
+    #[cfg(feature = "phobos")]
+    pub phobos_kick_out_passengers: Option<bool>,
 }
 
 impl WeaponType {
@@ -925,6 +932,9 @@ impl WeaponType {
             #[cfg(feature = "phobos")]
             phobos_cylinder_rangefinding: section
                 .read_phobos_nullable_bool("CylinderRangefinding", None),
+            #[cfg(feature = "phobos")]
+            phobos_kick_out_passengers: section
+                .read_phobos_nullable_bool("KickOutPassengers", None),
             #[cfg(feature = "phobos")]
             phobos_burst_delays: section
                 .read_ares_int_list("Burst.Delays")

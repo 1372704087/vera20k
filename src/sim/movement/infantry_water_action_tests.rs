@@ -649,3 +649,55 @@ fn only_use_land_sequences_skips_the_water_remap() {
         "the type's explicit no wins over the global yes"
     );
 }
+
+/// Phobos `SecondaryFireSequenceLandOnly` (`Ext/Techno/Hooks.Misc.cpp:895`,
+/// hook 0x51D7E0): stock remaps an in-water SecondaryFire (4) or
+/// SecondaryProne (8) request to WetAttack (0x16); the resolved key no keeps
+/// the land record. The default global is yes, so stock is unchanged.
+#[cfg(feature = "phobos")]
+#[test]
+fn secondary_fire_sequence_land_only_keeps_the_land_record() {
+    let input = json!({"zone": 3, "land": 2, "request": 4});
+    let mut doing = |general: &str, art: &str| {
+        let rules = supplied_rules_with_land_sequences(&input, general, art);
+        let (mut sim, id) = fixture(&json!({"input": input.clone()}), &rules, "WATER");
+        assert!(
+            sim.infantry_do_action(
+                id,
+                4,
+                false,
+                &rules,
+                crate::sim::world::FrameEffects::default(),
+            )
+            .unwrap(),
+            "SecondaryFire has a record"
+        );
+        sim.substrate
+            .entities
+            .get(id)
+            .unwrap()
+            .mission_leaf
+            .as_infantry()
+            .unwrap()
+            .doing()
+    };
+    assert_eq!(doing("", ""), 22, "the default global yes keeps stock");
+    assert_eq!(
+        doing("SecondaryFireSequenceLandOnly=no\n", ""),
+        4,
+        "[General] no keeps the land SecondaryFire record"
+    );
+    assert_eq!(
+        doing("", "SecondaryFireSequenceLandOnly=no\n"),
+        4,
+        "the art key no keeps the land record"
+    );
+    assert_eq!(
+        doing(
+            "SecondaryFireSequenceLandOnly=no\n",
+            "SecondaryFireSequenceLandOnly=yes\n"
+        ),
+        22,
+        "the type's yes wins over the global no"
+    );
+}

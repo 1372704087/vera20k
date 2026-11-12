@@ -105,6 +105,14 @@ impl AircraftShot {
 pub(crate) trait FireAtHost {
     /// `+0x118`: the aircraft carries a first passenger.
     fn carries_passenger(&mut self) -> bool;
+    /// Phobos `AircraftClass_Fire_KickOutPassengers` (`0x415EEE`,
+    /// `Ext/Aircraft/Hooks.cpp:455-474`): with a passenger aboard, the drop
+    /// arm runs only when the firing weapon's `KickOutPassengers`, else
+    /// `[General] AircraftWeapon.KickOutPassengers=`, is yes. A null weapon
+    /// keeps the stock drop (`SkipKickOutPassengers = 0x415F08` then fires).
+    fn kick_out_passengers(&mut self) -> bool {
+        true
+    }
     /// `AircraftClass::Drop_Payload @ 0x00415C60`.
     fn drop_payload(&mut self);
     /// `TechnoClass::FireAt @ 0x006FDD50` with Fire_At's target and weapon.
@@ -139,7 +147,7 @@ pub(crate) trait FireAtHost {
 
 /// `AircraftClass::Fire_At @ 0x00415EE0`: see the module doc.
 pub(crate) fn fire_at(host: &mut impl FireAtHost) {
-    if host.carries_passenger() {
+    if host.carries_passenger() && host.kick_out_passengers() {
         host.drop_payload();
         return;
     }

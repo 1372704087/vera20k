@@ -119,6 +119,14 @@ impl Simulation {
         // 6FFD42's default arm, including AreaGuard and Sabotage. Caller
         // loops own suppression of later actors; this owner spends only Main.
         if voice_field == "VoiceSpecialAttack" {
+            // Phobos `TechnoClass_ClickedMission_VoiceSpecialAttack`
+            // (0x6FFD4C, `Ext/Techno/Hooks.cpp:2507-2528`): an Eaten click on
+            // a `Grinding=` building speaks this foot's `VoiceEnterGrinder`
+            // and skips the selector, spending no Main draw.
+            #[cfg(feature = "phobos")]
+            if let Some(sound) = self.voice_enter_grinder_request(rules, entity_id, target) {
+                return Self::queue_voice_request(Some(sound), voices_enabled, human_player);
+            }
             return self.voice_request_from_list(
                 &object.voice_special_attack,
                 voices_enabled,
@@ -140,6 +148,37 @@ impl Simulation {
         // QueueVoice's enable/House rejection. The caller enable gate above
         // instead prevents reaching VoiceMove at all (6FFCBD..6FFCCB).
         self.voice_request_from_list(object.voice_move(), voices_enabled, human_player)
+    }
+
+    /// Phobos `TechnoClass_ClickedMission_VoiceSpecialAttack` (`0x6FFD4C`,
+    /// `Ext/Techno/Hooks.cpp:2507-2528`): the clicked Eaten target's building
+    /// type must be `Grinding=`; the speaking foot's `VoiceEnterGrinder` then
+    /// replaces the `VoiceSpecialAttack` selector. An unset or unknown
+    /// catalog reference leaves the stock list path.
+    #[cfg(feature = "phobos")]
+    fn voice_enter_grinder_request<'a>(
+        &self,
+        rules: &'a RuleSet,
+        entity_id: u64,
+        target: Option<crate::sim::combat::TargetKind>,
+    ) -> Option<&'a str> {
+        use crate::map::entities::EntityCategory;
+        let crate::sim::combat::TargetKind::Entity(building_id) = target? else {
+            return None;
+        };
+        let building = self.entities().get(building_id)?;
+        if building.category() != EntityCategory::Structure {
+            return None;
+        }
+        let building_type = self.interner.object_type(building.type_ref(), rules)?;
+        if !building_type.grinding {
+            return None;
+        }
+        let foot = self.entities().get(entity_id)?;
+        self.interner
+            .object_type(foot.type_ref(), rules)?
+            .phobos_voice_enter_grinder
+            .as_deref()
     }
 
     /// VoiceAttack7090A0 through the existing SelectWeapon/GetWeapon,

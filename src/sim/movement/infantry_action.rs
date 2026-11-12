@@ -308,6 +308,16 @@ impl Simulation {
             .only_land(rules.phobos_globals.only_use_land_sequences);
         #[cfg(not(feature = "phobos"))]
         let only_land_sequences = false;
+        // Phobos `SecondaryFireSequenceLandOnly` (`Ext/Techno/Hooks.Misc.cpp:895`):
+        // the resolved yes keeps stock's SecondaryFire/Prone -> WetAttack
+        // remap; no leaves those requests on their land records.
+        #[cfg(feature = "phobos")]
+        let secondary_fire_land_only = rules
+            .object_by_handle(facts.handle)
+            .phobos_land_sequences
+            .secondary_fire_land_only(rules.phobos_globals.secondary_fire_sequence_land_only);
+        #[cfg(not(feature = "phobos"))]
+        let secondary_fire_land_only = true;
         if facts.movement_zone == MovementZone::AmphibiousDestroyer {
             //51D7B0: virtual+1B8 is Abstract41BEA0, signed physical XYZ/256
             // packed to two WORDs. Map5657A0 retains one canonical Cell,
@@ -333,7 +343,7 @@ impl Simulation {
                     10 => 19,
                     11 => 20,
                     12 => 21,
-                    4 | 8 => 22,
+                    4 | 8 if secondary_fire_land_only => 22,
                     other => other,
                 };
             }

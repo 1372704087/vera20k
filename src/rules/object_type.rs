@@ -936,6 +936,28 @@ pub struct ObjectType {
     /// (`UnitClass_Update_SinkSpeed @ 0x7364DC`).
     #[cfg(feature = "phobos")]
     pub phobos_sink_speed: Option<i32>,
+    /// Phobos `DamagedSpeed` (`Nullable<double>`, unset;
+    /// `Ext/UnitType/Body.cpp:32`, `Body.h:17`): the Drive/Ship
+    /// below-Condition-Yellow speed multiplier, replacing the stock 0.75
+    /// (`LocomotionClass_Process_DamagedSpeedMultiplier @ 0x4B3DF0/0x6A343F`).
+    #[cfg(feature = "phobos")]
+    pub phobos_damaged_speed: Option<crate::util::native_x87::NativeF64Bits>,
+    /// Phobos `ParadropMission`/`AIParadropMission` (`Nullable<Mission>`,
+    /// unset; `Ext/TechnoType/Body.cpp:1171-1172`, `Body.h:411-412`): the
+    /// mission a human- or AI-controlled `FootClass` queues after
+    /// `FootClass_Paradrop` replaces the stock `SpawnParachuted` (vtable
+    /// 0x7EB140/0x7F5D58, `Ext/Techno/Hooks.cpp:1869-1893`).
+    #[cfg(feature = "phobos")]
+    pub phobos_paradrop_mission: Option<crate::rules::mission_data::MissionType>,
+    #[cfg(feature = "phobos")]
+    pub phobos_ai_paradrop_mission: Option<crate::rules::mission_data::MissionType>,
+    /// Phobos `IsALoaner` (`Nullable<bool>`, unset; `Ext/AircraftType/
+    /// Body.cpp:40`, `Body.h:31`): writes the native `+0x3D4` byte on the
+    /// aircraft's UnLimbo, replacing the stock
+    /// Selectable/Landable/Camera computation
+    /// (`AircraftClass_UnLimbo_CargoPlane @ 0x4143A8`).
+    #[cfg(feature = "phobos")]
+    pub phobos_is_aloaner: Option<bool>,
     /// Phobos `BunkerROFMultMultiplier` (`Nullable<float>`, unset;
     /// `Ext/BuildingType/Body.cpp:250`, `Body.h:99`): the per-bunker ROF
     /// multiplier (`TechnoClass_RearmDelay_BuildingBunkerROFMult @ 0x6FD1C7`),
@@ -991,6 +1013,13 @@ pub struct ObjectType {
     /// Phobos `Grinding.*` (`Ext/BuildingType/Body.cpp:200-207`).
     #[cfg(feature = "phobos")]
     pub phobos_grinding: crate::rules::phobos_grinding::PhobosGrindingSettings,
+    /// Phobos `TechnoTypeExt::VoiceEnterGrinder` (`NullableIdx<VocClass>`,
+    /// unset; `Ext/TechnoType/Body.cpp:1212`, `Body.h:447,868`): the voice a
+    /// foot speaks when clicked onto a `Grinding=` building with the Eaten
+    /// mission, replacing `VoiceSpecialAttack`
+    /// (`TechnoClass_ClickedMission_VoiceSpecialAttack @ 0x6FFD4C`).
+    #[cfg(feature = "phobos")]
+    pub phobos_voice_enter_grinder: Option<String>,
     /// Phobos `BuildLimitGroup.*` (`Ext/TechnoType/Body.cpp:1033-1041`): a
     /// techno's group build-limit settings, consumed by `can_build`.
     #[cfg(feature = "phobos")]
@@ -1622,6 +1651,12 @@ pub struct ObjectType {
     /// Scan radius in cells for auto-targeting idle enemies. If None, defaults
     /// to the primary weapon's range at runtime.
     pub guard_range: Option<SimFixed>,
+    /// Phobos `AreaGuardRange` (`Nullable<Leptons>`, unset;
+    /// `Ext/TechnoType/Body.cpp:974`, `Body.h:217`): replaces `GuardRange=`
+    /// while the techno's current mission is Area Guard
+    /// (`TechnoClass_GetGuardRange` replacement, hook `0x707E63`).
+    #[cfg(feature = "phobos")]
+    pub phobos_area_guard_range: Option<SimFixed>,
     /// Range bonus (in cells) added to the weapon's max range when firing at
     /// high-flying targets. Read from `AirRangeBonus=` in the unit section.
     /// None means no bonus.
@@ -4819,6 +4854,11 @@ impl ObjectType {
             // unset names keep `None`, so the stock EnterGrinderSound plays.
             self.phobos_grinding.sound = section
                 .and_then(|section| sounds.read_rules_reference(section, "Grinding.Sound", None));
+            // Phobos `VoiceEnterGrinder` (`NullableIdx<VocClass>`): unknown
+            // and unset names keep `None`, so the stock order voice plays.
+            self.phobos_voice_enter_grinder = section.and_then(|section| {
+                sounds.read_rules_reference(section, "VoiceEnterGrinder", None)
+            });
         }
         #[cfg(feature = "ares")]
         for (slot, key) in ["Promote.VeteranSound", "Promote.EliteSound"]
@@ -5477,6 +5517,8 @@ impl ObjectType {
                 section,
             ),
             #[cfg(feature = "phobos")]
+            phobos_voice_enter_grinder: None,
+            #[cfg(feature = "phobos")]
             phobos_build_limit_group:
                 crate::rules::phobos_build_limit_group::BuildLimitGroupSettings::from_section(
                     section,
@@ -5966,6 +6008,22 @@ impl ObjectType {
             #[cfg(feature = "phobos")]
             phobos_sink_speed: section.read_phobos_nullable_int("SinkSpeed", None),
             #[cfg(feature = "phobos")]
+            phobos_damaged_speed: section
+                .read_phobos_nullable_double("DamagedSpeed", None)
+                .map(|value| crate::util::native_x87::NativeF64Bits::from_bits(value.to_bits())),
+            #[cfg(feature = "phobos")]
+            phobos_paradrop_mission: section
+                .read_string_with("ParadropMission", 2048, None, |current, value| {
+                    crate::rules::mission_data::MissionType::from_map_name(value).or(current)
+                }),
+            #[cfg(feature = "phobos")]
+            phobos_ai_paradrop_mission: section
+                .read_string_with("AIParadropMission", 2048, None, |current, value| {
+                    crate::rules::mission_data::MissionType::from_map_name(value).or(current)
+                }),
+            #[cfg(feature = "phobos")]
+            phobos_is_aloaner: section.read_phobos_nullable_bool("IsALoaner", None),
+            #[cfg(feature = "phobos")]
             phobos_bunker_rof_multiplier: section
                 .read_phobos_nullable_double("BunkerROFMultMultiplier", None)
                 .map(|value| value as f32),
@@ -6133,6 +6191,8 @@ impl ObjectType {
                     .read_coord3_fold("VoxelBarrelOffsetToBuildingPivotPoint", [0; 3]),
             },
             guard_range: present_range("GuardRange"),
+            #[cfg(feature = "phobos")]
+            phobos_area_guard_range: present_range("AreaGuardRange"),
             air_range_bonus: present_range("AirRangeBonus"),
             // Default no (passive acquisition off unless the type opts in).
             opportunity_fire: section.read_bool("OpportunityFire", false),

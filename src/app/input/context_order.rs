@@ -1363,6 +1363,13 @@ fn emit_resolved_order_voice(state: &mut AppState, speaker_id: u64, queued: &[Co
             target_ry,
             ..
         } => Some(TargetKind::Cell(*target_rx, *target_ry)),
+        // Phobos `TechnoClass_ClickedMission_VoiceSpecialAttack` (`0x6FFD4C`)
+        // reads the clicked Eaten building (`pTarget`, here Destination).
+        Command::MegaMission {
+            mission: crate::sim::mission::MissionType::Eaten,
+            destination,
+            ..
+        } => *destination,
         _ => None,
     };
     emit_entity_order_voice(state, speaker_id, voice_field, target);
@@ -1399,6 +1406,7 @@ fn emit_entity_order_voice(
                     &mut runtime.simulation,
                     &runtime.resources.rules,
                     speaker_id,
+                    target,
                     state.match_state.input.selection_voice_enabled,
                 )
         {

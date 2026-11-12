@@ -471,7 +471,7 @@ impl Simulation {
                 ),
             ];
             (
-                crate::sim::combat::threat_range::threat_range_leptons(object, 2, ranges),
+                crate::sim::combat::threat_range::threat_range_leptons(object, 2, ranges, false),
                 settings.follow_include_air,
             )
         };

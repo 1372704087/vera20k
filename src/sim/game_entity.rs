@@ -1992,6 +1992,15 @@ impl GameEntity {
         else {
             return;
         };
+        // Phobos `AircraftClass_UnLimbo_CargoPlane` (`0x4143A8`,
+        // `Ext/Aircraft/Hooks.cpp:1313-1326`): a set `IsALoaner` assigns the
+        // native `+0x3D4` byte itself (yes and no) and skips the stock
+        // Selectable/Landable/Camera computation (SkipGameCode 0x4143F2).
+        #[cfg(feature = "phobos")]
+        if let Some(is_loaner) = object.phobos_is_aloaner {
+            self.mission_only.set(is_loaner);
+            return;
+        }
         let camera =
             crate::sim::combat::combat_weapon::primary_for_tier(object, self.veterancy.rank())
                 .and_then(|id| rules.weapon(id))
@@ -3532,6 +3541,40 @@ mod tests {
 
         contacted.clear_live_contact_with(100);
         assert!(!contacted.has_live_contact_with(100));
+    }
+
+    /// Phobos `AircraftClass_UnLimbo_CargoPlane` (`0x4143A8`,
+    /// `Ext/Aircraft/Hooks.cpp:1313-1326`): a set AircraftType `IsALoaner`
+    /// writes native `+0x3D4` itself, replacing the stock
+    /// Selectable/Landable/Camera computation; unset keeps the stock flag.
+    #[cfg(feature = "phobos")]
+    #[test]
+    fn phobos_is_aloaner_overrides_the_aircraft_unlimbo_flag() {
+        let rules =
+            crate::rules::ruleset::RuleSet::from_ini(&crate::rules::ini_parser::IniFile::from_str(
+                "[AircraftTypes]\n0=LOAN\n1=PLAIN\n2=STOCK\n3=STOCKSAFE\n\
+                 [LOAN]\nStrength=100\nSelectable=yes\nLandable=yes\nIsALoaner=yes\n\
+                 [PLAIN]\nStrength=100\nSelectable=yes\nLandable=no\nIsALoaner=no\n\
+                 [STOCK]\nStrength=100\nSelectable=yes\nLandable=no\n\
+                 [STOCKSAFE]\nStrength=100\nSelectable=yes\nLandable=yes\n",
+            ))
+            .unwrap();
+        let mission_only = |name: &str| {
+            let mut entity = GameEntity::test_default_of_category(
+                1,
+                name,
+                "Americans",
+                10,
+                20,
+                EntityCategory::Aircraft,
+            );
+            entity.retain_aircraft_unlimbo_control(&rules, name);
+            entity.is_mission_only()
+        };
+        assert!(mission_only("LOAN"), "yes marks a controllable plane");
+        assert!(!mission_only("PLAIN"), "no clears a stock-marked plane");
+        assert!(mission_only("STOCK"), "unset keeps the stock gate");
+        assert!(!mission_only("STOCKSAFE"), "unset stays unmarked");
     }
 }
 

@@ -271,27 +271,6 @@ fn retarget(
         .unwrap_or(cell)
 }
 
-/// `AircraftExt::PickEdgeCellForPlane`'s edge choice
-/// (`Ext/Aircraft/Body.cpp:88-123`) before `PickCellOnEdge`: `Owner` keeps the
-/// caller's edge, `Random` spends one `RandomRanged(Edge::North..=Edge::West)`
-/// draw, and `Closest` is not modelled here (it picks on `Edge::None` around a
-/// scattered destination cell, a `PickCellOnEdge` arm VERA does not have).
-#[cfg(feature = "phobos")]
-fn spawn_edge(
-    mode: crate::rules::phobos_aircraft_edge::PhobosEdgeType,
-    owned: Edge,
-    scenario_rng: &mut crate::sim::rng::SimRng,
-) -> Edge {
-    use crate::rules::phobos_aircraft_edge::PhobosEdgeType;
-    match mode {
-        PhobosEdgeType::Random => {
-            let index = scenario_rng.next_range_i32_inclusive(0, 3).max(0);
-            Edge::from_index(u8::try_from(index).unwrap_or(0)).unwrap_or(owned)
-        }
-        PhobosEdgeType::Owner | PhobosEdgeType::Closest => owned,
-    }
-}
-
 /// `HouseClass::SendParadropPlanes @ 0x0065E660` as cases 5 and 6 call it
 /// (one plane, mission 26, `target`, no destination), and its sibling
 /// `HouseClass::SendSpyPlanes @ 0x0065EAB0` (case 8: mission 30, no
@@ -367,7 +346,7 @@ pub(super) fn send_planes(
             )
             .and_then(|plane| plane.phobos_spawn_from_edge)
             .unwrap_or(rules.phobos_globals.aircraft_spawn_from_edge);
-        spawn_edge(mode, owned_edge, &mut sim.scenario_rng)
+        crate::sim::world::edge_cell::edge_for_mode(mode, owned_edge, &mut sim.scenario_rng)
     };
     #[cfg(not(feature = "phobos"))]
     let edge = owned_edge;

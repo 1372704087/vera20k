@@ -983,6 +983,11 @@ pub struct PhobosGlobals {
     /// (`Ext/Aircraft/Body.cpp:88`).
     #[serde(default)]
     pub aircraft_spawn_from_edge: crate::rules::phobos_aircraft_edge::PhobosEdgeType,
+    /// `[General] AircraftRetreatToEdge=`, default `owner`
+    /// (`Ext/Rules/Body.cpp:194`, constructor `Ext/Rules/Body.h:637`): the
+    /// fallback for an AircraftType's own `RetreatToEdge=` (`Ext/Aircraft/Body.cpp:89`).
+    #[serde(default)]
+    pub aircraft_retreat_to_edge: crate::rules::phobos_aircraft_edge::PhobosEdgeType,
 }
 
 /// `RadarJamHouses=`'s constructor value (`Ext/Rules/Body.h:657`).
@@ -1227,6 +1232,7 @@ impl Default for PhobosGlobals {
             paradrop_end_delay: default_paradrop_end_delay(),
             allow_weapon_select_against_walls: false,
             aircraft_spawn_from_edge: crate::rules::phobos_aircraft_edge::PhobosEdgeType::Owner,
+            aircraft_retreat_to_edge: crate::rules::phobos_aircraft_edge::PhobosEdgeType::Owner,
         }
     }
 }
@@ -1552,6 +1558,16 @@ impl PhobosGlobals {
             "AircraftSpawnFromEdge",
             32,
             globals.aircraft_spawn_from_edge,
+            |current, value| {
+                crate::rules::phobos_aircraft_edge::PhobosEdgeType::parse(value).unwrap_or(current)
+            },
+        );
+        // `Ext/Rules/Body.cpp:194`: the `[General]` fallback an AircraftType's
+        // `RetreatToEdge=` overrides (`Ext/Aircraft/Body.cpp:89`, `0x415A7A`).
+        globals.aircraft_retreat_to_edge = general.read_string_with(
+            "AircraftRetreatToEdge",
+            32,
+            globals.aircraft_retreat_to_edge,
             |current, value| {
                 crate::rules::phobos_aircraft_edge::PhobosEdgeType::parse(value).unwrap_or(current)
             },

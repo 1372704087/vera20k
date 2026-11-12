@@ -1164,6 +1164,13 @@ pub struct ObjectType {
     /// (`Ext/Aircraft/Body.cpp:88`). Aircraft types only.
     #[cfg(feature = "phobos")]
     pub phobos_spawn_from_edge: Option<crate::rules::phobos_aircraft_edge::PhobosEdgeType>,
+    /// Phobos `RetreatToEdge=` (`Ext/AircraftType/Body.cpp:25`,
+    /// `Nullable<EdgeType>` `Body.h:16`, constructed unset `Body.h:40`): the
+    /// edge mode `Mission_Retreat` picks on (`Ext/Aircraft/Body.cpp:89`,
+    /// `0x415A7A`); unset takes `[General] AircraftRetreatToEdge`. Aircraft
+    /// types only.
+    #[cfg(feature = "phobos")]
+    pub phobos_retreat_to_edge: Option<crate::rules::phobos_aircraft_edge::PhobosEdgeType>,
     /// Phobos `Explodes.KillPassengers` (`Ext/TechnoType/Body.cpp:968`) and
     /// `Explodes.DuringBuildup` (`Ext/BuildingType/Body.cpp:222`), consumed by
     /// the `TechnoClass::ReceiveDamage` death arm.
@@ -5787,6 +5794,12 @@ impl ObjectType {
             phobos_spawn_from_edge: (category == ObjectCategory::Aircraft)
                 .then(|| {
                     crate::rules::phobos_aircraft_edge::read_spawn_from_edge(section)
+                })
+                .flatten(),
+            #[cfg(feature = "phobos")]
+            phobos_retreat_to_edge: (category == ObjectCategory::Aircraft)
+                .then(|| {
+                    crate::rules::phobos_aircraft_edge::read_retreat_to_edge(section)
                 })
                 .flatten(),
             #[cfg(feature = "phobos")]

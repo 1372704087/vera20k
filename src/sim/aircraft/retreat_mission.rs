@@ -130,6 +130,24 @@ struct WorldRetreat<'a> {
 
 impl RetreatHost for WorldRetreat<'_> {
     fn edge_cell(&mut self, edge: Edge) -> Option<(u16, u16)> {
+        // Phobos hooks this pick (`0x415A7A`, `Ext/House/Hooks.cpp:442-453`)
+        // with `AircraftExt::PickEdgeCellForPlane` (`Ext/Aircraft/Body.cpp:85-126`
+        // called with `isOnRetreat`): the type's `RetreatToEdge=` else
+        // `[General] AircraftRetreatToEdge=`. `Owner` keeps the house/waypoint
+        // edge and `Random` spends one `RandomRanged(North, West)` draw
+        // (`:112-117`). `Closest` picks on `Edge::None` at the plane's own cell
+        // scattered by two `RandomRanged(-5, 5)` draws (`:95-109`), which VERA's
+        // four-value `Edge` cannot express (RESIDUAL: such a type keeps the
+        // `Owner` pick).
+        #[cfg(feature = "phobos")]
+        let edge = {
+            let plane =
+                self.sim.substrate.entities.get(self.id).and_then(|entity| {
+                    self.sim.interner.object_type(entity.type_ref(), self.rules)
+                });
+            let mode = retreat_edge_mode(self.rules, plane);
+            crate::sim::world::edge_cell::edge_for_mode(mode, edge, &mut self.sim.scenario_rng)
+        };
         self.sim.aircraft_edge_cell(edge)
     }
 
@@ -142,3 +160,19 @@ impl RetreatHost for WorldRetreat<'_> {
         );
     }
 }
+
+/// `Ext/Aircraft/Body.cpp:89`: the plane's `RetreatToEdge=` else
+/// `[General] AircraftRetreatToEdge=` (constructor `Owner`).
+#[cfg(feature = "phobos")]
+fn retreat_edge_mode(
+    rules: &RuleSet,
+    plane: Option<&crate::rules::object_type::ObjectType>,
+) -> crate::rules::phobos_aircraft_edge::PhobosEdgeType {
+    plane
+        .and_then(|plane| plane.phobos_retreat_to_edge)
+        .unwrap_or(rules.phobos_globals.aircraft_retreat_to_edge)
+}
+
+#[cfg(all(test, feature = "phobos"))]
+#[path = "retreat_edge_mode_tests.rs"]
+mod retreat_edge_mode_tests;

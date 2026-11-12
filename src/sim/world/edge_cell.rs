@@ -60,6 +60,31 @@ impl Edge {
     }
 }
 
+/// `AircraftExt::PickEdgeCellForPlane` (`Ext/Aircraft/Body.cpp:85-126`), the
+/// Phobos override of the four `PickCellOnEdge` callers (`SendSpyPlanes`
+/// `0x65EB2D`, `SendAirstrike` `0x65E881`, `SendParadrop` `0x65E6DB` and
+/// `AircraftClass::Mission_Retreat` `0x415A7A`, `Ext/House/Hooks.cpp:352-454`):
+/// the type's `SpawnFromEdge=`/`RetreatToEdge=` else its `[General]` mode.
+/// `Owner` keeps the edge the caller passed; `Random` spends one
+/// `Scenario RandomRanged(North, West)` draw (`:114-116`); `Closest` picks on
+/// `Edge::None` around the destination cell scattered by two
+/// `RandomRanged(-5, 5)` draws (`:95-109`), which [`Edge`]'s four values cannot
+/// express (RESIDUAL: such a type keeps its `Owner` pick).
+pub(crate) fn edge_for_mode(
+    mode: crate::rules::phobos_aircraft_edge::PhobosEdgeType,
+    owned: Edge,
+    scenario_rng: &mut SimRng,
+) -> Edge {
+    use crate::rules::phobos_aircraft_edge::PhobosEdgeType;
+    match mode {
+        PhobosEdgeType::Random => {
+            let index = scenario_rng.next_range_i32_inclusive(0, 3).max(0);
+            Edge::from_index(u8::try_from(index).unwrap_or(0)).unwrap_or(owned)
+        }
+        PhobosEdgeType::Owner | PhobosEdgeType::Closest => owned,
+    }
+}
+
 /// Find the paradrop carrier spawn/exit cell along a MapClass edge.
 ///
 /// Active spawner and Approach/Overfly callers pass sentinel references and

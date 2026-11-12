@@ -9,8 +9,10 @@
 
 use crate::map::playfield::{PlayfieldBounds, local_to_packed_cell};
 use crate::map::resolved_terrain::ResolvedTerrainGrid;
+use crate::rules::ini_value::PhobosEdgeType;
 use crate::sim::cell_rect::cell_is_in_playfield_height_aware;
 use crate::sim::rng::SimRng;
+use crate::util::lepton::{CELL_CENTER_LEPTON_I32, LEPTONS_PER_CELL_I32, lepton_to_cell_packed};
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum Edge {
@@ -58,6 +60,80 @@ impl Edge {
             _ => None,
         }
     }
+}
+
+/// Phobos `AircraftExt::PickEdgeCellForPlane`'s edge-selection arm
+/// (`Ext/Aircraft/Body.cpp:88..123`) as `AircraftClass::Mission_Retreat`
+/// reaches it (`isOnRetreat`, hook `0x415A7A`): the type's `RetreatToEdge`,
+/// else `[General] AircraftRetreatToEdge`.
+///
+/// - `Owner`: the house's edge (`Edge::authored_or_waypoint`), no draw.
+/// - `Random`: `spawnEdge = RandomRanged(Edge::North, Edge::West)`, one
+///   Scenario draw; the reference cell stays the empty cell, so the stock
+///   edge scan is the one that runs.
+/// - `Closest`: native also sets `spawnEdge = Edge::None` and a reference
+///   cell jittered by two `RandomRanged(-5, 5)` draws, which reaches
+///   `MapClass::PickCellOnEdge`'s non-empty-reference arm. VERA has only the
+///   empty-cell arm ([`find_paradrop_edge_cell`]), so this falls back to the
+///   house's edge without spending the jitter draws (residual: a
+///   `RetreatToEdge=closest` section retreats on its owner edge; retail
+///   leaves the key unset, so stock play is unaffected).
+pub(crate) fn pick_retreat_edge(
+    mode: PhobosEdgeType,
+    owner_edge: Edge,
+    scenario_rng: &mut SimRng,
+) -> Edge {
+    match mode {
+        PhobosEdgeType::Owner | PhobosEdgeType::Closest => owner_edge,
+        PhobosEdgeType::Random => {
+            let drawn = scenario_rng.next_range_i32_inclusive(0, 3) as u8;
+            Edge::from_index(drawn).unwrap_or(owner_edge)
+        }
+    }
+}
+
+/// Phobos `SpawnDistanceFromTarget=` placement
+/// (`Ext/Aircraft/Body.cpp:61-69`): `GeneralUtils::CalculateCoordsFromDistance`
+/// (`Utilities/GeneralUtils.cpp:215-222`) returns the point `distance`
+/// leptons from `target` on the `GetDirectionBetweenCoords` (`:205-213`)
+/// line of the picked edge cell, and the cell that point falls in replaces
+/// the edge cell. A negative distance inverts the side.
+///
+/// The port keeps both quantizations the original applies: the direction
+/// passes through a `DirStruct` (`SetRadian<65536>` truncates into the
+/// `short` word, `GetRadian<65536>` reads it back) before `Math::Pi` is
+/// added, and the final `static_cast<int>` truncates towards zero. The CRT
+/// `atan2`/`cos`/`sin` are the same double functions Phobos calls.
+pub(crate) fn spawn_distance_cell(
+    edge_cell: (u16, u16),
+    target_leptons: (i32, i32),
+    distance: i32,
+) -> (u16, u16) {
+    let edge = (
+        i32::from(edge_cell.0 as i16)
+            .wrapping_mul(LEPTONS_PER_CELL_I32)
+            .wrapping_add(CELL_CENTER_LEPTON_I32),
+        i32::from(edge_cell.1 as i16)
+            .wrapping_mul(LEPTONS_PER_CELL_I32)
+            .wrapping_add(CELL_CENTER_LEPTON_I32),
+    );
+    // Game degrees: `(atan - HalfPi) * 180/pi - 90` degrees back to radians.
+    const GAME_DEGREES_TO_RADIANS: f64 = std::f64::consts::PI / 180.0;
+    let atan = f64::atan2(
+        f64::from(edge.1.wrapping_sub(target_leptons.1)),
+        f64::from(target_leptons.0.wrapping_sub(edge.0)),
+    );
+    let radians = ((atan - std::f64::consts::FRAC_PI_2) / GAME_DEGREES_TO_RADIANS - 90.0)
+        * GAME_DEGREES_TO_RADIANS;
+    // C++ `(short)` narrowing keeps the low word of the truncated value.
+    let raw = (radians / std::f64::consts::TAU * 65536.0) as i32 as i16;
+    let radians = f64::from(raw) * (std::f64::consts::TAU / 65536.0) + std::f64::consts::PI;
+    let x = (f64::from(target_leptons.0) + radians.cos() * f64::from(distance)) as i32;
+    let y = (f64::from(target_leptons.1) - radians.sin() * f64::from(distance)) as i32;
+    (
+        lepton_to_cell_packed(x) as u16,
+        lepton_to_cell_packed(y) as u16,
+    )
 }
 
 /// Find the paradrop carrier spawn/exit cell along a MapClass edge.

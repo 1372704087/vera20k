@@ -860,8 +860,13 @@ impl Simulation {
                     entity.foot_speed.arm_crush_slowdown();
                 }
                 if tilt {
+                    // Drive4B19F7/4B1A4B. Phobos' hook
+                    // (`Ext/Unit/Hooks.Crushing.cpp:60-71`) stores the type's
+                    // CrushForwardTiltPerFrame, stock -0.05f.
                     entity.rocking_mut().set_vel_forwards_native(
-                        crate::util::native_x87::NativeF32Bits::from_bits(0xbd4c_cccd),
+                        object.crush_forward_tilt_per_frame(
+                            crate::util::native_x87::NativeF32Bits::from_bits(0xbd4c_cccd),
+                        ),
                     );
                 }
             }

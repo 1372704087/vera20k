@@ -2158,6 +2158,24 @@ pub struct GeneralRules {
     /// leaves it unset.
     #[cfg(feature = "phobos")]
     pub decloak_damaged_targets: bool,
+    /// Phobos `[General] SkipCrushSlowdown` (`Ext/Rules/Body.cpp:274`,
+    /// `Valueable<bool>`, constructor `Body.h:716` stores false): the
+    /// fallback for a UnitType's `Nullable<bool>` when the unit section
+    /// leaves it unset.
+    #[cfg(feature = "phobos")]
+    pub skip_crush_slowdown: bool,
+    /// Phobos `[General] AircraftRetreatToEdge` (`Ext/Rules/Body.cpp:194`,
+    /// `Valueable<EdgeType>`, constructor `Body.h:637` stores `Owner`): the
+    /// fallback for an AircraftType's `RetreatToEdge` when its section leaves
+    /// the key unset.
+    #[cfg(feature = "phobos")]
+    pub aircraft_retreat_to_edge: crate::rules::ini_value::PhobosEdgeType,
+    /// Phobos `[General] AircraftFiringForceScatter` (`Ext/Rules/Body.cpp:473`,
+    /// `Valueable<bool>`, constructor `Body.h:888` stores true): the fallback
+    /// for an AircraftType's `FiringForceScatter` when its section leaves the
+    /// key unset.
+    #[cfg(feature = "phobos")]
+    pub aircraft_firing_force_scatter: bool,
     /// Phobos `[CombatDamage] ROF.RandomDelay` (`RulesExt`,
     /// `PartialVector2D<int>`, default `{0, 2}`): the full rearm's jitter
     /// range for a weapon that leaves its own key unset.
@@ -3100,6 +3118,12 @@ impl Default for GeneralRules {
             allow_damage_on_self: false,
             #[cfg(feature = "phobos")]
             decloak_damaged_targets: true,
+            #[cfg(feature = "phobos")]
+            skip_crush_slowdown: false,
+            #[cfg(feature = "phobos")]
+            aircraft_retreat_to_edge: crate::rules::ini_value::PhobosEdgeType::Owner,
+            #[cfg(feature = "phobos")]
+            aircraft_firing_force_scatter: true,
             #[cfg(feature = "phobos")]
             rof_random_delay: crate::rules::ini_value::PartialIntPair {
                 low: 0,
@@ -4440,6 +4464,15 @@ impl GeneralRules {
             allow_damage_on_self: general.read_bool("AllowDamageOnSelf", false),
             #[cfg(feature = "phobos")]
             decloak_damaged_targets: general.read_bool("DecloakDamagedTargets", true),
+            #[cfg(feature = "phobos")]
+            skip_crush_slowdown: general.read_bool("SkipCrushSlowdown", false),
+            #[cfg(feature = "phobos")]
+            aircraft_retreat_to_edge: general.read_phobos_valueable_edge_type(
+                "AircraftRetreatToEdge",
+                crate::rules::ini_value::PhobosEdgeType::Owner,
+            ),
+            #[cfg(feature = "phobos")]
+            aircraft_firing_force_scatter: general.read_bool("AircraftFiringForceScatter", true),
             #[cfg(feature = "phobos")]
             rof_random_delay: combat_damage.read_ares_partial_int_pair(
                 "ROF.RandomDelay",
@@ -10970,6 +11003,64 @@ impl RuleSet {
         false
     }
 
+    /// Phobos `UnitTypeExt::SkipCrushSlowdown.Get([General] ...)`
+    /// (`Ext/Unit/Hooks.Crushing.cpp:104-109`): the UnitType's own nullable
+    /// value, then the global, defaulting to false. A caller without a
+    /// resolved type (native always has one) takes the global.
+    #[cfg(feature = "phobos")]
+    pub fn skip_crush_slowdown_for(&self, unit: Option<&ObjectType>) -> bool {
+        unit.and_then(|unit| unit.phobos_skip_crush_slowdown)
+            .unwrap_or(self.general.skip_crush_slowdown)
+    }
+
+    /// Phobos is compiled out: the Foot+6B5 cap arm stays stock.
+    #[cfg(not(feature = "phobos"))]
+    pub fn skip_crush_slowdown_for(&self, _unit: Option<&ObjectType>) -> bool {
+        false
+    }
+
+    /// Phobos `AircraftTypeExt::RetreatToEdge.Get([General] ...)`
+    /// (`Ext/Aircraft/Body.cpp:88-89`): the AircraftType's own nullable
+    /// value, then the global, defaulting to `Owner` (the house's edge, which
+    /// is the stock behaviour). A caller without a resolved type takes the
+    /// global.
+    #[cfg(feature = "phobos")]
+    pub fn aircraft_retreat_to_edge_for(
+        &self,
+        aircraft: Option<&ObjectType>,
+    ) -> crate::rules::ini_value::PhobosEdgeType {
+        aircraft
+            .and_then(ObjectType::phobos_retreat_to_edge)
+            .unwrap_or(self.general.aircraft_retreat_to_edge)
+    }
+
+    /// Phobos is compiled out: every retreat stays on the house's edge.
+    #[cfg(not(feature = "phobos"))]
+    pub fn aircraft_retreat_to_edge_for(
+        &self,
+        _aircraft: Option<&ObjectType>,
+    ) -> crate::rules::ini_value::PhobosEdgeType {
+        crate::rules::ini_value::PhobosEdgeType::Owner
+    }
+
+    /// Phobos `AircraftTypeExt::FiringForceScatter.Get([General] ...)`
+    /// (`Ext/AircraftType/Body.cpp:36`): the AircraftType's own nullable
+    /// value, then `[General] AircraftFiringForceScatter`, defaulting to true
+    /// (stock scatters the target cell). A caller without a resolved type
+    /// takes the global.
+    #[cfg(feature = "phobos")]
+    pub fn aircraft_firing_force_scatter_for(&self, aircraft: Option<&ObjectType>) -> bool {
+        aircraft
+            .and_then(ObjectType::phobos_firing_force_scatter)
+            .unwrap_or(self.general.aircraft_firing_force_scatter)
+    }
+
+    /// Phobos is compiled out: the stock Scatter stays.
+    #[cfg(not(feature = "phobos"))]
+    pub fn aircraft_firing_force_scatter_for(&self, _aircraft: Option<&ObjectType>) -> bool {
+        true
+    }
+
     /// Phobos `WarheadTypeExt::DecloakDamagedTargets.Get([General] ...)`: the
     /// warhead's own nullable value, then the global, defaulting to true.
     #[cfg(feature = "phobos")]
@@ -12052,6 +12143,16 @@ impl RuleSet {
             .type_handle(type_id)
             .expect("native fixture type exists");
         self.object_list[handle.0 as usize].size = size;
+    }
+
+    /// Install a Phobos AircraftType `SpawnDistanceFromTarget=` the retail
+    /// fixtures leave unset, as the exact leptons the INI reader stores.
+    #[cfg(all(feature = "phobos", any(test, feature = "test-support")))]
+    pub fn set_object_spawn_distance_from_target_for_test(&mut self, type_id: &str, leptons: i32) {
+        let handle = self
+            .type_handle(type_id)
+            .expect("native fixture type exists");
+        self.object_list[handle.0 as usize].phobos_spawn_distance_from_target = Some(leptons);
     }
 
     #[cfg(any(test, feature = "test-support"))]

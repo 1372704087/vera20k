@@ -80,6 +80,17 @@ pub struct TerrainObjectType {
     can_be_built_on: bool,
     /// `IsAnimated=yes` — required gate for SpawnsTiberium logic.
     pub is_animated: bool,
+    /// Phobos `HasCrumblingFrames=` (`Ext/TerrainType/Body.cpp:81`,
+    /// `Valueable<bool>`, constructor `Body.h:55` stores false): a
+    /// TerrainType whose lethal damage keeps a crumbling stage instead of
+    /// removing the object (`Ext/TerrainType/Hooks.cpp:286-307`, hook
+    /// `0x71BB2C`), drawn from `1 + Animation.Value` (`:96-126`, hook
+    /// `0x71C1FE`). RESIDUAL: read only. VERA's terrain lethal owner
+    /// finalizes in the same call and retains no `IsCrumbling`
+    /// (`sim::terrain_object`), so no crumble stage, sound or draw arm
+    /// consumes it yet.
+    #[cfg(feature = "phobos")]
+    pub has_crumbling_frames: bool,
     /// Signed logic frames per animation step; native ReadInt stores without clamps.
     pub animation_rate: i32,
     /// Native ReadDouble/FSTP-float result, preserved without micros quantization.
@@ -204,6 +215,8 @@ impl TerrainObjectType {
             passable: false,
             can_be_built_on: false,
             is_animated: section.read_bool("IsAnimated", false),
+            #[cfg(feature = "phobos")]
+            has_crumbling_frames: section.read_bool("HasCrumblingFrames", false),
             animation_rate: section.read_int("AnimationRate", 0),
             animation_probability,
             // ObjectType `Armor=` (`0x005F94C8`): ReadString 0x80 ahead of the
@@ -611,6 +624,26 @@ mod tests {
         assert_eq!(t.temperate_occupation_bits, 7);
         assert_eq!(t.snow_occupation_bits, 7);
         assert_eq!(t.foundation, "1x1");
+    }
+
+    /// Phobos `HasCrumblingFrames` (`Ext/TerrainType/Body.cpp:81`,
+    /// `Valueable<bool>` default false): read through the production
+    /// TerrainType constructor.
+    #[test]
+    #[cfg(feature = "phobos")]
+    fn has_crumbling_frames_reads_the_terrain_type_bool() {
+        let ini = IniFile::from_str(
+            "[TREE01]\nHasCrumblingFrames=yes\n[TREE02]\nHasCrumblingFrames=no\n\
+             [TREE03]\nSpawnsTiberium=no\n",
+        );
+        for (name, expected) in [("TREE01", true), ("TREE02", false), ("TREE03", false)] {
+            let section = ini.section(name).expect("section");
+            assert_eq!(
+                TerrainObjectType::from_ini_section(name, section).has_crumbling_frames,
+                expected,
+                "{name}"
+            );
+        }
     }
 
     /// Phobos' five `SpawnsTiberium.*` keys, read through the production

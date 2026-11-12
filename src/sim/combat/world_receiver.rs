@@ -2853,9 +2853,17 @@ pub(crate) fn handle_death(
             if callbacks_enabled(world)
                 && let Some(attacker_id) = killing_attacker(world, damage_events, dead_id)
             {
+                // The warhead of the hit that killed, whose
+                // `SuppressRevengeWeapons` gates the shots
+                // (`Ext/Techno/WeaponHelpers.cpp:261-264`).
+                let killing_warhead = damage_events
+                    .iter()
+                    .rfind(|event| event.target_id == dead_id)
+                    .and_then(|event| rules.warhead(world.interner.resolve(event.warhead_ref)));
                 world.apply_attach_effect_revenge_weapons(
                     dead_id,
                     attacker_id,
+                    killing_warhead,
                     rules,
                     overlay_registry,
                     run.effects(),

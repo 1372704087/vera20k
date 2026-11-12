@@ -126,11 +126,16 @@ impl RockingState {
     /// Crush_Or_Prescatter_Cell's tail after crushing a Unit
     /// (`0x00741939..0x00741954`): FCOMP of Techno+334 with binary32 0.0
     /// (`0x007E1748`); on C3 (equal, either zero, or unordered) the store of
-    /// binary32 -0.05 (`0xBD4CCCCD`).
-    pub(crate) fn tilt_after_unit_crush(&mut self) {
+    /// the crusher's rate. Phobos `UnitClass_OverrunSquare_TiltWhenCrushes`
+    /// (`Ext/Unit/Hooks.Crushing.cpp:27-38`, hook `0x741941`) supplies that
+    /// rate through `CrushForwardTiltPerFrame`, defaulting to the stock
+    /// binary32 -0.05 (`0xBD4CCCCD`). RESIDUAL: the hook also makes the store
+    /// unconditional and gates it on the separate `TiltsWhenCrushes.Vehicles`
+    /// key; neither is ported, so a nonzero pre-crush rate keeps its value.
+    pub(crate) fn tilt_after_unit_crush(&mut self, tilt: NativeF32Bits) {
         let forwards = f32::from_bits(self.vel_forwards.bits());
         if forwards == 0.0 || forwards.is_nan() {
-            self.vel_forwards = NativeF32Bits::from_bits(0xbd4c_cccd);
+            self.vel_forwards = tilt;
         }
     }
 

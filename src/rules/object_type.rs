@@ -1158,6 +1158,21 @@ pub struct ObjectType {
     /// Read only for a UnitType.
     #[cfg(feature = "phobos")]
     pub phobos_turret_response: Option<bool>,
+    /// Phobos `SkipCrushSlowdown=` (`Ext/UnitType/Body.cpp:74`,
+    /// `Nullable<bool>`, constructor `Body.h:122`): a crushing Unit keeps its
+    /// speed instead of the Foot+6B5 0.2 cap; unset takes
+    /// `[General] SkipCrushSlowdown` (`Ext/Rules/Body.cpp:274`, default
+    /// false). Read only for a UnitType. Consumer: the Drive/Ship WhileMoving
+    /// crush arm (`Ext/Unit/Hooks.Crushing.cpp:104-109`, hooks
+    /// `0x4B1146`/`0x6A0809`), which jumps to origin+0x3C.
+    #[cfg(feature = "phobos")]
+    pub phobos_skip_crush_slowdown: Option<bool>,
+    /// Phobos `CrushForwardTiltPerFrame=` (`Ext/UnitType/Body.cpp:71`,
+    /// `Nullable<double>`, constructor `Body.h:119` leaves it unset): the
+    /// binary32 rate written to Techno+334 when a crushing Unit tilts.
+    /// Unset keeps the stock rate its arm uses. Read only for a UnitType.
+    #[cfg(feature = "phobos")]
+    pub phobos_crush_forward_tilt_per_frame: Option<f64>,
     /// Phobos `RecountBurst=` (`Ext/TechnoType/Body.cpp:1031`,
     /// `Nullable<bool>`): unset falls back to `[General] RecountBurst=`. A
     /// weapon change or idle timeout recounts the burst index and re-arms the
@@ -1430,6 +1445,36 @@ pub struct ObjectType {
     /// section reaches the Phobos reader.
     #[cfg(feature = "phobos")]
     phobos_voice_pickup: Option<String>,
+    /// Phobos `AircraftTypeExt::RetreatToEdge` (`Ext/AircraftType/Body.cpp:25`,
+    /// `Nullable<EdgeType>`, constructor `Body.h:40` leaves it unset): the
+    /// edge a retreating aircraft heads for; unset takes
+    /// `[General] AircraftRetreatToEdge` (`Ext/Rules/Body.cpp:194`, default
+    /// `Owner`). Consumer: `AircraftExt::PickEdgeCellForPlane`
+    /// (`Ext/Aircraft/Body.cpp:85-126`) behind the Mission_Retreat hook
+    /// `0x415A7A`. Only an AircraftType section reaches the Phobos reader.
+    #[cfg(feature = "phobos")]
+    phobos_retreat_to_edge: Option<crate::rules::ini_value::PhobosEdgeType>,
+    /// Phobos `AircraftTypeExt::SpawnDistanceFromTarget`
+    /// (`Ext/AircraftType/Body.cpp:26`, `Nullable<Leptons>`, constructor
+    /// `Body.h:41` leaves it unset): the reinforcement aircraft spawns that
+    /// far from its target instead of on the picked edge cell, on the same
+    /// edge-to-target line. Consumer: `AircraftExt::PlaceReinforcementAircraft`
+    /// (`Ext/Aircraft/Body.cpp:61-69` -> `GeneralUtils::CalculateCoordsFromDistance`,
+    /// `Utilities/GeneralUtils.cpp:215-222`), the Spy Plane/Airstrike/Paradrop
+    /// placement hooks. Only an AircraftType section reaches the reader.
+    #[cfg(feature = "phobos")]
+    pub phobos_spawn_distance_from_target: Option<i32>,
+    /// Phobos `AircraftTypeExt::FiringForceScatter`
+    /// (`Ext/AircraftType/Body.cpp:36`, `Nullable<bool>`, constructor
+    /// `Body.h:27` leaves it unset): whether the aircraft's attack mission
+    /// scatters the target cell's contents after it fires; unset takes
+    /// `[General] AircraftFiringForceScatter` (`Ext/Rules/Body.cpp:473`,
+    /// default `yes`). Consumer: the stock Scatter arms of
+    /// `AircraftClass::Mission_Attack` (`Ext/Aircraft/Hooks.cpp:257`,
+    /// `:348`, `:354`, hooks `0x41879D`/`0x41882C`/`0x4186DD`). Only an
+    /// AircraftType section reaches the Phobos reader.
+    #[cfg(feature = "phobos")]
+    phobos_firing_force_scatter: Option<bool>,
     /// Ares TechnoTypeExt `VoiceRepair` (ValueableIdx<VocClass>, unset -1):
     /// the attack voice of a repairing weapon (TechnoClass_SelectFiringVoice
     /// 1004B1D0, hook 0x7090A8).
@@ -3960,6 +4005,37 @@ impl ObjectType {
         self.production = production.clone();
     }
 
+    /// Phobos `CrushForwardTiltPerFrame=` as the `RockingForwardsPerFrame`
+    /// binary32: `static_cast<float>(Nullable<double>)`, unset taking the
+    /// arm's own stock rate. Consumed by `UnitClass::OverrunSquare`
+    /// (`Ext/Unit/Hooks.Crushing.cpp:27-38`, hook `0x741941`) and Drive
+    /// WhileMoving (`:60-71`, hooks `0x4B19F7`/`0x4B1A4B`).
+    /// RESIDUAL: Ship WhileMoving's arm (`:92-102`, hook `0x6A108D`, stock
+    /// -0.02f) has no VERA crush-tilt owner, so a Ship keeps no tilt to
+    /// configure.
+    #[cfg(feature = "phobos")]
+    pub(crate) fn crush_forward_tilt_per_frame(
+        &self,
+        stock: crate::util::native_x87::NativeF32Bits,
+    ) -> crate::util::native_x87::NativeF32Bits {
+        self.phobos_crush_forward_tilt_per_frame
+            .map_or(stock, |value| {
+                // C++ `static_cast<float>(double)` is one round-to-nearest
+                // `cvtsd2ss`, the same conversion as Rust's `as f32`.
+                crate::util::native_x87::NativeF32Bits::from_bits((value as f32).to_bits())
+            })
+    }
+
+    /// [`Self::crush_forward_tilt_per_frame`] with Phobos compiled out: every
+    /// arm keeps its stock rate.
+    #[cfg(not(feature = "phobos"))]
+    pub(crate) fn crush_forward_tilt_per_frame(
+        &self,
+        stock: crate::util::native_x87::NativeF32Bits,
+    ) -> crate::util::native_x87::NativeF32Bits {
+        stock
+    }
+
     /// Phobos `GetRestrictedFactoryPlantMult`'s per-priced-type scale
     /// (`Ext/House/Body.cpp:585`): `Valueable<float>` constructor 1.0f
     /// (`Ext/TechnoType/Body.cpp:788`, `Body.h:48,486`). Both Ares and Phobos
@@ -4734,6 +4810,27 @@ impl ObjectType {
     #[cfg(feature = "phobos")]
     pub(crate) fn phobos_voice_pickup(&self) -> Option<&str> {
         self.phobos_voice_pickup.as_deref()
+    }
+
+    /// Phobos `AircraftTypeExt::RetreatToEdge`, see
+    /// [`Self::phobos_retreat_to_edge`].
+    #[cfg(feature = "phobos")]
+    pub(crate) fn phobos_retreat_to_edge(&self) -> Option<crate::rules::ini_value::PhobosEdgeType> {
+        self.phobos_retreat_to_edge
+    }
+
+    /// Phobos `AircraftTypeExt::SpawnDistanceFromTarget`, see
+    /// [`Self::phobos_spawn_distance_from_target`].
+    #[cfg(feature = "phobos")]
+    pub(crate) fn phobos_spawn_distance_from_target(&self) -> Option<i32> {
+        self.phobos_spawn_distance_from_target
+    }
+
+    /// Phobos `AircraftTypeExt::FiringForceScatter`, see
+    /// [`Self::phobos_firing_force_scatter`].
+    #[cfg(feature = "phobos")]
+    pub(crate) fn phobos_firing_force_scatter(&self) -> Option<bool> {
+        self.phobos_firing_force_scatter
     }
 
     pub fn voice_attack(&self) -> &[String] {
@@ -5720,6 +5817,16 @@ impl ObjectType {
                 .then(|| section.read_phobos_nullable_bool("TurretResponse", None))
                 .flatten(),
             #[cfg(feature = "phobos")]
+            phobos_skip_crush_slowdown: (category == ObjectCategory::Vehicle)
+                .then(|| section.read_phobos_nullable_bool("SkipCrushSlowdown", None))
+                .flatten(),
+            #[cfg(feature = "phobos")]
+            phobos_crush_forward_tilt_per_frame: (category == ObjectCategory::Vehicle)
+                .then(|| {
+                    section.read_phobos_nullable_double("CrushForwardTiltPerFrame", None)
+                })
+                .flatten(),
+            #[cfg(feature = "phobos")]
             phobos_recount_burst: section.read_phobos_nullable_bool("RecountBurst", None),
             #[cfg(feature = "phobos")]
             phobos_reveal_houses: section.read_phobos_nullable_with(
@@ -6189,6 +6296,18 @@ impl ObjectType {
             ares_voice_repair: None,
             #[cfg(feature = "phobos")]
             phobos_voice_pickup: None,
+            #[cfg(feature = "phobos")]
+            phobos_retreat_to_edge: (category == ObjectCategory::Aircraft)
+                .then(|| section.read_phobos_nullable_edge_type("RetreatToEdge", None))
+                .flatten(),
+            #[cfg(feature = "phobos")]
+            phobos_spawn_distance_from_target: (category == ObjectCategory::Aircraft)
+                .then(|| section.read_phobos_nullable_leptons("SpawnDistanceFromTarget", None))
+                .flatten(),
+            #[cfg(feature = "phobos")]
+            phobos_firing_force_scatter: (category == ObjectCategory::Aircraft)
+                .then(|| section.read_phobos_nullable_bool("FiringForceScatter", None))
+                .flatten(),
             voice_capture: None,
             prevent_attack_move: section.read_bool("PreventAttackMove", false),
             voice_die: section

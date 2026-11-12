@@ -216,6 +216,7 @@ pub(super) fn advance(
                 super::drive_locomotion::CRUSH_SLOWDOWN_CAP
             }
         },
+        skip_crush_slowdown: rules.skip_crush_slowdown_for(object),
     };
     if let Some(target) = retained_target {
         let step = super::drive_locomotion::track_speed_prefix(
@@ -302,6 +303,74 @@ mod tests {
                     None
                 ),
                 11
+            );
+        }
+    }
+
+    /// Phobos `UnitTypeExt::SkipCrushSlowdown` (`Ext/UnitType/Body.cpp:74`,
+    /// unset taking `[General] SkipCrushSlowdown`, `Ext/Rules/Body.cpp:274`)
+    /// consumed by the Drive/Ship WhileMoving crush arm
+    /// (`Ext/Unit/Hooks.Crushing.cpp:104-109`, hooks `0x4B1146`/`0x6A0809`):
+    /// the skip jumps past the Foot+6B5 cap and its class+50 store, so the
+    /// retained target keeps its pre-crush value and the flag stays set.
+    #[cfg(feature = "phobos")]
+    #[test]
+    fn skip_crush_slowdown_skips_the_flag_cap_and_its_setter() {
+        use crate::util::native_x87::NativeF64Bits;
+
+        let rules = |unit_key: Option<&str>, global: Option<&str>| {
+            let unit_line = unit_key
+                .map(|value| format!("SkipCrushSlowdown={value}\n"))
+                .unwrap_or_default();
+            let general_line = global
+                .map(|value| format!("SkipCrushSlowdown={value}\n"))
+                .unwrap_or_default();
+            RuleSet::from_ini(&IniFile::from_str(&format!(
+                "[General]\n{general_line}[VehicleTypes]\n0=MTNK\n[MTNK]\nSpeed=6\n\
+                 Strength=100\n{unit_line}"
+            )))
+            .unwrap()
+        };
+        let cap = NativeF64Bits::from_bits(0x3fc9_9999_9999_999a);
+        let one = NativeF64Bits::from_bits(0x3ff0_0000_0000_0000);
+        for (unit_key, global, capped) in [
+            (None, None, true),
+            (Some("yes"), None, false),
+            (None, Some("yes"), false),
+            (Some("no"), Some("yes"), true),
+        ] {
+            let rules = rules(unit_key, global);
+            let mut mover = entity(LocomotorKind::Drive, 0, SIM_ONE);
+            mover.foot_speed.set_speed_fraction(SIM_ONE);
+            mover.foot_speed.set_crush_slowdown_for_test(true);
+            advance(
+                &mut mover,
+                rules.object("MTNK"),
+                &rules,
+                &Default::default(),
+                &Default::default(),
+                None,
+                None,
+            );
+            let target = mover
+                .locomotor
+                .as_ref()
+                .unwrap()
+                .track_target_fraction_native(TrackFamily::Drive)
+                .unwrap();
+            assert_eq!(
+                target,
+                if capped { cap } else { one },
+                "{unit_key:?} {global:?}"
+            );
+            assert_eq!(
+                mover.foot_speed.native_applied_fraction(),
+                if capped { cap } else { one },
+                "{unit_key:?} {global:?}"
+            );
+            assert!(
+                mover.foot_speed.crush_slowdown(),
+                "the skip arm neither reads nor clears Foot+6B5"
             );
         }
     }
@@ -489,6 +558,7 @@ mod tests {
                 sinking: input["sinking"].as_bool().unwrap_or(false),
                 crush_slowdown: input["crush"].as_bool().unwrap_or(false),
                 crush_slowdown_cap: CRUSH_SLOWDOWN_CAP,
+                skip_crush_slowdown: false,
             };
             let mut measured = false;
             let step = track_speed_prefix(

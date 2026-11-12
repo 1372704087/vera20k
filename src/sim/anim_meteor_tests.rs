@@ -238,6 +238,48 @@ fn meteor_landing_runs_children_without_expire_and_uses_last_water_splash() {
     );
 }
 
+/// Phobos `ExplodeOnWater=` (`Ext/AnimType/Body.cpp:99`,
+/// `Ext/Anim/Body.cpp:252`): a water landing takes the explosion arm, so the
+/// `ExpireAnim=` is created and no Wake or splash is, without spending a draw.
+#[cfg(feature = "phobos")]
+#[test]
+fn explode_on_water_takes_the_explosion_arm_on_a_water_cell() {
+    let rules = formed_rules("[METSMALL]\nExpireAnim=EXPLODE\nExplodeOnWater=yes\n");
+    let config = rules.art().anim_runtime_config("METSMALL").unwrap();
+    assert!(config.explode_on_water);
+    let mut water = formed_sim(31, 0);
+    water
+        .resolved_terrain
+        .as_mut()
+        .unwrap()
+        .cell_mut_for_test(40, 40)
+        .unwrap()
+        .land_type = 2;
+    let before = water.scenario_rng.clone();
+    assert!(
+        !water
+            .anim_bounce_landing(
+                config,
+                &rules,
+                None,
+                glam::IVec3::new(10368, 10368, 0),
+                FrameEffects::empty()
+            )
+            .unwrap()
+    );
+    let anims: Vec<_> = water.anims().map(|(_, a)| a).collect();
+    assert_eq!(anims.len(), 1, "no Wake and no SplashList entry");
+    assert_eq!(
+        water.interner.resolve(anims[0].type_id),
+        "EXPLODE",
+        "the ExpireAnim runs on the water cell"
+    );
+    assert_eq!(
+        water.scenario_rng.native_state_hex(),
+        before.native_state_hex()
+    );
+}
+
 /// Phobos `SplashAnims=` (`Ext/AnimType/Body.cpp:102`,
 /// `Ext/Anim/Hooks.cpp:236-241`): the AnimType's list replaces the stock
 /// `SplashList=`, a meteor still takes its last entry, and no draw is spent.

@@ -133,6 +133,7 @@ pub(super) fn visit(
         weapon0_range: weapon0.map_or(0, |weapon| weapon.range_leptons),
         speed: crate::util::fixed_math::ra2_speed_to_leptons_per_frame(obj.speed),
         strafing,
+        firing_force_scatter: rules.aircraft_firing_force_scatter_for(Some(obj)),
     };
     let mut host = CombatStrike {
         fog_enabled: fog_enabled(world),
@@ -145,6 +146,7 @@ pub(super) fn visit(
         under_attack_events,
         obj,
         strafing,
+        firing_force_scatter: facts.firing_force_scatter,
         id,
     };
     let visit = strike_visit(&facts, &mut host);
@@ -174,6 +176,8 @@ struct CombatStrike<'w, 'r, 'f> {
     obj: &'r ObjectType,
     /// The selected slot's `Strafing.*` keys, `Get(5)`/globals applied.
     strafing: StrafeKeys,
+    /// Phobos `AircraftTypeExt::FiringForceScatter`, globals applied.
+    firing_force_scatter: bool,
     id: u64,
 }
 
@@ -685,7 +689,12 @@ impl StrikeHost for CombatStrike<'_, '_, '_> {
         if fired {
             self.fire_weapon_tail();
         }
-        self.scatter();
+        // Phobos `AircraftClass_MissionAttack_ScatterCell1`
+        // (`Ext/Aircraft/Hooks.cpp:344-349`, hook `0x41847E`): the stock
+        // Scatter runs only while `FiringForceScatter` is on.
+        if self.firing_force_scatter {
+            self.scatter();
+        }
     }
 
     /// One strafe state's `AircraftExt::FireWeapon` (`Ext/Aircraft/Hooks.cpp:167-197`).
@@ -730,6 +739,23 @@ impl StrikeHost for CombatStrike<'_, '_, '_> {
             self.run.effects(),
         ) {
             log::debug!("aircraft {id} target cell Scatter failed: {cause}");
+        }
+    }
+
+    /// Phobos `AircraftClass_Mission_Attack_StrafeCell`
+    /// (`Ext/Aircraft/Hooks.cpp:257`): `pTargetCell->ScatterContent(Location,
+    /// true, false, false)` on the stored strafing cell, which outlives the
+    /// Target this shot was aimed at.
+    fn scatter_at_cell(&mut self, cell: (u16, u16)) {
+        let id = self.id();
+        if let Err(cause) = self.world.scatter_target_cell_from(
+            id,
+            TargetKind::Cell(cell.0, cell.1),
+            self.rules,
+            self.overlay_registry,
+            self.run.effects(),
+        ) {
+            log::debug!("aircraft {id} strafe cell Scatter failed: {cause}");
         }
     }
 

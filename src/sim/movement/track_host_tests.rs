@@ -3189,6 +3189,71 @@ fn paid_drive_crossing_sets_wall_tilt_after_mark_put_before_per_cell() {
     }
 }
 
+/// Phobos `CrushForwardTiltPerFrame` (`Ext/UnitType/Body.cpp:71`,
+/// `Nullable<double>`) replaces the stock -0.05f rate at the crushing tilt
+/// (`Ext/Unit/Hooks.Crushing.cpp:27-38` and `:60-71`, hooks
+/// `0x741941`/`0x4B19F7`/`0x4B1A4B`). The reader is UnitType-only and unset
+/// keeps `0xBD4CCCCD`.
+#[cfg(feature = "phobos")]
+#[test]
+fn crush_forward_tilt_per_frame_replaces_the_drive_crush_rate() {
+    use crate::rules::ini_parser::IniFile;
+    use crate::sim::overlay_grid::OverlayGrid;
+    use crate::util::native_x87::NativeF32Bits;
+
+    for (key, expected) in [
+        ("", 0xbd4c_cccd),
+        ("CrushForwardTiltPerFrame=-0.25\n", 0xbe80_0000),
+    ] {
+        let (mut sim, invocation, _) = fixture(TrackFamily::Drive, 8);
+        let ini = IniFile::from_str(&format!(
+            "[VehicleTypes]\n0=MTNK\n[MTNK]\nCrusher=yes\nTiltsWhenCrushes=yes\n\
+             {key}[OverlayTypes]\n0=FENCE\n[FENCE]\nWall=yes\nCrushable=yes\nStrength=100\n"
+        ));
+        let rules = RuleSet::from_ini(&ini).unwrap();
+        let registry = OverlayTypeRegistry::from_ini(&ini, None);
+        sim.install_resolved_terrain_for_new_map(
+            crate::map::resolved_terrain::test_flat_ground_grid(33),
+        );
+        let mut grid = OverlayGrid::new(33, 33);
+        for y in 0..33 {
+            for x in 0..33 {
+                grid.place_overlay(x, y, 0, 0);
+            }
+        }
+        sim.overlay_grid = Some(grid);
+        let loco = sim
+            .substrate
+            .entities
+            .get_mut(1)
+            .unwrap()
+            .locomotor
+            .as_mut()
+            .unwrap();
+        assert!(loco.store_drive_straight(true));
+        assert!(loco.store_track_head(TrackFamily::Drive, Some(DriveCoord::cell(10, 7, 0))));
+        assert_eq!(
+            sim.run_track_points(invocation, 8, Some(&rules), Some(&registry)),
+            1
+        );
+        let rocking = sim.substrate.entities.get(1).unwrap().rocking.unwrap();
+        assert_eq!(rocking.native_bits()[3], expected, "{key:?}");
+    }
+    let infantry = RuleSet::from_ini(&IniFile::from_str(
+        "[InfantryTypes]\n0=E1\n[E1]\nCrushForwardTiltPerFrame=-0.25\n",
+    ))
+    .unwrap();
+    let stock = NativeF32Bits::from_bits(0xbd4c_cccd);
+    assert_eq!(
+        infantry
+            .object("E1")
+            .unwrap()
+            .crush_forward_tilt_per_frame(stock),
+        stock,
+        "only a UnitType section reads the key"
+    );
+}
+
 fn drive_crush_fixture(
     input: &serde_json::Value,
 ) -> (Simulation, TrackInvocation, RuleSet, OverlayTypeRegistry) {

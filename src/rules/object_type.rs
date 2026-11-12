@@ -1401,6 +1401,17 @@ pub struct ObjectType {
     /// placement hooks. Only an AircraftType section reaches the reader.
     #[cfg(feature = "phobos")]
     pub phobos_spawn_distance_from_target: Option<i32>,
+    /// Phobos `AircraftTypeExt::FiringForceScatter`
+    /// (`Ext/AircraftType/Body.cpp:36`, `Nullable<bool>`, constructor
+    /// `Body.h:27` leaves it unset): whether the aircraft's attack mission
+    /// scatters the target cell's contents after it fires; unset takes
+    /// `[General] AircraftFiringForceScatter` (`Ext/Rules/Body.cpp:473`,
+    /// default `yes`). Consumer: the stock Scatter arms of
+    /// `AircraftClass::Mission_Attack` (`Ext/Aircraft/Hooks.cpp:257`,
+    /// `:348`, `:354`, hooks `0x41879D`/`0x41882C`/`0x4186DD`). Only an
+    /// AircraftType section reaches the Phobos reader.
+    #[cfg(feature = "phobos")]
+    phobos_firing_force_scatter: Option<bool>,
     /// Ares TechnoTypeExt `VoiceRepair` (ValueableIdx<VocClass>, unset -1):
     /// the attack voice of a repairing weapon (TechnoClass_SelectFiringVoice
     /// 1004B1D0, hook 0x7090A8).
@@ -4728,6 +4739,13 @@ impl ObjectType {
         self.phobos_spawn_distance_from_target
     }
 
+    /// Phobos `AircraftTypeExt::FiringForceScatter`, see
+    /// [`Self::phobos_firing_force_scatter`].
+    #[cfg(feature = "phobos")]
+    pub(crate) fn phobos_firing_force_scatter(&self) -> Option<bool> {
+        self.phobos_firing_force_scatter
+    }
+
     pub fn voice_attack(&self) -> &[String] {
         &self.voice_attack
     }
@@ -6155,6 +6173,10 @@ impl ObjectType {
             #[cfg(feature = "phobos")]
             phobos_spawn_distance_from_target: (category == ObjectCategory::Aircraft)
                 .then(|| section.read_phobos_nullable_leptons("SpawnDistanceFromTarget", None))
+                .flatten(),
+            #[cfg(feature = "phobos")]
+            phobos_firing_force_scatter: (category == ObjectCategory::Aircraft)
+                .then(|| section.read_phobos_nullable_bool("FiringForceScatter", None))
                 .flatten(),
             voice_capture: None,
             prevent_attack_move: section.read_bool("PreventAttackMove", false),

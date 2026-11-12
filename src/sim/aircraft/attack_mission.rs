@@ -140,6 +140,10 @@ pub(crate) struct StrikeFacts {
     /// `GetWeapon(CurrentAircraftWeaponIndex)`'s Phobos strafing keys; weapon
     /// 0 stands for the slot the same way [`Self::weapon0_rof`] does.
     pub strafing: StrafeKeys,
+    /// Phobos `AircraftTypeExt::FiringForceScatter.Get([General]
+    /// AircraftFiringForceScatter)` (`Ext/Aircraft/Hooks.cpp:257`, `:348`,
+    /// `:354`): false skips the attack mission's target-cell Scatter.
+    pub firing_force_scatter: bool,
 }
 
 /// What a strike visit asks and does, each where the original does it.
@@ -157,6 +161,10 @@ pub(crate) trait StrikeHost {
     fn fire_at(&mut self);
     /// `CellClass::Scatter_Objects(&Location, 1, 0, 0)` on the target's cell.
     fn scatter(&mut self);
+    /// The same Scatter on the strafing target cell
+    /// (`Ext/Aircraft/Hooks.cpp:257`: `pTargetCell->ScatterContent(Location,
+    /// true, false, false)`), which the stored cell keeps.
+    fn scatter_at_cell(&mut self, cell: (u16, u16));
     /// `vt+0x480 Assign_Destination(Target, 1)`.
     fn assign_target_destination(&mut self);
     /// `vt+0x45C Uncloak(0)`.
@@ -341,7 +349,9 @@ pub(crate) fn strike_visit(facts: &StrikeFacts, host: &mut impl StrikeHost) -> V
                 // `0x004186B6`: no pending ammo, so the shot is free.
                 Ok => {
                     host.fire_at();
-                    host.scatter();
+                    if facts.firing_force_scatter {
+                        host.scatter();
+                    }
                     let state = if host.ammo() == 0 { 10 } else { shuffle };
                     Visit::to(state, host.epilogue())
                 }
@@ -390,6 +400,12 @@ pub(crate) fn strike_visit(facts: &StrikeFacts, host: &mut impl StrikeHost) -> V
                     _ => return strafe_poll(facts),
                 }
                 host.fire_at_cell(cell);
+                // `Ext/Aircraft/Hooks.cpp:257`: the fired-at cell scatters,
+                // superseding the stock Scatter the `FiringForceScatter`
+                // hooks now gate.
+                if facts.firing_force_scatter {
+                    host.scatter_at_cell(cell);
+                }
                 host.assign_cell_destination(cell);
                 let next = facts.state + 1;
                 let (state, delay) = shot_delay(facts, host, next, false);
@@ -401,7 +417,9 @@ pub(crate) fn strike_visit(facts: &StrikeFacts, host: &mut impl StrikeHost) -> V
                 _ => return strafe_poll(facts),
             }
             host.fire_at();
-            host.scatter();
+            if facts.firing_force_scatter {
+                host.scatter();
+            }
             host.assign_target_destination();
             // `Ext/Aircraft/Hooks.cpp:255-266` (Delay2..4, `0x418883`/
             // `0x418992`/`0x418AA1`): the next strafe state, then `GetDelay`.
@@ -416,6 +434,9 @@ pub(crate) fn strike_visit(facts: &StrikeFacts, host: &mut impl StrikeHost) -> V
                     _ => return strafe_poll(facts),
                 }
                 host.fire_at_cell(cell);
+                if facts.firing_force_scatter {
+                    host.scatter_at_cell(cell);
+                }
                 host.assign_cell_destination(cell);
                 // `MissionStatus++` reaches ReturnToBase (10), then
                 // `GetDelay(true)` (`Ext/Aircraft/Hooks.cpp:261-263`) moves to
@@ -426,7 +447,9 @@ pub(crate) fn strike_visit(facts: &StrikeFacts, host: &mut impl StrikeHost) -> V
             match host.fire_error() {
                 Ok | Facing | Range | Cloaked => {
                     host.fire_at();
-                    host.scatter();
+                    if facts.firing_force_scatter {
+                        host.scatter();
+                    }
                     // `GetDelay(true)` (`Ext/Aircraft/Hooks.cpp:225-228`):
                     // FlyToPosition (3) with `Strafing.EndDelay` or the
                     // derived range-over-speed delay.

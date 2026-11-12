@@ -2170,6 +2170,12 @@ pub struct GeneralRules {
     /// the key unset.
     #[cfg(feature = "phobos")]
     pub aircraft_retreat_to_edge: crate::rules::ini_value::PhobosEdgeType,
+    /// Phobos `[General] AircraftFiringForceScatter` (`Ext/Rules/Body.cpp:473`,
+    /// `Valueable<bool>`, constructor `Body.h:888` stores true): the fallback
+    /// for an AircraftType's `FiringForceScatter` when its section leaves the
+    /// key unset.
+    #[cfg(feature = "phobos")]
+    pub aircraft_firing_force_scatter: bool,
     /// Phobos `[CombatDamage] ROF.RandomDelay` (`RulesExt`,
     /// `PartialVector2D<int>`, default `{0, 2}`): the full rearm's jitter
     /// range for a weapon that leaves its own key unset.
@@ -3116,6 +3122,8 @@ impl Default for GeneralRules {
             skip_crush_slowdown: false,
             #[cfg(feature = "phobos")]
             aircraft_retreat_to_edge: crate::rules::ini_value::PhobosEdgeType::Owner,
+            #[cfg(feature = "phobos")]
+            aircraft_firing_force_scatter: true,
             #[cfg(feature = "phobos")]
             rof_random_delay: crate::rules::ini_value::PartialIntPair {
                 low: 0,
@@ -4463,6 +4471,8 @@ impl GeneralRules {
                 "AircraftRetreatToEdge",
                 crate::rules::ini_value::PhobosEdgeType::Owner,
             ),
+            #[cfg(feature = "phobos")]
+            aircraft_firing_force_scatter: general.read_bool("AircraftFiringForceScatter", true),
             #[cfg(feature = "phobos")]
             rof_random_delay: combat_damage.read_ares_partial_int_pair(
                 "ROF.RandomDelay",
@@ -11031,6 +11041,24 @@ impl RuleSet {
         _aircraft: Option<&ObjectType>,
     ) -> crate::rules::ini_value::PhobosEdgeType {
         crate::rules::ini_value::PhobosEdgeType::Owner
+    }
+
+    /// Phobos `AircraftTypeExt::FiringForceScatter.Get([General] ...)`
+    /// (`Ext/AircraftType/Body.cpp:36`): the AircraftType's own nullable
+    /// value, then `[General] AircraftFiringForceScatter`, defaulting to true
+    /// (stock scatters the target cell). A caller without a resolved type
+    /// takes the global.
+    #[cfg(feature = "phobos")]
+    pub fn aircraft_firing_force_scatter_for(&self, aircraft: Option<&ObjectType>) -> bool {
+        aircraft
+            .and_then(ObjectType::phobos_firing_force_scatter)
+            .unwrap_or(self.general.aircraft_firing_force_scatter)
+    }
+
+    /// Phobos is compiled out: the stock Scatter stays.
+    #[cfg(not(feature = "phobos"))]
+    pub fn aircraft_firing_force_scatter_for(&self, _aircraft: Option<&ObjectType>) -> bool {
+        true
     }
 
     /// Phobos `WarheadTypeExt::DecloakDamagedTargets.Get([General] ...)`: the

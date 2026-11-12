@@ -98,6 +98,11 @@ impl TerrainAnimationState {
         self.current_frame
     }
 
+    /// `GetImage()->Frames`: the bound raw SHP frame count.
+    pub fn frame_count(&self) -> i16 {
+        self.frame_count
+    }
+
     pub fn is_active(&self) -> bool {
         self.rate != 0
     }
@@ -178,6 +183,17 @@ pub(crate) fn tick_terrain_object_ai(
         .objects()
         .get(&stable_id)
         .is_some_and(|terrain| terrain.is_live());
+    // Phobos `TerrainClass_AI_Crumbling` (`0x71C812`) replaces the ordinary
+    // animated draw while IsCrumbling: step the Stage and remove at Frames/2.
+    #[cfg(feature = "phobos")]
+    if sim
+        .terrain_objects
+        .objects()
+        .get(&stable_id)
+        .is_some_and(TerrainObjectState::is_crumbling)
+    {
+        return tick_terrain_crumbling(sim, stable_id, rules, overlay_registry, effects);
+    }
     tick_terrain_animation(sim, stable_id, rules, overlay_registry, effects)?;
     // Ares 3.0 TerrainClass_Update_ForestFire (1004F530, hook 0x71C7C2)
     // follows the IsAnimated draw. VERA runs it after the whole stage step:
@@ -188,6 +204,170 @@ pub(crate) fn tick_terrain_object_ai(
         sim.ares_spread_forest_fire(stable_id, rules);
     }
     Ok(())
+}
+
+/// Phobos `TerrainClass_TakeDamage_NowDead_Add` (`0x71BB2C`,
+/// `Ext/TerrainType/Hooks.cpp:286-307`) crumbling arm: `Start_To_Crumble @
+/// 0x71C8E0` restarts the Stage at rate 2/value 0, `LogicClass::AddObject`
+/// joins the AI walk and `CrumblingSound` plays at the object's coords. The
+/// object stays live at health 0 until the crumbling AI removes it.
+#[cfg(feature = "phobos")]
+pub(crate) fn start_terrain_crumbling(
+    sim: &mut crate::sim::world::Simulation,
+    stable_id: u64,
+    rules: &RuleSet,
+) {
+    let frame = sim.session.binary_frame();
+    if !sim.terrain_objects.begin_crumbling(stable_id, frame) {
+        return;
+    }
+    let _ = sim.substrate.logic.try_push(stable_id);
+    sim.terrain_objects.set_logic_membership(stable_id, true);
+    let Some(terrain) = sim.terrain_objects.objects().get(&stable_id) else {
+        return;
+    };
+    let coord = terrain.world_coord();
+    let type_ref = terrain.type_ref();
+    let Some(terrain_type) =
+        rules.terrain_object_type_case_insensitive(sim.interner.resolve(type_ref))
+    else {
+        return;
+    };
+    if let Some(sound_id) = terrain_type.crumbling_sound.clone() {
+        emit_terrain_voc(sim, &coord, sound_id);
+    }
+}
+
+/// `VocClass::PlayIndexAtPos` (`0x00750920`) of a rules-named terrain sound at
+/// the object's retained coords, without an owner handle.
+#[cfg(feature = "phobos")]
+fn emit_terrain_voc(
+    sim: &mut crate::sim::world::Simulation,
+    coord: &crate::sim::projectile::ProjectileCoord,
+    sound_id: String,
+) {
+    let world = crate::sim::anim_class::AnimWorldCoord {
+        x: coord.x,
+        y: coord.y,
+        z: coord.z,
+    };
+    let (rx, ry, sub_x, sub_y, _) = world.to_cell_sub_z();
+    sim.sound_events
+        .emit(crate::sim::world::SimSoundEvent::VocAt {
+            sound_id,
+            audible_to: None,
+            rx,
+            ry,
+            sub_x,
+            sub_y,
+            world_z_leptons: coord.z,
+        });
+}
+
+/// Phobos `TerrainClass_AI_Crumbling` (`0x71C812`,
+/// `Ext/TerrainType/Hooks.cpp:65-95`): step the crumbling Stage, then at
+/// `currentStage + 1 == Frames/2` play `PlayDestroyEffects` and remove the
+/// object. The `HasDamagedFrames && Health > 0` arm un-crumbles a still-alive
+/// object instead.
+#[cfg(feature = "phobos")]
+fn tick_terrain_crumbling(
+    sim: &mut crate::sim::world::Simulation,
+    stable_id: u64,
+    rules: &RuleSet,
+    overlay_registry: Option<&OverlayTypeRegistry>,
+    effects: FrameEffects<'_>,
+) -> Result<(), RuntimeOverlayError> {
+    let Some(terrain) = sim.terrain_objects.objects().get(&stable_id) else {
+        return Ok(());
+    };
+    let type_ref = terrain.type_ref();
+    let health = terrain.health();
+    let coord = terrain.world_coord();
+    let Some(terrain_type) =
+        rules.terrain_object_type_case_insensitive(sim.interner.resolve(type_ref))
+    else {
+        return Ok(());
+    };
+    if terrain_type.has_damaged_frames && health > 0 {
+        sim.terrain_objects.end_crumbling(stable_id);
+        if !terrain_type.is_animated && !terrain_type.is_flammable {
+            let _ = sim.substrate.logic.remove_first(stable_id);
+            sim.terrain_objects.set_logic_membership(stable_id, false);
+        }
+        return Ok(());
+    }
+    let stepped = {
+        let Some((animation, _, _)) = sim.terrain_objects.animation_with_indexes_mut(stable_id)
+        else {
+            return Ok(());
+        };
+        animation.update(
+            sim.session.binary_frame(),
+            terrain_type.is_animated,
+            &mut sim.scenario_rng,
+        )
+    };
+    if !stepped {
+        return Ok(());
+    }
+    let Some(animation) = sim.terrain_objects.animations().get(&stable_id) else {
+        return Ok(());
+    };
+    let frames = i32::from(animation.frame_count());
+    let value = animation.current_frame();
+    let damaged = i32::from(terrain_type.has_damaged_frames);
+    let anim_length = terrain_type.crumbling_animation_length(frames);
+    let current_stage = value
+        + if terrain_type.is_animated {
+            anim_length * (damaged + 1)
+        } else {
+            damaged
+        };
+    if current_stage + 1 == frames / 2 {
+        play_terrain_destroy_effects(sim, rules, &coord, terrain_type);
+        let context =
+            crate::sim::world::UninitContext::new(rules, overlay_registry).with_effects(effects);
+        sim.notify_pointer_expired(stable_id, context);
+        if sim
+            .terrain_objects
+            .get(stable_id)
+            .is_some_and(|terrain| terrain.object_alive())
+        {
+            let retired = sim.retire_non_entity_object(stable_id, context);
+            debug_assert!(retired);
+        }
+    }
+    Ok(())
+}
+
+/// `TerrainTypeExt::PlayDestroyEffects` (`Ext/TerrainType/Body.cpp:15-21`):
+/// `DestroySound` at the coords, then one random registered `DestroyAnim`
+/// constructed there with no owner house or object.
+#[cfg(feature = "phobos")]
+fn play_terrain_destroy_effects(
+    sim: &mut crate::sim::world::Simulation,
+    rules: &RuleSet,
+    coord: &crate::sim::projectile::ProjectileCoord,
+    terrain_type: &crate::rules::terrain_object_type::TerrainObjectType,
+) {
+    if let Some(sound_id) = terrain_type.destroy_sound.clone() {
+        emit_terrain_voc(sim, coord, sound_id);
+    }
+    let Some(name) = sim.resolve_random_anim_name(rules, &terrain_type.destroy_anim) else {
+        return;
+    };
+    let type_name = sim.interner.intern(name);
+    let world_coord = crate::sim::anim_class::AnimWorldCoord {
+        x: coord.x,
+        y: coord.y,
+        z: coord.z,
+    };
+    let (rx, ry, sub_x, sub_y, z) = world_coord.to_cell_sub_z();
+    let descriptor =
+        crate::sim::components::AnimClassSpawnDescriptor::new(type_name, rx, ry, sub_x, sub_y, z);
+    if let Err(error) = sim.spawn_anim_at_world(rules, descriptor, world_coord) {
+        log::debug!("terrain destroy anim did not construct: {error}");
+    }
 }
 
 /// TerrainClass::AI71C730's IsAnimated draw, stage step and ore emission.
@@ -642,6 +822,153 @@ mod tests {
     use crate::rules::ruleset::RuleSet;
 
     use crate::sim::intern::StringInterner;
+
+    /// A seeded `TREE01` at (1,1) with a bound SHP frame count and a
+    /// registered `CRUMBLE1` destroy anim, at binary frame 100.
+    #[cfg(feature = "phobos")]
+    fn crumbling_scene(
+        type_keys: &str,
+        frames: u16,
+    ) -> (crate::sim::world::Simulation, RuleSet, u64) {
+        use crate::map::overlay::TerrainObject;
+        use crate::sim::world::Simulation;
+        let mut rules = RuleSet::from_ini(&IniFile::from_str(&format!(
+            "[General]\nTreeStrength=100\n\
+             [TerrainTypes]\n0=TREE01\n\
+             [TREE01]\nStrength=100\nArmor=wood\nTemperateOccupationBits=7\n{type_keys}\
+             [Warheads]\n0=WH\n[WH]\nWood=yes\nCellSpread=0\n\
+             [Animations]\n0=CRUMBLE1\n"
+        )))
+        .expect("crumbling rules");
+        rules.set_terrain_spawner_frame_count_for_test("TREE01", frames);
+        let mut art = crate::rules::art_data::ArtRegistry::from_ini(&IniFile::from_str(
+            "[CRUMBLE1]\nRate=900\n",
+        ));
+        art.bind_anim_frame_count_for_test("CRUMBLE1", 6);
+        rules.install_art_fixture(art);
+        let mut sim = Simulation::new();
+        sim.session.set_binary_frame_for_test(100);
+        seed_terrain_animations(
+            &mut sim,
+            &[TerrainObject {
+                rx: 1,
+                ry: 1,
+                name: "TREE01".to_string(),
+            }],
+            &rules,
+            false,
+        );
+        let id = sim.terrain_objects.cell_index()[&(1, 1)];
+        (sim, rules, id)
+    }
+
+    #[cfg(feature = "phobos")]
+    fn lethal_hit(sim: &mut crate::sim::world::Simulation, rules: &RuleSet, id: u64) {
+        let health = sim.terrain_objects.objects()[&id].health();
+        let warhead_ref = sim.interner.intern("WH");
+        sim.commit_direct_terrain_damage_receiver(
+            rules,
+            None,
+            crate::sim::combat::TerrainDamageEvent {
+                damage_writeback: None,
+                stable_id: id,
+                rx: 1,
+                ry: 1,
+                damage: health,
+                distance_leptons: 512,
+                warhead_ref,
+                near_center_ic_isolation_eligible: false,
+            },
+            true,
+            FrameEffects::default(),
+        );
+    }
+
+    /// Phobos `0x71BB2C`: a `HasCrumblingFrames` type keeps the object live at
+    /// health 0, joins Logic and plays `CrumblingSound`; the stock type
+    /// finalizes in the same call.
+    #[cfg(feature = "phobos")]
+    #[test]
+    fn a_crumbling_type_keeps_the_object_and_joins_logic_on_a_lethal_hit() {
+        let (mut sim, rules, id) =
+            crumbling_scene("HasCrumblingFrames=yes\nCrumblingSound=CRUMBLE\n", 8);
+        lethal_hit(&mut sim, &rules, id);
+        let terrain = &sim.terrain_objects.objects()[&id];
+        assert_eq!(terrain.health(), 0);
+        assert!(terrain.is_live(), "the crumbling object is not finalized");
+        assert!(terrain.is_crumbling());
+        assert!(
+            terrain.in_logic_vector(),
+            "LogicClass::AddObject joins the AI walk"
+        );
+        assert!(sim.terrain_objects.cell_index().contains_key(&(1, 1)));
+        assert!(sim.sound_events.iter().any(|event| matches!(event,
+            crate::sim::world::SimSoundEvent::VocAt { sound_id, .. } if sound_id == "CRUMBLE")));
+
+        let (mut sim, rules, id) = crumbling_scene("", 8);
+        lethal_hit(&mut sim, &rules, id);
+        assert!(
+            !sim.terrain_objects.objects()[&id].is_live(),
+            "the stock type finalizes in the same call"
+        );
+        assert!(!sim.terrain_objects.cell_index().contains_key(&(1, 1)));
+    }
+
+    /// Phobos `0x71C812`: the non-animated fold `currentStage = Animation.Value`
+    /// removes the object at `Frames/2` (value 3 of 8 frames, frame 106 at
+    /// rate 2) and plays `PlayDestroyEffects`.
+    #[cfg(feature = "phobos")]
+    #[test]
+    fn the_crumbling_ai_removes_at_half_frames_with_destroy_effects() {
+        let (mut sim, rules, id) = crumbling_scene(
+            "HasCrumblingFrames=yes\nDestroySound=BOOM\nDestroyAnim=CRUMBLE1\n",
+            8,
+        );
+        lethal_hit(&mut sim, &rules, id);
+        for frame in [102, 104] {
+            sim.session.set_binary_frame_for_test(frame);
+            tick_terrain_object_ai(&mut sim, id, &rules, None, FrameEffects::default()).unwrap();
+            assert!(
+                sim.terrain_objects.objects()[&id].is_live(),
+                "still crumbling at frame {frame}"
+            );
+        }
+        sim.session.set_binary_frame_for_test(106);
+        tick_terrain_object_ai(&mut sim, id, &rules, None, FrameEffects::default()).unwrap();
+        assert!(
+            !sim.terrain_objects.objects()[&id].is_live(),
+            "removed once currentStage + 1 == Frames/2"
+        );
+        assert!(!sim.terrain_objects.cell_index().contains_key(&(1, 1)));
+        assert!(sim.sound_events.iter().any(|event| matches!(event,
+            crate::sim::world::SimSoundEvent::VocAt { sound_id, .. } if sound_id == "BOOM")));
+        assert!(
+            sim.anims()
+                .any(|(_, anim)| sim.resolve(anim.type_id()) == "CRUMBLE1"),
+            "one random DestroyAnim is constructed"
+        );
+    }
+
+    /// The animated fold adds `AnimationLength * (HasDamagedFrames + 1)`; the
+    /// authored `AnimationLength=1` moves removal to value 2 (frame 104).
+    #[cfg(feature = "phobos")]
+    #[test]
+    fn an_animated_crumbling_type_uses_the_animation_length_override() {
+        let (mut sim, rules, id) = crumbling_scene(
+            "HasCrumblingFrames=yes\nIsAnimated=yes\nAnimationLength=1\nDestroySound=BOOM\n",
+            8,
+        );
+        lethal_hit(&mut sim, &rules, id);
+        sim.session.set_binary_frame_for_test(102);
+        tick_terrain_object_ai(&mut sim, id, &rules, None, FrameEffects::default()).unwrap();
+        assert!(sim.terrain_objects.objects()[&id].is_live());
+        sim.session.set_binary_frame_for_test(104);
+        tick_terrain_object_ai(&mut sim, id, &rules, None, FrameEffects::default()).unwrap();
+        assert!(
+            !sim.terrain_objects.objects()[&id].is_live(),
+            "value 2 + AnimationLength 1 + 1 == Frames/2 (4)"
+        );
+    }
 
     #[test]
     fn probability_boundaries_match_original_executable_controls() {

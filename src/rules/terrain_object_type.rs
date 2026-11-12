@@ -85,10 +85,8 @@ pub struct TerrainObjectType {
     /// TerrainType whose lethal damage keeps a crumbling stage instead of
     /// removing the object (`Ext/TerrainType/Hooks.cpp:286-307`, hook
     /// `0x71BB2C`), drawn from `1 + Animation.Value` (`:96-126`, hook
-    /// `0x71C1FE`). RESIDUAL: read only. VERA's terrain lethal owner
-    /// finalizes in the same call and retains no `IsCrumbling`
-    /// (`sim::terrain_object`), so no crumble stage, sound or draw arm
-    /// consumes it yet.
+    /// `0x71C1FE`). Consumed by `sim::terrain_object`'s lethal gate,
+    /// `sim::terrain_spawn`'s crumbling AI and the overlay draw arm.
     #[cfg(feature = "phobos")]
     pub has_crumbling_frames: bool,
     /// Signed logic frames per animation step; native ReadInt stores without clamps.
@@ -409,6 +407,22 @@ impl TerrainObjectType {
 
     pub(crate) fn is_logic(&self) -> bool {
         self.is_logic
+    }
+
+    /// Phobos `HasDamagedFrames` (`Ext/TerrainType/Hooks.cpp:106`): the draw
+    /// and crumbling AI read it to select the damaged half of the SHP.
+    #[cfg(feature = "phobos")]
+    pub fn has_damaged_frames(&self) -> bool {
+        self.has_damaged_frames
+    }
+
+    /// `AnimationLength.Get(GetImage()->Frames / (2 * (HasDamagedFrames + 1)))`
+    /// (`Ext/TerrainType/Hooks.cpp:26,84,104`): the authored stage length else
+    /// the frame-count fold. Shared by the crumbling AI and the draw arm.
+    #[cfg(feature = "phobos")]
+    pub fn crumbling_animation_length(&self, frames: i32) -> i32 {
+        self.animation_length
+            .unwrap_or(frames / (2 * (i32::from(self.has_damaged_frames) + 1)))
     }
 
     pub(crate) fn bind_armor(&mut self, armor: crate::rules::armor::ArmorId) {

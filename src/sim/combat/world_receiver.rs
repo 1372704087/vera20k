@@ -1313,12 +1313,17 @@ pub(crate) fn commit_terrain(
             .terrain_objects
             .get(event.stable_id)
             .is_some_and(|terrain| !terrain.on_fire());
-    let TerrainAreaReceiveResult::Lethal(lethal) = receive else {
-        #[cfg(feature = "ares")]
-        if ignites {
-            world.terrain_catch_fire(event.stable_id, rules);
+    let (lethal, _crumbling) = match receive {
+        TerrainAreaReceiveResult::Lethal(lethal) => (lethal, false),
+        #[cfg(feature = "phobos")]
+        TerrainAreaReceiveResult::Crumbling(lethal) => (lethal, true),
+        _ => {
+            #[cfg(feature = "ares")]
+            if ignites {
+                world.terrain_catch_fire(event.stable_id, rules);
+            }
+            return (effects, under_attack_events);
         }
-        return (effects, under_attack_events);
     };
 
     // ObjectReceiveDamage5F57AF calls DetachAll before returning lethal4
@@ -1393,6 +1398,14 @@ pub(crate) fn commit_terrain(
         }
     }
 
+    // Phobos `0x71BB2C`: the crumbling gate runs after DetachAll and the nested
+    // C4 above, skips PlayDestroyEffects and the same-call UnInit, and hands the
+    // object to the crumbling AI (Logic join + Stage restart + CrumblingSound).
+    #[cfg(feature = "phobos")]
+    if _crumbling {
+        crate::sim::terrain_spawn::start_terrain_crumbling(world, lethal.stable_id, rules);
+        return (effects, under_attack_events);
+    }
     world.terrain_lethal_uninit(lethal, &mut run.finalizing_terrain, uninit_context);
     (effects, under_attack_events)
 }

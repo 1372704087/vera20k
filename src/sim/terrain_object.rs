@@ -499,7 +499,7 @@ impl TerrainObjectState {
 
     /// `TerrainClass+0xCD` IsCrumbling.
     #[cfg(feature = "phobos")]
-    pub(crate) const fn is_crumbling(&self) -> bool {
+    pub const fn is_crumbling(&self) -> bool {
         self.is_crumbling
     }
 }
@@ -528,8 +528,16 @@ pub(crate) struct TerrainLethalDamage {
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub(crate) enum TerrainAreaReceiveResult {
     Ignored,
-    Damaged { remaining: i32 },
+    Damaged {
+        remaining: i32,
+    },
     Lethal(TerrainLethalDamage),
+    /// Phobos `TerrainClass_TakeDamage_NowDead_Add` (`0x71BB2C`,
+    /// `Ext/TerrainType/Hooks.cpp:286-307`): a `HasCrumblingFrames` type keeps
+    /// the object for its crumbling stage instead of finalizing in this call.
+    /// The receiver joins Logic, starts the Stage and plays `CrumblingSound`.
+    #[cfg(feature = "phobos")]
+    Crumbling(TerrainLethalDamage),
 }
 
 /// The live `TerrainClass` objects and the indexes derived from them (the
@@ -1165,10 +1173,22 @@ impl TerrainObjectStore {
         // Take_Damage71B920's ordinary lethal arm (71BAEF..71BB22) sets
         // IsCrumbling and restarts Stage at rate2/value0, the body of the
         // unreferenced `TerrainClass::Start_To_Crumble @ 0x0071C8E0`, then
-        // UnInits in the same call (71BB2C..71BB73). No crumble frame or
-        // AI71C730 crumble test runs, so no IsCrumbling is retained. Its
-        // IsOnFire arm is dormant: only the uncalled Catch_Fire71C5B0 sets it.
+        // UnInits in the same call (71BB2C..71BB73). Stock retains no
+        // IsCrumbling; the Phobos gate below keeps a HasCrumblingFrames object
+        // for its crumbling AI instead. Its IsOnFire arm is dormant: only the
+        // uncalled Catch_Fire71C5B0 sets it.
         terrain.health = 0;
+        // Phobos `0x71BB2C` gate: a crumbling type skips PlayDestroyEffects and
+        // the same-call UnInit; the receiver starts the crumbling Stage, joins
+        // Logic and plays CrumblingSound. Stock keeps the immediate finalizer.
+        #[cfg(feature = "phobos")]
+        if terrain_type.has_crumbling_frames {
+            return TerrainAreaReceiveResult::Crumbling(TerrainLethalDamage {
+                stable_id,
+                cell: source,
+                spawns_tiberium: terrain_type.spawns_tiberium,
+            });
+        }
         finalizing_terrain.insert(stable_id);
         TerrainAreaReceiveResult::Lethal(TerrainLethalDamage {
             stable_id,

@@ -675,6 +675,7 @@ impl Simulation {
             &*substrate,
             houses,
             rules,
+            interner,
             &snap,
             obj,
             weapon,

@@ -1764,6 +1764,7 @@ fn fireat_get_rof(
     substrate: &ObjectSubstrate,
     houses: &Houses,
     rules: &RuleSet,
+    interner: &crate::sim::intern::StringInterner,
     snap: &AttackerSnapshot,
     obj: &ObjectType,
     rof_weapon: Option<&WeaponType>,
@@ -1779,6 +1780,7 @@ fn fireat_get_rof(
         substrate,
         houses,
         rules,
+        interner,
         snap,
         obj,
         rof_weapon,
@@ -1797,6 +1799,7 @@ pub(crate) fn snapshot_get_rof(
     substrate: &ObjectSubstrate,
     houses: &Houses,
     rules: &RuleSet,
+    interner: &crate::sim::intern::StringInterner,
     snap: &AttackerSnapshot,
     obj: &ObjectType,
     rof_weapon: Option<&WeaponType>,
@@ -1854,10 +1857,44 @@ pub(crate) fn snapshot_get_rof(
                     )
                 }),
             occupy_rof_multiplier: rules.garrison_rules.occupy_rof_multiplier,
-            bunker_rof_multiplier: rules.garrison_rules.bunker_rof_multiplier,
+            // Phobos `TechnoClass_RearmDelay_BuildingBunkerROFMult`
+            // (`0x6FD1C7`, `Ext/BuildingType/Hooks.cpp:332-345`): the bunker
+            // building type's nullable overrides
+            // `[CombatDamage] BunkerROFMultiplier=`.
+            bunker_rof_multiplier: {
+                #[cfg(feature = "phobos")]
+                {
+                    phobos_bunker_rof_multiplier(substrate, firer, rules, interner)
+                        .unwrap_or(rules.garrison_rules.bunker_rof_multiplier)
+                }
+                #[cfg(not(feature = "phobos"))]
+                {
+                    rules.garrison_rules.bunker_rof_multiplier
+                }
+            },
         },
         scenario_rng,
     )
+}
+
+/// Phobos `TechnoClass_RearmDelay_BuildingBunkerROFMult`
+/// (`0x6FD1C7`, `Ext/BuildingType/Hooks.cpp:332-345`): a bunkered unit's ROF
+/// multiplier comes from the bunker building type's
+/// `BunkerROFMultMultiplier` when set; `None` keeps the `[CombatDamage]`
+/// global.
+#[cfg(feature = "phobos")]
+fn phobos_bunker_rof_multiplier(
+    substrate: &ObjectSubstrate,
+    firer: Option<&crate::sim::game_entity::GameEntity>,
+    rules: &RuleSet,
+    interner: &crate::sim::intern::StringInterner,
+) -> Option<f32> {
+    let building = firer
+        .and_then(|firer| firer.bunker.link().installed_in())
+        .and_then(|building| substrate.entities.get(building))?;
+    rules
+        .object(interner.resolve(building.type_ref()))
+        .and_then(|object| object.phobos_bunker_rof_multiplier)
 }
 
 /// Existing FireAt delivery and bookkeeping, shared by the world receiver.
@@ -2237,6 +2274,7 @@ pub(super) fn emit_admitted_fire(
             &world.substrate,
             &world.houses,
             rules,
+            &world.interner,
             snap,
             obj,
             rof_weapon,
@@ -2842,6 +2880,7 @@ pub(super) fn emit_admitted_fire(
         &world.substrate,
         &world.houses,
         rules,
+        &world.interner,
         snap,
         obj,
         rof_weapon,
@@ -4517,6 +4556,10 @@ pub(crate) fn estimated_damage_on(
 #[cfg(test)]
 #[path = "welding_native_tests.rs"]
 mod welding_native_tests;
+
+#[cfg(all(test, feature = "phobos"))]
+#[path = "world_fire_bunker_tests.rs"]
+mod world_fire_bunker_tests;
 
 /// Ares 3.0 InfantryClass_UpdateFiringState_Heal (1004E420, hook 0x520731):
 /// a healing infantryman keeps a damaged vehicle as its target, where the

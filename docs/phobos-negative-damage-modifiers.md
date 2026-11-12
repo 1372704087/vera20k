@@ -44,10 +44,10 @@ attach-effect and crit callers do the same.
 - `src/rules/phobos_globals_tests.rs` — the global's section/default and the
   warhead override.
 
-## Residuals
+## Callers that pass false
 
-- The UI damage estimate (`damage/estimate.rs`) early-outs negative packets
-  before the kernel and keeps the raw value; the hook's native caller there is
-  not modeled.
-- The Ares shield negative branch negates its input before the kernel and
-  passes `false`; a shield-absorbed heal keeps the stock result.
+- The UI damage estimate clamps its kernel input to at least 1 natively
+  (`0x6FDD00`) after rejecting nonpositive weapon Damage, so an armed packet
+  cannot reach the hook; `estimate.rs` passing false is exact.
+- The Ares shield negative branch calls `GetTotalDamage(-damage, ...)` with a
+  positive argument (`ShieldClass.cpp:227`), so it cannot arm the hook either.

@@ -250,6 +250,45 @@ fn negative_damage_modifiers_skip_the_stock_early_out_and_zero_floor() {
     assert_eq!(run(-100, 8, true), -50, "armed scales by Verses");
     assert_eq!(run(-100, 7, true), -50, "armed skips the distance test");
     assert_eq!(run(100, 8, true), 50, "positive packets unchanged");
+    // The newly reachable 4891C6..489225 interpolation: CellSpread 1,
+    // PercentAtMax 0.5 and distance 128 give a -75 falloff, Verses 50% gives
+    // -37 after the chop conversion.
+    let interpolated = apply_warhead_damage(
+        -100,
+        1.0,
+        0.5,
+        NativeF64Bits::from_bits(0.5f64.to_bits()),
+        128,
+        false,
+        i32::MAX,
+        true,
+    );
+    assert_eq!(interpolated, -37);
+    // Equality with spread>0 falls back to the original i32 damage, not the
+    // f32-rounded spill: -16777217 survives the Verses 100% multiply.
+    let exact_i32 = apply_warhead_damage(
+        -16_777_217,
+        1.0,
+        1.0,
+        NativeF64Bits::ONE,
+        0,
+        false,
+        i32::MAX,
+        true,
+    );
+    assert_eq!(exact_i32, -16_777_217);
+    // Verses 0 scales the armed heal to zero.
+    let zero_verses = apply_warhead_damage(
+        -100,
+        0.0,
+        1.0,
+        NativeF64Bits::from_bits(0.0f64.to_bits()),
+        8,
+        false,
+        i32::MAX,
+        true,
+    );
+    assert_eq!(zero_verses, 0);
 }
 
 #[test]

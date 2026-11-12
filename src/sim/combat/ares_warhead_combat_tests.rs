@@ -94,6 +94,17 @@ fn negative_damage_modifiers_apply_verses_to_a_heal() {
     let mut global = stock.clone();
     global.phobos_globals.apply_modifiers_on_negative_damage = true;
     assert_eq!(resolved_delta(&global, 1000, -100), -50);
+    // An explicit warhead no beats the global yes.
+    let explicit_no = rules_with(
+        "50%",
+        "ApplyModifiersOnNegativeDamage=no
+",
+    );
+    let mut explicit_no_global = explicit_no.clone();
+    explicit_no_global
+        .phobos_globals
+        .apply_modifiers_on_negative_damage = true;
+    assert_eq!(resolved_delta(&explicit_no_global, 1000, -100), -100);
 }
 
 /// ObjectClass_ReceiveDamage_Relative (10053A80): a positive kind value is a

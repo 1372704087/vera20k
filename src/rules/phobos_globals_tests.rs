@@ -620,3 +620,71 @@ fn reload_in_transport_defaults_and_reads() {
     assert!(!PhobosGlobals::default().reload_in_transport);
     assert!(read("[General]\nReloadInTransport=yes\n").reload_in_transport);
 }
+
+/// `[General] HarvesterDumpAmount=`, `HarvesterScanAfterUnload=`,
+/// `SubterraneanSpeed/Height=`, `VeteranRange=`, `SetRecruitableOnLiberate=`
+/// (`Ext/Rules/Body.cpp:110`, `:125-126`, `:309`, `:390`, `:416`).
+#[test]
+fn the_harvester_subterranean_and_veteran_globals_default_and_read() {
+    let defaults = PhobosGlobals::default();
+    assert_eq!(f64::from_bits(defaults.harvester_dump_amount.bits()), 0.0);
+    assert!(!defaults.harvester_scan_after_unload);
+    assert_eq!(defaults.subterranean_speed, 19);
+    assert_eq!(defaults.subterranean_height, -256);
+    assert_eq!(f64::from_bits(defaults.veteran_range.bits()), 1.0);
+    assert_eq!(defaults.set_recruitable_on_liberate, -1);
+
+    let set = read(
+        "[General]\nHarvesterDumpAmount=25.5\nHarvesterScanAfterUnload=yes\n\
+         SubterraneanSpeed=50\nSubterraneanHeight=-100\nVeteranRange=1.25\n\
+         SetRecruitableOnLiberate=2\n",
+    );
+    assert_eq!(f64::from_bits(set.harvester_dump_amount.bits()), 25.5);
+    assert!(set.harvester_scan_after_unload);
+    // `ReadSpeed`: (50*256)/100 = 128.
+    assert_eq!(set.subterranean_speed, 128);
+    assert_eq!(set.subterranean_height, -100);
+    assert_eq!(f64::from_bits(set.veteran_range.bits()), 1.25);
+    assert_eq!(set.set_recruitable_on_liberate, 2);
+}
+
+/// A negative `SubterraneanSpeed=` keeps the ctor value
+/// (`Utilities/INIParser.h:157-163`).
+#[test]
+fn a_negative_subterranean_speed_keeps_the_default() {
+    assert_eq!(
+        read("[General]\nSubterraneanSpeed=-5\n").subterranean_speed,
+        19
+    );
+}
+
+/// `[AudioVisual] DisplayIncome=` + `.Delay=` and `CombatLightDetailLevel=`
+/// (`Ext/Rules/Body.cpp:291-297`, `:404`); a zero Delay is forced to 1.
+#[test]
+fn the_income_and_light_globals_read_and_clamp() {
+    let defaults = PhobosGlobals::default();
+    assert!(!defaults.display_income);
+    assert_eq!(defaults.display_income_delay, 15);
+    assert_eq!(defaults.combat_light_detail_level, 0);
+    let set = read(
+        "[AudioVisual]\nDisplayIncome=yes\nDisplayIncome.Delay=0\n\
+         CombatLightDetailLevel=3\n",
+    );
+    assert!(set.display_income);
+    assert_eq!(set.display_income_delay, 1);
+    assert_eq!(set.combat_light_detail_level, 3);
+}
+
+/// `[CombatDamage] AllowWeaponSelectAgainstWalls=` (`Ext/Rules/Body.cpp:256`,
+/// constructor false `Body.h:702`), not a `[General]` key.
+#[test]
+fn allow_weapon_select_against_walls_is_combat_damage() {
+    assert!(!PhobosGlobals::default().allow_weapon_select_against_walls);
+    assert!(
+        read("[CombatDamage]\nAllowWeaponSelectAgainstWalls=yes\n")
+            .allow_weapon_select_against_walls
+    );
+    assert!(
+        !read("[General]\nAllowWeaponSelectAgainstWalls=yes\n").allow_weapon_select_against_walls
+    );
+}

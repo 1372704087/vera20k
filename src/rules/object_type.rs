@@ -1396,6 +1396,13 @@ pub struct ObjectType {
     /// Missing, empty and unregistered names retain the prior resolved ID in
     /// the existing processed-rules reader, starting at the native -1 default.
     damage_sound: Option<String>,
+    /// Phobos `BuildingTypeExt::DisableDamageSound` (`Ext/BuildingType/Body.h:95`,
+    /// `Valueable<bool>` seeded false, read at `Ext/BuildingType/Body.cpp:245`):
+    /// the building plays neither its own [`Self::damage_sound`] nor the global
+    /// `[AudioVisual] BuildingDamageSound=` cue. The three hooks
+    /// (`Ext/BuildingType/Hooks.cpp:389-411`, `0x4426DB`, `0x70272E`,
+    /// `0x702777`) skip the whole request, not just a branch of it.
+    disable_damage_sound: bool,
     /// Installed Ares TypeExt+504/+508 and+50C/+510 (ctor1003CE14..2E).
     /// Unset, explicit silence and a resolved Voc ID remain distinct.
     #[cfg(feature = "ares")]
@@ -4712,6 +4719,12 @@ impl ObjectType {
         self.damage_sound.as_deref()
     }
 
+    /// Phobos `BuildingTypeExt::DisableDamageSound`: this building's struck cue
+    /// stays silent.
+    pub const fn disable_damage_sound(&self) -> bool {
+        self.disable_damage_sound
+    }
+
     pub fn secret_lab(&self) -> &crate::rules::secret_lab::SecretLabRules {
         &self.secret_lab
     }
@@ -5920,6 +5933,13 @@ impl ObjectType {
             create_sound: None,
             secret_lab: Default::default(),
             damage_sound: None,
+            // Phobos `BuildingTypeExt::DisableDamageSound`
+            // (`Ext/BuildingType/Body.cpp:245`), a BuildingType-only key.
+            #[cfg(feature = "phobos")]
+            disable_damage_sound: category == ObjectCategory::Building
+                && section.read_bool("DisableDamageSound", false),
+            #[cfg(not(feature = "phobos"))]
+            disable_damage_sound: false,
             #[cfg(feature = "ares")]
             promotion_sounds: [None, None],
             #[cfg(feature = "ares")]

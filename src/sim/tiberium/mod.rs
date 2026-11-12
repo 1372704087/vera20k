@@ -219,6 +219,25 @@ impl<'a> NewTiberiumAdmission<'a> {
     }
 }
 
+/// Phobos `CanResourceGerminateOnRamp` (`Ext/Tiberium/Hooks.cpp:46`): stock
+/// keeps slope 0 only; with the Phobos feature a type's `AllowRamps=` plus
+/// its ramp art admits cardinal ramps 1..=4.
+pub(crate) fn tiberium_slope_admits(
+    registry: &OverlayTypeRegistry,
+    ty: &crate::rules::tiberium_type::TiberiumType,
+    slope_type: i32,
+) -> bool {
+    #[cfg(feature = "phobos")]
+    {
+        registry.allows_ramp(ty, slope_type)
+    }
+    #[cfg(not(feature = "phobos"))]
+    {
+        let _ = (registry, ty);
+        slope_type == 0
+    }
+}
+
 pub(crate) fn resolved_cell_accepts_tiberium(cell: &ResolvedTerrainCell) -> bool {
     !cell.outside_playfield
         && cell.allows_tiberium
@@ -321,15 +340,16 @@ pub(crate) fn can_spread_tiberium(
     if view.overlay_data <= own_type.0 / 2 {
         return Ok(None);
     }
-    if resolved_terrain
-        .and_then(|terrain| terrain.cell(rx, ry))
-        .is_some_and(|cell| cell.slope_type != 0)
-    {
-        return Ok(None);
-    }
     let ty = tiberium_types
         .get(own_type)
         .ok_or(TiberiumImageError::MissingType(own_type))?;
+    if let Some(slope) = resolved_terrain
+        .and_then(|terrain| terrain.cell(rx, ry))
+        .map(|cell| i32::from(cell.slope_type))
+        && !tiberium_slope_admits(overlay_registry, ty, slope)
+    {
+        return Ok(None);
+    }
     Ok(
         crate::sim::ore_growth::native_percentage_admits(ty.spread_percentage_bits)
             .then_some(own_type),
@@ -398,16 +418,16 @@ pub(crate) fn place_tiberium(
     if !sim.ore_growth_config.grows() {
         return Ok(None);
     }
-    let flat = sim.resolved_terrain.as_ref().is_none_or(|terrain| {
-        terrain
-            .cell(cell.0, cell.1)
-            .is_some_and(|cell| cell.slope_type == 0)
-    });
+    let slope_ok = sim
+        .resolved_terrain
+        .as_ref()
+        .and_then(|terrain| terrain.cell(cell.0, cell.1))
+        .is_none_or(|cell| tiberium_slope_admits(registry, ty, i32::from(cell.slope_type)));
     let Some(view) = tiberium_cell_view(grid, registry, &rules.tiberium_types, cell)? else {
         return Ok(None);
     };
     let limit = ty.image().density_levels().wrapping_sub(1);
-    if !flat
+    if !slope_ok
         || view.tiberium_type != type_id
         || i32::from(view.overlay_data) >= limit
         || !crate::sim::ore_growth::native_percentage_admits(ty.growth_percentage_bits)
@@ -2234,5 +2254,55 @@ SpreadPercentage=.06
             expected_rng.logical_state(),
             "reseed consumes exactly one raw draw per accepted neighbor"
         );
+    }
+
+    /// Phobos `AllowRamps=` (`Ext/Tiberium/Hooks.cpp:46-90`): the spread
+    /// admission refuses a cardinal ramp unless the type has the key and its
+    /// first ramp overlay is Tiberium art.
+    #[cfg(feature = "phobos")]
+    #[test]
+    fn allow_ramps_admits_spread_onto_a_cardinal_ramp() {
+        let build = |key: &str| {
+            let mut text = format!(
+                "[Tiberiums]
+0=RIP
+[RIP]
+Image=2
+SpreadPercentage=1.0
+{key}[OverlayTypes]
+"
+            );
+            for slot in 0..60 {
+                text.push_str(&format!("{slot}=O{slot}
+"));
+            }
+            text.push_str("[O39]
+Tiberium=yes
+");
+            RuleSet::from_ini(&IniFile::from_str(&text)).expect("ramp rules")
+        };
+        let spread = |rules: &RuleSet| {
+            let terrain = crate::map::resolved_terrain::test_grid(1, 1, |x, y| {
+                let mut cell = crate::map::resolved_terrain::test_flat_cell(x, y);
+                cell.slope_type = 4;
+                cell
+            });
+            let mut grid = crate::sim::overlay_grid::OverlayGrid::new(1, 1);
+            grid.place_overlay(0, 0, 39, 5);
+            can_spread_tiberium(
+                &grid,
+                rules.overlay_registry(),
+                &rules.tiberium_types,
+                Some(&terrain),
+                false,
+                0,
+                0,
+                true,
+            )
+            .unwrap()
+        };
+        assert_eq!(spread(&build("AllowRamps=yes
+")), Some(TiberiumTypeId(0)));
+        assert_eq!(spread(&build("")), None);
     }
 }

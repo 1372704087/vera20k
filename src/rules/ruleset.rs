@@ -7579,6 +7579,10 @@ impl RuleSet {
             // The boundary-sensitive RulesLayerStack hash.
             source_ini_hash: processed.content_hash(),
         };
+        #[cfg(feature = "phobos")]
+        rules
+            .overlay_registry
+            .project_tiberium_ramps(&rules.tiberium_types);
         rules.rebuild_animation_sequences();
         Ok(rules)
     }

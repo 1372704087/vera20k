@@ -123,6 +123,15 @@ impl TiberiumImageState {
         Ok(())
     }
 
+    /// Phobos `AllowRamps=` load: `NumSlopes` rises to the eight overlay
+    /// slots (`Ext/Tiberium/Body.cpp:26`).
+    #[cfg(feature = "phobos")]
+    pub(crate) fn force_ramp_slopes(&mut self) {
+        if self.slope_count < 8 {
+            self.slope_count = 8;
+        }
+    }
+
     /// PointerExpired722191..72219C clears E0 while leaving E4/E8/EC.
     pub(crate) fn clear_overlay(&mut self) {
         self.base_overlay = None;
@@ -157,6 +166,12 @@ pub struct TiberiumType {
     /// `Power=` (`TiberiumClass+0xBC`): constructor 0, ReadInt over the
     /// current value (`0x00721AE1` block). Only Ares reads it in play.
     pub power: i32,
+    /// Phobos `AllowRamps=` (`Ext/Tiberium/Body.cpp:24`,
+    /// `Ext/Tiberium/Body.h:26`, default false): cardinal ramp cells may
+    /// germinate when the type's ramp art exists; the load also raises
+    /// `NumSlopes` to eight (`Body.cpp:26`).
+    #[cfg(feature = "phobos")]
+    pub allow_ramps: bool,
     /// Signed `Growth=` timer reload input (`TiberiumClass+0xA8`).
     pub growth: i32,
     /// `GrowthPercentage=` as the native `TiberiumClass+0xB0` double (IEEE
@@ -208,6 +223,10 @@ impl TiberiumTypeRegistry {
             ty.color_scheme = color;
             ty.debris = debris.to_vec();
             ty.image = image;
+            #[cfg(feature = "phobos")]
+            if ty.allow_ramps {
+                ty.image.force_ramp_slopes();
+            }
             types.push(ty);
         }
         #[cfg(feature = "ares")]
@@ -277,6 +296,8 @@ impl TiberiumType {
             image: TiberiumImageState::default(),
             value: section.read_int("Value", 0),
             power: section.read_int("Power", 0),
+            #[cfg(feature = "phobos")]
+            allow_ramps: section.read_bool("AllowRamps", false),
             // ReadInt stores its signed result directly, without a clamp
             // (`0x00721AE1`); original execution: spatial_oracle/ore_queue.md.
             growth: section.read_int("Growth", 0),

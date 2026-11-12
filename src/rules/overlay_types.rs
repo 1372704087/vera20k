@@ -554,20 +554,13 @@ impl OverlayTypeRegistry {
         types: &crate::rules::tiberium_type::TiberiumTypeRegistry,
     ) {
         for ty in types.types() {
-            if !ty.allow_ramps {
+            if !ty.allow_ramps || !self.has_ramp_art(ty) {
                 continue;
             }
             let Ok(base) = self.tiberium_image_base(ty) else {
                 continue;
             };
             let ramp = base.wrapping_add(ty.image().primary_count());
-            let ramp_ok = u8::try_from(ramp)
-                .ok()
-                .and_then(|slot| self.flags(slot))
-                .is_some_and(|flags| flags.tiberium);
-            if !ramp_ok {
-                continue;
-            }
             let end = ramp.wrapping_add(ty.image().slope_count());
             for slot in base..end {
                 if let Ok(slot) = u8::try_from(slot)
@@ -595,6 +588,13 @@ impl OverlayTypeRegistry {
         if !(1..=4).contains(&slope_type) || !ty.allow_ramps {
             return false;
         }
+        self.has_ramp_art(ty)
+    }
+
+    /// `HasRampArt` (`Ext/Tiberium/Hooks.cpp:33-44`): the overlay at
+    /// `Image->ArrayIndex + NumFrames` exists and is Tiberium art.
+    #[cfg(feature = "phobos")]
+    pub fn has_ramp_art(&self, ty: &crate::rules::tiberium_type::TiberiumType) -> bool {
         let Ok(base) = self.tiberium_image_base(ty) else {
             return false;
         };

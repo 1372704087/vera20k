@@ -412,6 +412,12 @@ impl Simulation {
             // VoxelAI74A38C..74A3A2 /74A5ED..74A602 first admits this
             // cell, then classifies literal Overlay127. A blocked landing
             // must not dereference an otherwise unused null Tiberium image.
+            let Some(type_id) = registry.tiberium_type_for_overlay(&rules.tiberium_types, 0x7F)?
+            else {
+                continue;
+            };
+            let ramp_type_allows =
+                crate::sim::tiberium::tiberium_type_allows_ramps(rules, type_id);
             let admitted = {
                 let (Some(terrain), Some(grid)) =
                     (self.resolved_terrain.as_ref(), self.overlay_grid.as_ref())
@@ -431,13 +437,10 @@ impl Simulation {
                     self.terrain_objects.spawning_cells(),
                     NewTiberiumAdmission::runtime(terrain, objects),
                     requested,
+                    ramp_type_allows,
                 )
             };
             let Some(cell) = admitted else {
-                continue;
-            };
-            let Some(type_id) = registry.tiberium_type_for_overlay(&rules.tiberium_types, 0x7F)?
-            else {
                 continue;
             };
             if let Some(placement) = crate::sim::tiberium::place_new_tiberium(

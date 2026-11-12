@@ -1134,6 +1134,7 @@ fn count_native_spread_targets(
     new_cell_admission: Option<NewTiberiumAdmission<'_>>,
     rx: u16,
     ry: u16,
+    ramp_type_allows: bool,
 ) -> u8 {
     let mut count = 0u8;
     for &(dx, dy) in &ADJACENT_OFFSETS {
@@ -1142,8 +1143,14 @@ fn count_native_spread_targets(
             (ry as i16).wrapping_add(dy as i16) as u16,
         );
         if new_cell_admission.is_some_and(|admission| {
-            admit_new_tiberium_target(overlay_grid, source_object_cells, admission, target)
-                .is_some()
+            admit_new_tiberium_target(
+                overlay_grid,
+                source_object_cells,
+                admission,
+                target,
+                ramp_type_allows,
+            )
+            .is_some()
         }) {
             count = count.saturating_add(1);
         }
@@ -1603,6 +1610,7 @@ impl Simulation {
                 }),
                 entry.rx,
                 entry.ry,
+                crate::sim::tiberium::tiberium_type_allows_ramps(rules, type_id),
             );
             if valid_targets == 0 {
                 self.ore_growth_state.native_tiberium.classes[class_idx]

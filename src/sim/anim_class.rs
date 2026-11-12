@@ -4010,6 +4010,15 @@ impl Simulation {
                     (position.x / 256).wrapping_add(dx) as u16,
                     (position.y / 256).wrapping_add(dy) as u16,
                 );
+                let Some(base) = config
+                    .tiberium_spawn_type
+                    .as_deref()
+                    .and_then(|name| registry.id_for_name(name))
+                else {
+                    continue;
+                };
+                let ramp_type_allows =
+                    crate::sim::tiberium::overlay_tiberium_allows_ramps(rules, registry, base);
                 let admitted = {
                     let (Some(terrain), Some(grid)) =
                         (self.resolved_terrain.as_ref(), self.overlay_grid.as_ref())
@@ -4029,16 +4038,10 @@ impl Simulation {
                         self.terrain_objects.spawning_cells(),
                         NewTiberiumAdmission::runtime(terrain, objects),
                         cell,
+                        ramp_type_allows,
                     )
                 };
                 let Some(cell) = admitted else {
-                    continue;
-                };
-                let Some(base) = config
-                    .tiberium_spawn_type
-                    .as_deref()
-                    .and_then(|name| registry.id_for_name(name))
-                else {
                     continue;
                 };
                 let variant = self.scenario_rng.next_range_i32_inclusive(0, 3);

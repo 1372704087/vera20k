@@ -707,3 +707,22 @@ fn the_buildup_alpha_and_paradrop_delay_globals_read() {
     assert!(!wrong.no_alpha_image_on_buildup);
     assert_eq!(wrong.paradrop_delay, 5);
 }
+
+/// `[General] AircraftSpawnFromEdge=` (`Ext/Rules/Body.cpp:193`, constructor
+/// `Owner` `Body.h:636`): the fallback for an AircraftType's own nullable.
+#[test]
+fn the_aircraft_spawn_from_edge_global_defaults_to_owner_and_reads_the_names() {
+    use crate::rules::phobos_aircraft_edge::PhobosEdgeType;
+
+    assert_eq!(
+        PhobosGlobals::default().aircraft_spawn_from_edge,
+        PhobosEdgeType::Owner
+    );
+    let set = read("[General]\nAircraftSpawnFromEdge=random\n");
+    assert_eq!(set.aircraft_spawn_from_edge, PhobosEdgeType::Random);
+    let closest = read("[General]\nAircraftSpawnFromEdge=closest\n");
+    assert_eq!(closest.aircraft_spawn_from_edge, PhobosEdgeType::Closest);
+    // An unknown name keeps the constructor value.
+    let bad = read("[General]\nAircraftSpawnFromEdge=nearest\n");
+    assert_eq!(bad.aircraft_spawn_from_edge, PhobosEdgeType::Owner);
+}

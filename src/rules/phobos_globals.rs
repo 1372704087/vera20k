@@ -969,6 +969,12 @@ pub struct PhobosGlobals {
     /// `Ext/Rules/Body.h:702`): the fallback for a TechnoType's own key.
     #[serde(default)]
     pub allow_weapon_select_against_walls: bool,
+    /// `[General] AircraftSpawnFromEdge=`, default `owner`
+    /// (`Ext/Rules/Body.cpp:193`, constructor `Ext/Rules/Body.h:636`): the
+    /// fallback for an AircraftType's own `Nullable<EdgeType>`
+    /// (`Ext/Aircraft/Body.cpp:88`).
+    #[serde(default)]
+    pub aircraft_spawn_from_edge: crate::rules::phobos_aircraft_edge::PhobosEdgeType,
 }
 
 /// `RadarJamHouses=`'s constructor value (`Ext/Rules/Body.h:657`).
@@ -1206,6 +1212,7 @@ impl Default for PhobosGlobals {
             no_alpha_image_on_buildup: false,
             paradrop_delay: default_paradrop_delay(),
             allow_weapon_select_against_walls: false,
+            aircraft_spawn_from_edge: crate::rules::phobos_aircraft_edge::PhobosEdgeType::Owner,
         }
     }
 }
@@ -1523,6 +1530,16 @@ impl PhobosGlobals {
         // `Ext/Rules/Body.cpp:522`: the `[General]` fallback an AircraftType's
         // `ParadropDelay=` overrides (`Ext/Aircraft/Hooks.cpp:1274`).
         globals.paradrop_delay = general.read_ares_int("ParadropDelay", globals.paradrop_delay);
+        // `Ext/Rules/Body.cpp:193`: the `[General]` fallback an AircraftType's
+        // `SpawnFromEdge=` overrides (`Ext/Aircraft/Body.cpp:88`).
+        globals.aircraft_spawn_from_edge = general.read_string_with(
+            "AircraftSpawnFromEdge",
+            32,
+            globals.aircraft_spawn_from_edge,
+            |current, value| {
+                crate::rules::phobos_aircraft_edge::PhobosEdgeType::parse(value).unwrap_or(current)
+            },
+        );
         globals.aircraft_weapon_kick_out_passengers = general.read_bool(
             "AircraftWeapon.KickOutPassengers",
             globals.aircraft_weapon_kick_out_passengers,

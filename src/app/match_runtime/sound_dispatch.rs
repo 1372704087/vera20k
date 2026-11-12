@@ -48,14 +48,21 @@ pub(crate) fn selection_voice_event(
 /// QueueMegaMission6FFD42's default command acknowledgement. Simulation
 /// owns the ordered-list Main draw and QueueVoice708D90 admission; the
 /// existing unit voice queue owns pending replacement and eventual playback.
+/// `target` is the clicked Eaten building for the Phobos grinder override.
 pub(crate) fn default_order_voice_event(
     sim: &mut Simulation,
     rules: &RuleSet,
     entity_id: u64,
+    target: Option<crate::sim::combat::TargetKind>,
     voices_enabled: bool,
 ) -> Option<GameSoundEvent> {
-    let sound_id =
-        sim.order_voice_request(rules, entity_id, "VoiceSpecialAttack", None, voices_enabled)?;
+    let sound_id = sim.order_voice_request(
+        rules,
+        entity_id,
+        "VoiceSpecialAttack",
+        target,
+        voices_enabled,
+    )?;
     Some(GameSoundEvent::UnitMoveOrder {
         speaker_id: entity_id,
         sound_id: sound_id.to_string(),

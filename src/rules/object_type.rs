@@ -1007,6 +1007,13 @@ pub struct ObjectType {
     /// Phobos `Grinding.*` (`Ext/BuildingType/Body.cpp:200-207`).
     #[cfg(feature = "phobos")]
     pub phobos_grinding: crate::rules::phobos_grinding::PhobosGrindingSettings,
+    /// Phobos `TechnoTypeExt::VoiceEnterGrinder` (`NullableIdx<VocClass>`,
+    /// unset; `Ext/TechnoType/Body.cpp:1212`, `Body.h:447,868`): the voice a
+    /// foot speaks when clicked onto a `Grinding=` building with the Eaten
+    /// mission, replacing `VoiceSpecialAttack`
+    /// (`TechnoClass_ClickedMission_VoiceSpecialAttack @ 0x6FFD4C`).
+    #[cfg(feature = "phobos")]
+    pub phobos_voice_enter_grinder: Option<String>,
     /// Phobos `BuildLimitGroup.*` (`Ext/TechnoType/Body.cpp:1033-1041`): a
     /// techno's group build-limit settings, consumed by `can_build`.
     #[cfg(feature = "phobos")]
@@ -4773,6 +4780,11 @@ impl ObjectType {
             // unset names keep `None`, so the stock EnterGrinderSound plays.
             self.phobos_grinding.sound = section
                 .and_then(|section| sounds.read_rules_reference(section, "Grinding.Sound", None));
+            // Phobos `VoiceEnterGrinder` (`NullableIdx<VocClass>`): unknown
+            // and unset names keep `None`, so the stock order voice plays.
+            self.phobos_voice_enter_grinder = section.and_then(|section| {
+                sounds.read_rules_reference(section, "VoiceEnterGrinder", None)
+            });
         }
         #[cfg(feature = "ares")]
         for (slot, key) in ["Promote.VeteranSound", "Promote.EliteSound"]
@@ -5390,6 +5402,8 @@ impl ObjectType {
             phobos_grinding: crate::rules::phobos_grinding::PhobosGrindingSettings::from_section(
                 section,
             ),
+            #[cfg(feature = "phobos")]
+            phobos_voice_enter_grinder: None,
             #[cfg(feature = "phobos")]
             phobos_build_limit_group:
                 crate::rules::phobos_build_limit_group::BuildLimitGroupSettings::from_section(

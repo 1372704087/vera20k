@@ -909,6 +909,88 @@ fn ares_firing_voice_tiers_fall_through() {
     assert_eq!(sim.main_rng.native_state_hex(), main);
 }
 
+/// Phobos `TechnoClass_ClickedMission_VoiceSpecialAttack` (`0x6FFD4C`,
+/// `Ext/Techno/Hooks.cpp:2507-2528`): an Eaten click whose clicked building
+/// type is `Grinding=` speaks the foot type's `VoiceEnterGrinder` catalog
+/// reference and skips the `VoiceSpecialAttack` selector (no Main draw);
+/// unset, a non-grinding target or an absent target keep the stock list.
+#[cfg(feature = "phobos")]
+#[test]
+fn phobos_voice_enter_grinder_replaces_the_special_attack_voice() {
+    use crate::map::entities::EntityCategory;
+    use crate::sim::combat::TargetKind;
+    use crate::sim::game_entity::GameEntity;
+
+    let ini = IniFile::from_str(
+        "[InfantryTypes]\n0=ENGINEER\n[ENGINEER]\nStrength=100\n\
+         VoiceSpecialAttack=Attack\nVoiceEnterGrinder=Special\n\
+         [BuildingTypes]\n0=GRIND\n1=HOSP\n\
+         [GRIND]\nStrength=100\nGrinding=yes\n\
+         [HOSP]\nStrength=100\n",
+    );
+    let mut rules = RuleSet::from_ini(&ini).unwrap();
+    let sounds = SoundRegistry::from_ini(&IniFile::from_str("[SoundList]\n0=Attack\n1=Special\n"));
+    rules.bind_type_sound_references(&ini, &sounds);
+    let (mut sim, rules, foot) = scene_for_rules(
+        rules,
+        &serde_json::json!({}),
+        "ENGINEER",
+        EntityCategory::Infantry,
+    );
+    let other = sim.interner.intern("Other");
+    for (id, name, rx) in [(2, "GRIND", 5), (3, "HOSP", 6)] {
+        let type_ref = sim.interner.intern(name);
+        let mut building = GameEntity::test_default_of_category(
+            id,
+            name,
+            "Other",
+            rx,
+            5,
+            EntityCategory::Structure,
+        );
+        building.set_owner_for_test(other);
+        building.set_type_ref_for_test(type_ref);
+        sim.substrate.entities.insert(building);
+    }
+
+    let (_, draws) = trace_draws(|| {
+        sim.order_voice_request(
+            &rules,
+            foot,
+            "VoiceSpecialAttack",
+            Some(TargetKind::Entity(2)),
+            true,
+        )
+    });
+    assert!(draws.is_empty(), "the override skips the selector draw");
+    assert_eq!(
+        sim.order_voice_request(
+            &rules,
+            foot,
+            "VoiceSpecialAttack",
+            Some(TargetKind::Entity(2)),
+            true,
+        ),
+        Some("Special")
+    );
+    assert_eq!(
+        sim.order_voice_request(
+            &rules,
+            foot,
+            "VoiceSpecialAttack",
+            Some(TargetKind::Entity(3)),
+            true,
+        ),
+        Some("Attack"),
+        "a non-grinding target keeps the list"
+    );
+    assert_eq!(
+        sim.order_voice_request(&rules, foot, "VoiceSpecialAttack", None, true),
+        Some("Attack"),
+        "no target keeps the list"
+    );
+}
+
 /// Phobos `TechnoClass_VoiceAttack`
 /// (`Ext/TechnoType/Hooks.MultiWeapon.cpp:82-142`, hook `0x7090A0`): the
 /// selected multi-weapon slot uses its per-slot `VoiceWeapon%dAttack`; without

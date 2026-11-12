@@ -4003,6 +4003,7 @@ fn queue_area_guard_orders(
             sim,
             rules,
             entity_id,
+            None,
             voices_enabled,
         ) {
             sounds.push(event);

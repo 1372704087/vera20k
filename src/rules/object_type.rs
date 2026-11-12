@@ -936,6 +936,12 @@ pub struct ObjectType {
     /// (`UnitClass_Update_SinkSpeed @ 0x7364DC`).
     #[cfg(feature = "phobos")]
     pub phobos_sink_speed: Option<i32>,
+    /// Phobos `DamagedSpeed` (`Nullable<double>`, unset;
+    /// `Ext/UnitType/Body.cpp:32`, `Body.h:17`): the Drive/Ship
+    /// below-Condition-Yellow speed multiplier, replacing the stock 0.75
+    /// (`LocomotionClass_Process_DamagedSpeedMultiplier @ 0x4B3DF0/0x6A343F`).
+    #[cfg(feature = "phobos")]
+    pub phobos_damaged_speed: Option<crate::util::native_x87::NativeF64Bits>,
     /// Phobos `ParadropMission`/`AIParadropMission` (`Nullable<Mission>`,
     /// unset; `Ext/TechnoType/Body.cpp:1171-1172`, `Body.h:411-412`): the
     /// mission a human- or AI-controlled `FootClass` queues after
@@ -5897,6 +5903,10 @@ impl ObjectType {
             phobos_sinkable: section.read_phobos_nullable_bool("Sinkable", None),
             #[cfg(feature = "phobos")]
             phobos_sink_speed: section.read_phobos_nullable_int("SinkSpeed", None),
+            #[cfg(feature = "phobos")]
+            phobos_damaged_speed: section
+                .read_phobos_nullable_double("DamagedSpeed", None)
+                .map(|value| crate::util::native_x87::NativeF64Bits::from_bits(value.to_bits())),
             #[cfg(feature = "phobos")]
             phobos_paradrop_mission: section
                 .read_string_with("ParadropMission", 2048, None, |current, value| {

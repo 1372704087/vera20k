@@ -3429,6 +3429,7 @@ fn crusher_all_paid_crossing_caps_the_next_track_speed_prefix() {
             &crate::sim::pathfinding::terrain_speed::TerrainSpeedConfig::default(),
             (20, 10),
             false,
+            crate::sim::pathfinding::terrain_speed::DAMAGED_MOVER_SPEED_FACTOR,
         );
         advance_speed(&mut sim);
         assert_crush_history_state(

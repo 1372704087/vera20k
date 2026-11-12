@@ -576,3 +576,29 @@ fn aircraft_weapon_kick_out_passengers_defaults_and_reads() {
             .aircraft_weapon_kick_out_passengers
     );
 }
+
+/// `[General] SecondaryFireSequenceLandOnly` (`Valueable<bool>`, true).
+#[test]
+fn secondary_fire_sequence_land_only_defaults_and_reads() {
+    assert!(
+        PhobosGlobals::default().secondary_fire_sequence_land_only,
+        "the global constructs yes (stock remap)"
+    );
+    assert!(
+        !read("[General]\nSecondaryFireSequenceLandOnly=no\n").secondary_fire_sequence_land_only
+    );
+}
+
+/// `[General] DamagedSpeed` (`Valueable<double>`, 0.75).
+#[test]
+fn damaged_speed_defaults_and_reads() {
+    assert_eq!(
+        PhobosGlobals::default().damaged_speed.bits(),
+        0.75f64.to_bits(),
+        "the constructor keeps the stock factor"
+    );
+    assert_eq!(
+        read("[General]\nDamagedSpeed=0.5\n").damaged_speed.bits(),
+        0.5f64.to_bits()
+    );
+}

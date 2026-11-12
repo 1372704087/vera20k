@@ -24,6 +24,7 @@ pub(super) fn publish_fresh_track_target(
     terrain_speed: &TerrainSpeedConfig,
     next_cell: (u16, u16),
     road: bool,
+    damaged_speed: NativeF64Bits,
 ) {
     let Some(loco) = entity.locomotor.as_ref() else {
         return;
@@ -51,8 +52,28 @@ pub(super) fn publish_fresh_track_target(
         terrain,
         terrain_speed,
         below_yellow,
+        damaged_speed,
     );
     publish_target_fraction(entity, requested);
+}
+
+/// Phobos `DamagedSpeed` (`Ext/UnitType/Body.cpp:32`,
+/// `Ext/Rules/Body.cpp:414`): the locomotion's below-Condition-Yellow speed
+/// multiplier is the type's nullable, else `[General]` (default 0.75). The
+/// native hooks replace the stock constant at `0x4B3DF0` (Drive) and
+/// `0x6A343F` (Ship).
+pub(super) fn damaged_speed_factor(object: &ObjectType, rules: &RuleSet) -> NativeF64Bits {
+    #[cfg(feature = "phobos")]
+    {
+        object
+            .phobos_damaged_speed
+            .unwrap_or(rules.phobos_globals.damaged_speed)
+    }
+    #[cfg(not(feature = "phobos"))]
+    {
+        let _ = (object, rules);
+        crate::sim::pathfinding::terrain_speed::DAMAGED_MOVER_SPEED_FACTOR
+    }
 }
 
 /// Drive4B3DFA..3E21 / Ship twin: a selector below 64 keeps the request on
@@ -526,5 +547,40 @@ mod tests {
             compared += 1;
         }
         assert_eq!(compared, 118);
+    }
+
+    /// Phobos `DamagedSpeed` (`Ext/UnitType/Body.cpp:32`,
+    /// `Ext/Rules/Body.cpp:414`): the UnitType nullable else `[General]`,
+    /// whose constructor is the stock 0.75; the Drive/Ship hook
+    /// (`0x4B3DF0`/`0x6A343F`) multiplies this value instead of the constant.
+    #[cfg(feature = "phobos")]
+    #[test]
+    fn phobos_damaged_speed_reads_the_type_then_the_general() {
+        use crate::rules::ruleset::RuleSet;
+        use crate::util::native_x87::NativeF64Bits;
+        let rules = RuleSet::from_ini(&IniFile::from_str(
+            "[General]\nDamagedSpeed=0.5\n\
+             [VehicleTypes]\n0=TYPED\n1=GLOBAL\n\
+             [TYPED]\nStrength=100\nDamagedSpeed=0.25\n\
+             [GLOBAL]\nStrength=100\n",
+        ))
+        .unwrap();
+        let bits = |id: &str| damaged_speed_factor(rules.object(id).unwrap(), &rules);
+        assert_eq!(bits("TYPED"), NativeF64Bits::from_bits(0.25f64.to_bits()));
+        assert_eq!(
+            bits("GLOBAL"),
+            NativeF64Bits::from_bits(0.5f64.to_bits()),
+            "the general value applies to an unset type key"
+        );
+
+        let defaults = RuleSet::from_ini(&IniFile::from_str(
+            "[VehicleTypes]\n0=PLAIN\n[PLAIN]\nStrength=100\n",
+        ))
+        .unwrap();
+        assert_eq!(
+            damaged_speed_factor(defaults.object("PLAIN").unwrap(), &defaults),
+            NativeF64Bits::from_bits(0.75f64.to_bits()),
+            "the global constructor keeps the stock factor"
+        );
     }
 }

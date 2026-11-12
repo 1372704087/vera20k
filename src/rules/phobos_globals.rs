@@ -85,6 +85,13 @@ fn default_ai_paradrop_mission() -> MissionType {
     MissionType::Hunt
 }
 
+/// `[General] DamagedSpeed=`'s constructor value, 0.75
+/// (`Ext/Rules/Body.h:840`; the stock Drive/Ship damaged-mover factor at
+/// `0x7E7FC0`).
+fn default_damaged_speed() -> NativeF64Bits {
+    NativeF64Bits::from_bits(0x3fe8_0000_0000_0000)
+}
+
 /// `[General] CrushSlowdownMultiplier=`'s constructor value, 0.2
 /// (`Ext/Rules/Body.h:715`; the same binary64 as the stock Drive/Ship cap).
 fn crush_slowdown_default() -> NativeF64Bits {
@@ -211,6 +218,18 @@ pub struct PhobosGlobals {
     /// drop (`AircraftClass_Fire_KickOutPassengers @ 0x415EEE`).
     #[serde(default = "true_bool")]
     pub aircraft_weapon_kick_out_passengers: bool,
+    /// `[General] SecondaryFireSequenceLandOnly=` (`Valueable<bool>`, true;
+    /// `Ext/Rules/Body.cpp:623`, `Body.h:521,1018`): the fallback for the
+    /// InfantryType art key; yes remaps an in-water SecondaryFire/Prone
+    /// request to WetAttack (stock), no keeps its land record.
+    #[serde(default = "true_bool")]
+    pub secondary_fire_sequence_land_only: bool,
+    /// `[General] DamagedSpeed=` (`Valueable<double>`, 0.75;
+    /// `Ext/Rules/Body.cpp:414`, `Body.h:332,840`): the Drive/Ship
+    /// below-Condition-Yellow speed factor; a UnitType's nullable overrides
+    /// it (`LocomotionClass_Process_DamagedSpeedMultiplier @ 0x4B3DF0`).
+    #[serde(default = "default_damaged_speed")]
+    pub damaged_speed: NativeF64Bits,
     /// `[General] ArtImageSwap=`, default `no` (`Phobos.INI.cpp:262`):
     /// Phobos' ART `Image=` redirect for TechnoTypes. VERA's body SHP source
     /// already applies that redirect, so the SHP UnitType turret file name
@@ -919,6 +938,8 @@ impl Default for PhobosGlobals {
             paradrop_mission: MissionType::Guard,
             ai_paradrop_mission: MissionType::Hunt,
             aircraft_weapon_kick_out_passengers: true,
+            secondary_fire_sequence_land_only: true,
+            damaged_speed: default_damaged_speed(),
             keep_range_early_stop: 0,
             parasite_grapple_anim: None,
             parasite_allow_water_exit: None,
@@ -1279,6 +1300,11 @@ impl PhobosGlobals {
             "AircraftWeapon.KickOutPassengers",
             globals.aircraft_weapon_kick_out_passengers,
         );
+        globals.secondary_fire_sequence_land_only = general.read_bool(
+            "SecondaryFireSequenceLandOnly",
+            globals.secondary_fire_sequence_land_only,
+        );
+        globals.damaged_speed = read_double_bits(general, "DamagedSpeed", globals.damaged_speed);
         globals.keep_range_early_stop =
             general.read_ares_int("KeepRange.EarlyStopFrame", globals.keep_range_early_stop);
         globals.parasite_allow_water_exit = general.read_phobos_nullable_bool(

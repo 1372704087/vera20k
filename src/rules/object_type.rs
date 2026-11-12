@@ -1112,6 +1112,12 @@ pub struct ObjectType {
     /// `0x4B1146`/`0x6A0809`), which jumps to origin+0x3C.
     #[cfg(feature = "phobos")]
     pub phobos_skip_crush_slowdown: Option<bool>,
+    /// Phobos `CrushForwardTiltPerFrame=` (`Ext/UnitType/Body.cpp:71`,
+    /// `Nullable<double>`, constructor `Body.h:119` leaves it unset): the
+    /// binary32 rate written to Techno+334 when a crushing Unit tilts.
+    /// Unset keeps the stock rate its arm uses. Read only for a UnitType.
+    #[cfg(feature = "phobos")]
+    pub phobos_crush_forward_tilt_per_frame: Option<f64>,
     /// Phobos `RecountBurst=` (`Ext/TechnoType/Body.cpp:1031`,
     /// `Nullable<bool>`): unset falls back to `[General] RecountBurst=`. A
     /// weapon change or idle timeout recounts the burst index and re-arms the
@@ -3894,6 +3900,37 @@ impl ObjectType {
         self.production = production.clone();
     }
 
+    /// Phobos `CrushForwardTiltPerFrame=` as the `RockingForwardsPerFrame`
+    /// binary32: `static_cast<float>(Nullable<double>)`, unset taking the
+    /// arm's own stock rate. Consumed by `UnitClass::OverrunSquare`
+    /// (`Ext/Unit/Hooks.Crushing.cpp:27-38`, hook `0x741941`) and Drive
+    /// WhileMoving (`:60-71`, hooks `0x4B19F7`/`0x4B1A4B`).
+    /// RESIDUAL: Ship WhileMoving's arm (`:92-102`, hook `0x6A108D`, stock
+    /// -0.02f) has no VERA crush-tilt owner, so a Ship keeps no tilt to
+    /// configure.
+    #[cfg(feature = "phobos")]
+    pub(crate) fn crush_forward_tilt_per_frame(
+        &self,
+        stock: crate::util::native_x87::NativeF32Bits,
+    ) -> crate::util::native_x87::NativeF32Bits {
+        self.phobos_crush_forward_tilt_per_frame
+            .map_or(stock, |value| {
+                // C++ `static_cast<float>(double)` is one round-to-nearest
+                // `cvtsd2ss`, the same conversion as Rust's `as f32`.
+                crate::util::native_x87::NativeF32Bits::from_bits((value as f32).to_bits())
+            })
+    }
+
+    /// [`Self::crush_forward_tilt_per_frame`] with Phobos compiled out: every
+    /// arm keeps its stock rate.
+    #[cfg(not(feature = "phobos"))]
+    pub(crate) fn crush_forward_tilt_per_frame(
+        &self,
+        stock: crate::util::native_x87::NativeF32Bits,
+    ) -> crate::util::native_x87::NativeF32Bits {
+        stock
+    }
+
     /// Phobos `GetRestrictedFactoryPlantMult`'s per-priced-type scale
     /// (`Ext/House/Body.cpp:585`): `Valueable<float>` constructor 1.0f
     /// (`Ext/TechnoType/Body.cpp:788`, `Body.h:48,486`). Both Ares and Phobos
@@ -5631,6 +5668,12 @@ impl ObjectType {
             #[cfg(feature = "phobos")]
             phobos_skip_crush_slowdown: (category == ObjectCategory::Vehicle)
                 .then(|| section.read_phobos_nullable_bool("SkipCrushSlowdown", None))
+                .flatten(),
+            #[cfg(feature = "phobos")]
+            phobos_crush_forward_tilt_per_frame: (category == ObjectCategory::Vehicle)
+                .then(|| {
+                    section.read_phobos_nullable_double("CrushForwardTiltPerFrame", None)
+                })
                 .flatten(),
             #[cfg(feature = "phobos")]
             phobos_recount_burst: section.read_phobos_nullable_bool("RecountBurst", None),

@@ -539,9 +539,26 @@ impl Simulation {
         }
         // The loop's tail (`0x00741925..0x00741954`): any crush uncloaks the
         // crusher (vtable `+0x45C`, argument 0; no stock crusher cloaks),
-        // and crushing a Unit tilts a level crusher forwards.
-        if crushed_unit && let Some(crusher) = self.substrate.entities.get_mut(id) {
-            crusher.rocking_mut().tilt_after_unit_crush();
+        // and crushing a Unit tilts a level crusher forwards. Phobos'
+        // OverrunSquare hook supplies the rate through the unit's
+        // CrushForwardTiltPerFrame (`Ext/Unit/Hooks.Crushing.cpp:27-38`).
+        if crushed_unit {
+            let tilt = self
+                .substrate
+                .entities
+                .get(id)
+                .and_then(|crusher| self.object_type(crusher.type_ref(), rules))
+                .map_or(
+                    crate::util::native_x87::NativeF32Bits::from_bits(0xbd4c_cccd),
+                    |object| {
+                        object.crush_forward_tilt_per_frame(
+                            crate::util::native_x87::NativeF32Bits::from_bits(0xbd4c_cccd),
+                        )
+                    },
+                );
+            if let Some(crusher) = self.substrate.entities.get_mut(id) {
+                crusher.rocking_mut().tilt_after_unit_crush(tilt);
+            }
         }
         // 0x0073B08F tests only IsAlive (`+0x90`) before the Foot body.
         if self.per_cell_owner_alive(id) {

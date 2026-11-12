@@ -926,6 +926,12 @@ pub struct ObjectType {
     /// techno skip at `:111-120`, `0x4AC534`).
     #[cfg(feature = "phobos")]
     pub phobos_ignore_for_base_center: bool,
+    /// Phobos `BunkerROFMultMultiplier` (`Nullable<float>`, unset;
+    /// `Ext/BuildingType/Body.cpp:250`, `Body.h:99`): the per-bunker ROF
+    /// multiplier (`TechnoClass_RearmDelay_BuildingBunkerROFMult @ 0x6FD1C7`),
+    /// falling back to `[CombatDamage] BunkerROFMultiplier=`.
+    #[cfg(feature = "phobos")]
+    pub phobos_bunker_rof_multiplier: Option<f32>,
     /// Phobos `AIGuardAreaTargetingDelay` (`Nullable<int>`, unset;
     /// `Ext/TechnoType/Body.cpp:1076`, `Body.h:307`): the AI-controlled Area
     /// Guard scan-delay override; unset keeps the `[General]` fallback.
@@ -5847,6 +5853,10 @@ impl ObjectType {
             // Constructor-false `Valueable<bool>` (`Body.h:77,515`).
             #[cfg(feature = "phobos")]
             phobos_ignore_for_base_center: section.read_bool("IgnoreForBaseCenter", false),
+            #[cfg(feature = "phobos")]
+            phobos_bunker_rof_multiplier: section
+                .read_phobos_nullable_double("BunkerROFMultMultiplier", None)
+                .map(|value| value as f32),
             #[cfg(feature = "phobos")]
             phobos_ai_guard_area_targeting_delay: section
                 .read_phobos_nullable_int("AIGuardAreaTargetingDelay", None),

@@ -1759,6 +1759,7 @@ fn rearm_transferred_gunner(
         &*substrate,
         houses,
         rules,
+        interner,
         &snapshot,
         object,
         weapon,

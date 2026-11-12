@@ -470,6 +470,8 @@ mod tests {
             secondary_fire_pixel_offset: None,
             primary_fire_dual_offset: false,
             is_anim_delayed_fire: false,
+            #[cfg(feature = "phobos")]
+            is_anim_delayed_burst: true,
             silo_damage: false,
             #[cfg(feature = "phobos")]
             refinery_use_normal_active_anim: false,

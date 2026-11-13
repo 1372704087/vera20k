@@ -70,6 +70,21 @@ fn in_range_with(
     )
 }
 
+/// `TechnoClass::IsCloseEnough` (vt+0x3A8) at one explicit weapon slot with
+/// no temporary extension: `TechnoClass_SetTarget_After`'s range test before
+/// resetting a turretless Unit's firing sequence.
+#[cfg(feature = "phobos")]
+pub(crate) fn is_close_enough_with_weapon(
+    sim: &Simulation,
+    id: u64,
+    target: &TargetKind,
+    rules: &RuleSet,
+    registry: Option<&crate::rules::overlay_types::OverlayTypeRegistry>,
+    weapon_index: i32,
+) -> bool {
+    in_range_with(sim, id, target, rules, registry, weapon_index, 0)
+}
+
 /// `IsCloseEnoughToAttack @ 0x6F7780` (`CanFireAtTarget`): the selected
 /// weapon with no key overrides. The Move-order hook uses this plain form.
 #[cfg(feature = "phobos")]
@@ -100,7 +115,15 @@ fn close_enough_with_key(
         return false;
     };
     let cfg = obj.phobos_keep_target;
-    in_range_with(sim, id, target, rules, registry, cfg.weapon, cfg.extra_distance)
+    in_range_with(
+        sim,
+        id,
+        target,
+        rules,
+        registry,
+        cfg.weapon,
+        cfg.extra_distance,
+    )
 }
 
 /// `EventClass_Execute_MegaMission_MoveCommand`'s keep arm: latches the unit

@@ -20,6 +20,10 @@ use crate::sim::world::Simulation;
 #[path = "infantry_target_tests.rs"]
 mod infantry_target_tests;
 
+#[cfg(all(test, feature = "phobos"))]
+#[path = "fire_up_reset_tests.rs"]
+mod fire_up_reset_tests;
+
 #[cfg(test)]
 #[path = "building_destination_tests.rs"]
 mod building_destination_tests;

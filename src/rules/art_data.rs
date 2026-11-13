@@ -119,6 +119,14 @@ pub struct ArtEntry {
     /// the roof-exit production animation and its placement/power values.
     #[cfg(feature = "phobos")]
     pub roof_production_anim: crate::rules::phobos_roof_production_anim::PhobosRoofProductionAnim,
+    /// Phobos `FireUp.ResetInRetarget=` (`Ext/UnitType/Body.cpp:94`,
+    /// `Valueable<bool>` constructed true at `Ext/UnitType/Body.h:67,128`):
+    /// a turretless Unit with an active firing sequence clears it when the
+    /// target setter runs (`TechnoClass_SetTarget_After`, hook `0x6FCF3E`,
+    /// `Ext/Techno/Hooks.cpp:1164-1184`), unless the key is false and the new
+    /// target is already within the selected weapon's range.
+    #[cfg(feature = "phobos")]
+    pub phobos_fire_up_reset_in_retarget: bool,
     /// All21 native records exist even when their selected names are empty.
     pub building_anim_power: [BuildingAnimPowerFlags; 21],
     /// Signed GateStages (BuildingType+16F8): constructor45E1F0 defaults to9;
@@ -1622,6 +1630,8 @@ impl ArtRegistry {
                         crate::rules::phobos_roof_production_anim::PhobosRoofProductionAnim::from_section(
                             section,
                         ),
+                    #[cfg(feature = "phobos")]
+                    phobos_fire_up_reset_in_retarget: section.read_bool("FireUp.ResetInRetarget", true),
                     building_anim_power: {
                         let mut records = [BuildingAnimPowerFlags::default(); 21];
                         read_building_anim_power(section, &mut records);

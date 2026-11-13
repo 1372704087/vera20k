@@ -550,6 +550,14 @@ impl Simulation {
         if requested.is_none() {
             crate::sim::combat::world_fire::reset_phobos_delayed_fire_timer(self, rules, receiver);
         }
+        // Phobos `TechnoClass_SetTarget_After @ 0x6FCF3E`
+        // (`Ext/Techno/Hooks.cpp:1176-1184`): a turretless Unit with an active
+        // firing sequence clears it for a new target unless
+        // `FireUp.ResetInRetarget=no` and the target is already in range.
+        #[cfg(feature = "phobos")]
+        if let Some(target) = requested {
+            reset_fire_up_in_retarget(self, receiver, &target, rules, overlay_registry);
+        }
         Ok(())
     }
 
@@ -2031,5 +2039,44 @@ mod tests {
         let entity = sim.substrate.entities.get(1).unwrap();
         assert_eq!(entity.mission.current(), MOVE);
         assert_eq!(entity.mission_leaf.as_building().unwrap().ready_latch(), 0);
+    }
+}
+
+/// `TechnoClass_SetTarget_After`'s FireUp arm (`0x6FCF3E`,
+/// `Ext/Techno/Hooks.cpp:1176-1184`): `!pUnit->Type->Turret`,
+/// `CurrentFiringFrame != -1`, and `FireUp.ResetInRetarget || !IsCloseEnough`
+/// clear the Unit's firing sequence to -1.
+#[cfg(feature = "phobos")]
+fn reset_fire_up_in_retarget(
+    sim: &mut Simulation,
+    id: u64,
+    target: &TargetKind,
+    rules: &RuleSet,
+    registry: Option<&crate::rules::overlay_types::OverlayTypeRegistry>,
+) {
+    let Some(entity) = sim.substrate.entities.get(id) else {
+        return;
+    };
+    if entity.category() != EntityCategory::Unit || entity.unit_firing_counter.get() == -1 {
+        return;
+    }
+    let Some(object) = sim.interner.object_type(entity.type_ref(), rules) else {
+        return;
+    };
+    if object.has_turret {
+        return;
+    }
+    let key = rules
+        .art()
+        .resolve_metadata_entry(&object.id, &object.image)
+        .is_none_or(|art| art.phobos_fire_up_reset_in_retarget);
+    if key
+        || !crate::sim::keep_target_on_move::is_close_enough_with_weapon(
+            sim, id, target, rules, registry, -1,
+        )
+    {
+        if let Some(entity) = sim.substrate.entities.get_mut(id) {
+            entity.unit_firing_counter.reset();
+        }
     }
 }

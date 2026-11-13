@@ -335,6 +335,12 @@ impl UnitFiringCounter {
         self.value = self.value.wrapping_sub(1).max(-1);
     }
 
+    /// `CurrentFiringFrame = -1`: the non-firing body branch, written by
+    /// `TechnoClass_SetTarget_After`'s Phobos hook (`0x6FCF3E`).
+    pub(crate) fn reset(&mut self) {
+        self.value = -1;
+    }
+
     #[cfg(any(test, feature = "test-support"))]
     /// Install an original comparison or persistence fixture's raw counter.
     pub fn set_for_test(&mut self, value: i32) {

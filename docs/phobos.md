@@ -128,6 +128,7 @@ Supported extensions:
 - [Layer.UseObjectLayer](phobos-layer-use-object-layer.md) (an attached anim can follow its owner object's display layer or keep its own type layer; 1 key)
 - [Translucency.Cloaked](phobos-translucency-cloaked.md) (an anim attached to a cloaking or cloaked Techno draws at its alternate translucency level; 1 key)
 - [Anim VisibleTo](phobos-anim-visible-to.md) (`VisibleTo` house-gates an anim's draw and `VisibleTo.ConsiderInvokerAsOwner` resolves the house from the invoker; 2 keys)
+- [FireUp.ResetInRetarget](phobos-fire-up-reset-in-retarget.md) (a turretless Unit clears its firing sequence on a new target unless the key is off and the target is already in range; 1 key)
 - [Bolt.Duration / Bolt.FollowFLH](phobos-bolt-duration-follow-flh.md) (a weapon sets an electric bolt's lifetime exponent and whether its bolt follows a non-Unit firer; 2 keys)
 - [TeamMember.ConsideredAs](phobos-team-member-considered-as.md) (a TechnoType fills a TaskForce entry for the types it lists in the team add/liberate/recruit matches and the missing-type tally; 1 key)
 - [Anim Damage.ApplyFirepowerMult](phobos-anim-damage-firepower-mult.md) (an anim's invoker hands it its current firepower multiplier for loop damage, per AnimType over the `[CombatDamage]` global; 2 keys)

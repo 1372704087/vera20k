@@ -437,6 +437,8 @@ mod tests {
         ArtEntry {
             #[cfg(feature = "phobos")]
             roof_production_anim: Default::default(),
+            #[cfg(feature = "phobos")]
+            phobos_fire_up_reset_in_retarget: true,
             image: None,
             cameo: None,
             alt_cameo: None,

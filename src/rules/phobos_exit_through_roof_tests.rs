@@ -63,3 +63,28 @@ fn a_default_or_none_read_clears_the_key() {
     // A blank value never reaches the reader and keeps the unset default.
     assert_eq!(read("ExitThroughRoof=\n").value, None);
 }
+
+/// `ObjectType` exposes both native predicates over the same key and the
+/// type's locomotor hints (`Ext/Building/Hooks.cpp:1051-1054`, `:1068`).
+#[test]
+fn object_type_exposes_the_two_roof_exit_predicates() {
+    let rules = crate::rules::ruleset::RuleSet::from_ini(&IniFile::from_str(
+        "[VehicleTypes]\n0=JET\n1=BALLOON\n2=PLAIN\n\
+         [JET]\nStrength=100\nJumpJet=yes\n\
+         [BALLOON]\nStrength=100\nBalloonHover=yes\n\
+         [PLAIN]\nStrength=100\n",
+    ))
+    .unwrap();
+    let jet = rules.object("JET").unwrap();
+    assert!(jet.exits_through_roof());
+    assert!(jet.draws_through_roof());
+    let balloon = rules.object("BALLOON").unwrap();
+    assert!(balloon.exits_through_roof());
+    assert!(
+        !balloon.draws_through_roof(),
+        "the door draw defaults to JumpJet alone"
+    );
+    let plain = rules.object("PLAIN").unwrap();
+    assert!(!plain.exits_through_roof());
+    assert!(!plain.draws_through_roof());
+}

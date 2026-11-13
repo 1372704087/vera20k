@@ -5024,6 +5024,22 @@ impl ObjectType {
         self.factory_rtti
     }
 
+    /// Phobos `IsRoofExitTechno` (`Ext/Building/Hooks.cpp:1051-1054`): the
+    /// type's `ExitThroughRoof=`, else `JumpJet || BalloonHover`.
+    #[cfg(feature = "phobos")]
+    pub fn exits_through_roof(&self) -> bool {
+        self.phobos_exit_through_roof
+            .exits_through_roof(self.jumpjet, self.balloon_hover)
+    }
+
+    /// `BuildingClass_DrawDoorAnim_ExitThroughRoof` (`0x43D0CF`): the type's
+    /// key, else `JumpJet` alone.
+    #[cfg(feature = "phobos")]
+    pub fn draws_through_roof(&self) -> bool {
+        self.phobos_exit_through_roof
+            .draws_through_roof(self.jumpjet)
+    }
+
     /// Native nonzero-Factory gates (HasOccurred17, AI, quarry and exit).
     pub const fn has_factory(&self) -> bool {
         self.factory_rtti != 0

@@ -1,4 +1,4 @@
-//! The seven `WarheadTypeExt` keys owned by
+//! The eight `WarheadTypeExt` keys owned by
 //! [`crate::rules::phobos_warhead_extras`].
 
 use crate::rules::phobos_warhead_extras::PhobosWarheadExtras;
@@ -18,14 +18,15 @@ fn values(keys: &str) -> PhobosWarheadExtras {
         .clone()
 }
 
-/// `Body.h:328-329`, `:463`, `:486-489`: four `no` valueables, one unset
-/// nullable and two more `no` valueables.
+/// `Body.h:328-329`, `:334`, `:463`, `:486-489`: four `no` valueables, two
+/// unset nullables and two more `no` valueables.
 #[test]
-fn the_seven_keys_construct_at_their_native_defaults() {
+fn the_eight_keys_construct_at_their_native_defaults() {
     let defaults = PhobosWarheadExtras::default();
     assert_eq!(values(""), defaults);
     assert!(!defaults.remove_mind_control);
     assert_eq!(defaults.remove_mind_control_silent, None);
+    assert_eq!(defaults.shake_is_local, None);
     assert_eq!(defaults.merge_building_damage, None);
     assert!(!defaults.building_sell);
     assert!(!defaults.building_sell_ignore_unsellable);
@@ -36,12 +37,14 @@ fn the_seven_keys_construct_at_their_native_defaults() {
 #[test]
 fn every_key_reads_on_its_own() {
     let set = values(
-        "RemoveMindControl=yes\nRemoveMindControl.Silent=yes\nMergeBuildingDamage=no\n\
+        "RemoveMindControl=yes\nRemoveMindControl.Silent=yes\nShakeIsLocal=yes\n\
+         MergeBuildingDamage=no\n\
          BuildingSell=yes\nBuildingSell.IgnoreUnsellable=yes\n\
          BuildingUndeploy=yes\nBuildingUndeploy.Leave=yes\n",
     );
     assert!(set.remove_mind_control);
     assert_eq!(set.remove_mind_control_silent, Some(true));
+    assert_eq!(set.shake_is_local, Some(true));
     // An explicit `no` is a value, not "unset": the global cannot override it.
     assert_eq!(set.merge_building_damage, Some(false));
     assert!(set.building_sell);
@@ -67,21 +70,26 @@ fn a_none_spelling_clears_the_nullables() {
         values("RemoveMindControl.Silent=none\n").remove_mind_control_silent,
         None
     );
+    assert_eq!(values("ShakeIsLocal=<none>\n").shake_is_local, None);
 }
 
-/// `Detonate.cpp:478` and `Ext/WarheadType/Hooks.cpp:414`: an unset nullable
-/// takes the global, a set one keeps its own answer.
+/// `Detonate.cpp:478`, `Ext/WarheadType/Hooks.cpp:414` and
+/// `Ext/Bullet/Hooks.DetonateLogics.cpp:38`: an unset nullable takes the
+/// global, a set one keeps its own answer.
 #[test]
-fn the_two_globals_only_apply_when_the_key_is_unset() {
+fn the_three_globals_only_apply_when_the_key_is_unset() {
     let unset = PhobosWarheadExtras::default();
     assert!(unset.mind_control_silent(true));
     assert!(!unset.mind_control_silent(false));
     assert!(unset.merges_building_damage(true));
     assert!(!unset.merges_building_damage(false));
+    assert!(unset.shake_is_local(true));
+    assert!(!unset.shake_is_local(false));
 
-    let set = values("RemoveMindControl.Silent=no\nMergeBuildingDamage=no\n");
+    let set = values("RemoveMindControl.Silent=no\nMergeBuildingDamage=no\nShakeIsLocal=no\n");
     assert!(!set.mind_control_silent(true));
     assert!(!set.merges_building_damage(true));
+    assert!(!set.shake_is_local(true));
 }
 
 /// The three arms that make the per-target walk visit this warhead

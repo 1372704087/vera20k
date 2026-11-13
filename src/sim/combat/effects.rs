@@ -2,6 +2,7 @@
 //! ([`DeathEffects`]), and the records it carries to the world.
 
 use super::*;
+use crate::sim::projectile::ProjectileCoord;
 
 /// Explosion animation to spawn at a world position (deferred to caller
 /// which has access to `Simulation` for AnimClass construction).
@@ -64,6 +65,20 @@ pub enum CombatLightRequest {
 pub struct ScreenShakeUpdate {
     pub x: Option<i32>,
     pub y: Option<i32>,
+    /// Phobos `[Warhead] ShakeIsLocal=` (`Ext/WarheadType/Body.cpp:184`, falling
+    /// back to `[General] ShakeIsLocal` at `Ext/Rules/Body.cpp:491`): skip the
+    /// writes when this detonation is outside the local tactical view
+    /// (`Ext/Bullet/Hooks.DetonateLogics.cpp:36-39`).
+    ///
+    /// The native test runs against `TacticalClass::CoordsToClient`, i.e. the
+    /// client's own camera, so the simulation cannot make the decision without
+    /// diverging between peers. VERA keeps the draw order intact (the sim writes
+    /// stay deterministic) and lets the presentation owner drop the update.
+    /// Residual: native's `SkipShaking (0x469130)` jump may also skip the two
+    /// `RandomRanged` draws; VERA keeps them for cross-client determinism.
+    pub local_only: bool,
+    /// The detonation coordinate the gate projects. `ProjectileCoord`.
+    pub coord: ProjectileCoord,
 }
 
 /// One smudge producer payload. Production commits it synchronously through

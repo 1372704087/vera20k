@@ -375,6 +375,18 @@ fn the_mind_control_silent_and_merge_building_damage_globals() {
     assert!(!wrong.merge_building_damage);
 }
 
+/// `[General] ShakeIsLocal=` (`Ext/Rules/Body.cpp:491`), constructed `no`
+/// (`Ext/Rules/Body.h:906`): the fallback a warhead's own `ShakeIsLocal=` reads.
+#[test]
+fn the_shake_is_local_global_defaults_off_and_reads_from_general() {
+    let defaults = PhobosGlobals::default();
+    assert!(!defaults.shake_is_local);
+    assert!(!read("").shake_is_local);
+    assert!(read("[General]\nShakeIsLocal=yes\n").shake_is_local);
+    // A same-named key in another section is not this read.
+    assert!(!read("[CombatDamage]\nShakeIsLocal=yes\n").shake_is_local);
+}
+
 /// `[General] RadarJamHouses=` / `RadarJamDelay=` (`Ext/Rules/Body.cpp:213-214`,
 /// constructors `Ext/Rules/Body.h:657-658`) default `Enemies` and `30`, which
 /// is the Ares scan interval they replace.

@@ -273,6 +273,23 @@ impl JumpjetFlightHost for CruiseHost<'_> {
                 .unwrap_or(self.rules.phobos_globals.jumpjet_rotate_on_crash)
         }
     }
+    /// Phobos `JumpjetClimbIgnoreBuilding=` (`Ext/TechnoType/Body.cpp:1179`,
+    /// ctor unset `Body.h:841`) over `[General] JumpjetClimbIgnoreBuilding`
+    /// (default false, `Ext/Rules/Body.cpp:338`); hooks `0x54D820`/
+    /// `0x54D859`/`0x54D8EA` (`Ext/Unit/Hooks.Jumpjet.cpp:439-457`).
+    fn jumpjet_climb_ignore_building(&self) -> bool {
+        #[cfg(not(feature = "phobos"))]
+        {
+            false
+        }
+        #[cfg(feature = "phobos")]
+        {
+            let object = self.sim.object_type(self.owner().type_ref(), self.rules);
+            object
+                .and_then(|object| object.phobos_jumpjet_climb_ignore_building)
+                .unwrap_or(self.rules.phobos_globals.jumpjet_climb_ignore_building)
+        }
+    }
     fn piggyback_arrival(&mut self, runtime: &mut JumpjetRuntime) {
         let Some(holder) = self.owner().lift.source() else {
             return;

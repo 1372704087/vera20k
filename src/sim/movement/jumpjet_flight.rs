@@ -398,6 +398,14 @@ pub(crate) trait JumpjetFlightHost {
     fn jumpjet_rotate_on_crash(&self) -> bool {
         true
     }
+    /// Phobos `JumpjetClimbIgnoreBuilding=` (hooks `0x54D820`, `0x54D859`,
+    /// `0x54D8EA`; `Ext/Unit/Hooks.Jumpjet.cpp:439-457`): when set, the
+    /// `0x0054D820` floor reference is `MapClass::GetCellFloorHeight` of the
+    /// owner's cell — the raw ground, with no building top and no bridge deck
+    /// — for both the current and the one-step-ahead sample.
+    fn jumpjet_climb_ignore_building(&self) -> bool {
+        false
+    }
     /// A lifted owner's arrival (`0x0054C1BD..0x0054C1CB`): the Magnetron
     /// still holding it (`+0x2B0`) lets it go (`0x0070FEE0(1)`), which drops
     /// it. The callback runs on the published instance.
@@ -574,6 +582,12 @@ fn reference_height(
     location: [i32; 3],
 ) -> i32 {
     let here_xy = [location[0], location[1]];
+    // Phobos `JumpjetClimbIgnoreBuilding`: all three hooks answer the raw
+    // `GetCellFloorHeight` of the owner's own cell, so the bridge add and the
+    // one-step-ahead sample never run.
+    if host.jumpjet_climb_ignore_building() {
+        return host.floor_height(here_xy);
+    }
     let mut here = host.cell_top_height(here_xy);
     if host.cell_high_bridge(here_xy) {
         here = here.wrapping_add(BRIDGE_DECK_HEIGHT_LEPTONS);
@@ -1486,6 +1500,8 @@ mod tests {
         can_enter: i32,
         /// Locomotor `+0x90`, the landing-admitted latch.
         landing_latched: bool,
+        /// Phobos `JumpjetClimbIgnoreBuilding=` resolved for this owner.
+        climb_ignore_building: bool,
     }
 
     impl FixtureHost<'_> {
@@ -1552,6 +1568,9 @@ mod tests {
         fn cell_high_bridge(&self, xy: [i32; 2]) -> bool {
             self.bridges
                 .contains(&(native_cell(xy[0]), native_cell(xy[1])))
+        }
+        fn jumpjet_climb_ignore_building(&self) -> bool {
+            self.climb_ignore_building
         }
         fn cell_top_height(&self, xy: [i32; 2]) -> i32 {
             let cell = (native_cell(xy[0]), native_cell(xy[1]));
@@ -1773,6 +1792,7 @@ mod tests {
                 scatter_direction: 0,
                 can_enter: 0,
                 landing_latched: false,
+                climb_ignore_building: false,
             };
             let expected = row["output"]["frames"].as_array().expect("frames");
             let mut phase = STATE_TRANSLATE;
@@ -2688,6 +2708,7 @@ mod tests {
             scatter_direction: 0,
             can_enter: 0,
             landing_latched: false,
+            climb_ignore_building: false,
         }
     }
 
@@ -2712,6 +2733,26 @@ mod tests {
         );
         // Stationary: no look-ahead, and the current cell has no bridge.
         assert_eq!(reference_height(&eastbound_flight(0.0), &host, location), 0);
+    }
+
+    /// Phobos `JumpjetClimbIgnoreBuilding=` (hooks `0x54D820`/`0x54D859`/
+    /// `0x54D8EA`): the floor reference answers `GetCellFloorHeight` of the
+    /// owner's cell, so a building top and a bridge deck both stop counting.
+    #[test]
+    fn the_climb_ignore_building_key_answers_the_raw_ground() {
+        let trig = TrigTable::embedded();
+        let mut host = edge_host(trig, vec![((3, 3), 300)], Vec::new());
+        let location = host.location;
+        // Stationary: the current cell's building top is the reference.
+        assert_eq!(
+            reference_height(&eastbound_flight(0.0), &host, location),
+            300
+        );
+        host.climb_ignore_building = true;
+        assert_eq!(
+            reference_height(&eastbound_flight(0.0), &host, location),
+            JumpjetFlightHost::floor_height(&host, [location[0], location[1]])
+        );
     }
 
     /// While moving, a higher cell one step ahead along the facing wins.

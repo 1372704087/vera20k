@@ -72,6 +72,10 @@ pub struct PhobosWarheadExtras {
     /// `BuildingUndeploy.Leave=` (`Body.cpp:365`), default `no`: the
     /// undeployment leaves a building behind at the cell instead of nothing.
     pub building_undeploy_leave: bool,
+    /// `CLIsBlack=` (`Body.cpp:344`), default `no`: the combat light this
+    /// warhead's detonation writes carries `SpotlightFlags::NoColor`
+    /// (`Misc/Hooks.LightEffects.cpp:79-80`).
+    pub cl_is_black: bool,
 }
 
 impl PhobosWarheadExtras {
@@ -89,6 +93,7 @@ impl PhobosWarheadExtras {
                 .read_bool("BuildingSell.IgnoreUnsellable", false),
             building_undeploy: section.read_bool("BuildingUndeploy", false),
             building_undeploy_leave: section.read_bool("BuildingUndeploy.Leave", false),
+            cl_is_black: section.read_bool("CLIsBlack", false),
         }
     }
 

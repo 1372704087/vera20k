@@ -1041,6 +1041,13 @@ pub struct ObjectType {
     /// `[JumpjetControls] RotateOnCrash=`.
     #[cfg(feature = "phobos")]
     pub phobos_jumpjet_rotate_on_crash: Option<bool>,
+    /// Phobos `JumpjetClimbIgnoreBuilding=` (`Nullable<bool>`, unset;
+    /// `Ext/TechnoType/Body.cpp:1179`, constructed unset `Body.h:841`): the
+    /// jumpjet's floor reference ignores a building's top (hooks `0x54D820`,
+    /// `0x54D859`, `0x54D8EA` in `Ext/Unit/Hooks.Jumpjet.cpp:439-457`); unset
+    /// takes `[General] JumpjetClimbIgnoreBuilding=`.
+    #[cfg(feature = "phobos")]
+    pub phobos_jumpjet_climb_ignore_building: Option<bool>,
     /// Phobos `FactoryPlant.AllowTypes` / `.DisallowTypes` / `.MaxCount`
     /// (`Ext/BuildingType/Body.cpp:224-226`, declarations `Body.h:74-76`,
     /// constructors `:199-201`): the restricted-plant settings.
@@ -6641,6 +6648,9 @@ impl ObjectType {
             #[cfg(feature = "phobos")]
             phobos_jumpjet_rotate_on_crash: section
                 .read_phobos_nullable_bool("JumpjetRotateOnCrash", None),
+            #[cfg(feature = "phobos")]
+            phobos_jumpjet_climb_ignore_building: section
+                .read_phobos_nullable_bool("JumpjetClimbIgnoreBuilding", None),
             // `BuildingTypeExt::LoadFromINI` reads these three only on a
             // BuildingType section; VERA's ObjectType reader is shared.
             #[cfg(feature = "phobos")]

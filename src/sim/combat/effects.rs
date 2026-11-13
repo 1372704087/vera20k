@@ -257,6 +257,12 @@ impl DeathEffects {
     }
 }
 
+/// `SpotlightFlags::NoColor` (`Misc/Hooks.LightEffects.cpp:80`): the red, green
+/// and blue channel-disable bits, which the light's own admission
+/// (`5FF850`, [`crate::render::combat_light`]) reads as `flags & 0xE`.
+#[cfg(feature = "phobos")]
+pub const NO_COLOR_SPOTLIGHT_FLAGS: u32 = 0xE;
+
 /// Phobos `CombatLightChance=`'s probability gate at the native `Flash`
 /// creation point: `0x48A620` draws one `Randomizer::Global.RandomDouble()`
 /// with the warhead (`Misc/Hooks.LightEffects.cpp:69-74`) and, when the

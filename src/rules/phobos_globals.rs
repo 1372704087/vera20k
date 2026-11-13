@@ -31,7 +31,7 @@
 use crate::rules::ini_parser::{IniFile, IniSection};
 use crate::rules::mission_data::MissionType;
 use crate::rules::phobos_shields::AffectedHouse;
-use crate::util::native_x87::NativeF64Bits;
+use crate::util::native_x87::{NativeF32Bits, NativeF64Bits};
 
 /// `Leptons(-1)`'s constructor value for saves that predate the field.
 fn minus_one_i32() -> i32 {
@@ -51,6 +51,11 @@ fn reveal_houses_default() -> AffectedHouse {
 /// A `Valueable<float>` global constructed 1.0, for serde defaults.
 fn one_f32() -> crate::util::native_x87::NativeF32Bits {
     crate::util::native_x87::NativeF32Bits::ONE
+}
+
+/// A `Valueable<float>` global constructed 0.0, for serde defaults.
+fn zero_f32() -> NativeF32Bits {
+    NativeF32Bits::POSITIVE_ZERO
 }
 
 /// A `Valueable<double>` global constructed 0.0, for serde defaults.
@@ -1065,11 +1070,12 @@ pub struct PhobosGlobals {
     #[serde(default = "true_bool")]
     pub anim_crater_destroy_tiberium: bool,
     /// `[General] HarvesterDumpAmount=`, default **0.0**
-    /// (`Ext/Rules/Body.cpp:110`, constructor `Ext/Rules/Body.h:569`): ore
-    /// credited per unload tick instead of the full cargo
-    /// (`Ext/Techno/Hooks.cpp:434-460`); 0 keeps the stock full-cargo dump.
-    #[serde(default = "zero_f64")]
-    pub harvester_dump_amount: NativeF64Bits,
+    /// (`Ext/Rules/Body.cpp:110`, constructor `Ext/Rules/Body.h:569`), a
+    /// `Valueable<float>`: ore credited per unload tick instead of the full
+    /// cargo (`Ext/Techno/Hooks.cpp:434-460`); 0 keeps the stock full-cargo
+    /// dump.
+    #[serde(default = "zero_f32")]
+    pub harvester_dump_amount: NativeF32Bits,
     /// `[General] HarvesterScanAfterUnload=`, default `no`
     /// (`Ext/Rules/Body.cpp:416`, constructor `Ext/Rules/Body.h:842`): a
     /// harvester released from a refinery scans for ore in the same mission
@@ -1407,7 +1413,7 @@ impl Default for PhobosGlobals {
             hover_drownable: true,
             only_use_land_sequences: false,
             anim_crater_destroy_tiberium: true,
-            harvester_dump_amount: NativeF64Bits::POSITIVE_ZERO,
+            harvester_dump_amount: NativeF32Bits::POSITIVE_ZERO,
             harvester_scan_after_unload: false,
             combat_light_detail_level: 0,
             subterranean_speed: subterranean_speed_default(),
@@ -1709,10 +1715,11 @@ impl PhobosGlobals {
         // `Ext/Rules/Body.cpp:110`, `:125-126`, `:390`, `:416`, `:309`: the
         // harvester dump/scan, subterranean and veteran-range fallbacks, plus
         // the team-type recruitable override.
-        globals.harvester_dump_amount = read_double_bits(
-            general,
-            "HarvesterDumpAmount",
-            globals.harvester_dump_amount,
+        let dump_amount = f32::from_bits(globals.harvester_dump_amount.bits());
+        globals.harvester_dump_amount = NativeF32Bits::from_bits(
+            general
+                .read_float("HarvesterDumpAmount", dump_amount)
+                .to_bits(),
         );
         globals.harvester_scan_after_unload = general.read_bool(
             "HarvesterScanAfterUnload",

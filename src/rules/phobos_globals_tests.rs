@@ -639,7 +639,7 @@ fn reload_in_transport_defaults_and_reads() {
 #[test]
 fn the_harvester_subterranean_and_veteran_globals_default_and_read() {
     let defaults = PhobosGlobals::default();
-    assert_eq!(f64::from_bits(defaults.harvester_dump_amount.bits()), 0.0);
+    assert_eq!(f32::from_bits(defaults.harvester_dump_amount.bits()), 0.0);
     assert!(!defaults.harvester_scan_after_unload);
     assert_eq!(defaults.subterranean_speed, 19);
     assert_eq!(defaults.subterranean_height, -256);
@@ -651,7 +651,7 @@ fn the_harvester_subterranean_and_veteran_globals_default_and_read() {
          SubterraneanSpeed=50\nSubterraneanHeight=-100\nVeteranRange=1.25\n\
          SetRecruitableOnLiberate=2\n",
     );
-    assert_eq!(f64::from_bits(set.harvester_dump_amount.bits()), 25.5);
+    assert_eq!(f32::from_bits(set.harvester_dump_amount.bits()), 25.5);
     assert!(set.harvester_scan_after_unload);
     // `ReadSpeed`: (50*256)/100 = 128.
     assert_eq!(set.subterranean_speed, 128);

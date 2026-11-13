@@ -147,7 +147,7 @@ fn infantry_states_select_their_own_rows_and_simple_overrides() {
          DeployedPrimaryFireFLH.Burst0=3,3,3\nPronePrimaryFireFLH.Burst0=4,4,4\n\
          DeployedSecondaryFireFLH.Burst0=5,5,5\n\
          DeployedPrimaryFireFLH=6,6,6\nPronePrimaryFireFLH=7,7,7\n\
-         ProneSecondaryFireFLH=8,8,8\n",
+         ProneSecondaryFireFLH=8,8,8\nDeployedSecondaryFireFLH=9,9,9\n",
     );
     offsets.read_pass(&art, 0, 0);
     offsets.read_infantry_state_pass(&art, 0, 0);
@@ -181,6 +181,11 @@ fn infantry_states_select_their_own_rows_and_simple_overrides() {
         offsets.state_flh(0, true, false),
         Some(triple([6, 6, 6])),
         "GetSimpleFLH's deployed primary offset"
+    );
+    assert_eq!(
+        offsets.state_flh(1, true, false),
+        Some(triple([9, 9, 9])),
+        "GetSimpleFLH's deployed secondary offset"
     );
     assert_eq!(
         offsets.state_flh(0, false, true),

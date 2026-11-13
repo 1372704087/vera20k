@@ -361,6 +361,13 @@ pub struct AnimTypeRuntimeConfig {
     pub phobos_wake_anim: Vec<String>,
     #[cfg(feature = "phobos")]
     pub phobos_visible_to: Option<crate::rules::phobos_shields::AffectedHouse>,
+    /// Phobos `VisibleTo.ConsiderInvokerAsOwner=` (`Ext/AnimType/Body.cpp:110`,
+    /// `Valueable<bool>` constructed false `Body.h:65,117`): the draw
+    /// visibility gate uses the anim's invoker (or invoker house) instead of
+    /// its owner object's house (`AnimClass_DrawIt_Visibility`, hook
+    /// `0x423061`, `Ext/Anim/Hooks.cpp:556-564`).
+    #[cfg(feature = "phobos")]
+    pub phobos_visible_to_consider_invoker_as_owner: bool,
     #[cfg(feature = "phobos")]
     pub phobos_fire_anim_disallowed_land_types:
         Option<crate::rules::phobos_anim_type_ext::LandTypeFlags>,
@@ -1075,6 +1082,9 @@ fn parse_anim_runtime_config(section: &IniSection) -> AnimTypeRuntimeConfig {
         phobos_visible_to: crate::rules::phobos_anim_type_ext::PhobosAnimTypeExt::visible_to(
             section,
         ),
+        #[cfg(feature = "phobos")]
+        phobos_visible_to_consider_invoker_as_owner: section
+            .read_bool("VisibleTo.ConsiderInvokerAsOwner", false),
         #[cfg(feature = "phobos")]
         phobos_fire_anim_disallowed_land_types:
             crate::rules::phobos_anim_type_ext::PhobosAnimTypeExt::fire_anim_disallowed_land_types(

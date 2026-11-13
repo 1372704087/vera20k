@@ -1492,31 +1492,36 @@ impl Simulation {
         self.substrate.anims.get(id)
     }
 
-    /// Phobos `RestrictVisibilityIfCloaked=` (`Ext/AnimType/Body.cpp:111`,
-    /// `Valueable<bool>` constructor `false`, `Ext/AnimType/Body.h:66`/`:118`),
-    /// consumed by `AnimClass_DrawIt_Visibility @ 0x423061`
-    /// (`Ext/Anim/Hooks.cpp:524-570`): with the key set, an anim whose techno
-    /// owner is `Cloaking` (1) or `Cloaked` (2) is not drawn for a viewer that
-    /// is neither allied with that owner nor sensing the owner's cell, while an
-    /// observer house still draws it.
+    /// Phobos `AnimClass_DrawIt_Visibility @ 0x423061`
+    /// (`Ext/Anim/Hooks.cpp:520-570`): the `RestrictVisibilityIfCloaked=`
+    /// skip ([`Self::anim_owner_is_cloaked`], with the owner's alliance and
+    /// the viewer's sensors) followed by the `VisibleTo` owner-house gate.
+    /// `VisibleTo.ConsiderInvokerAsOwner` replaces the owner object's house
+    /// with the anim's invoker (or invoker house) first.
     ///
-    /// The hook falls back to a trailer anim's `Invoker` when `OwnerObject` is not
-    /// a techno; VERA keeps no such invoker on the anim, a recorded residual.
+    /// RESIDUAL: the cloak arm's trailer-anim fallback
+    /// (`pExt->IsTechnoTrailerAnim` then `Invoker` when `OwnerObject` is not a
+    /// techno) has no trailer-anim marker in VERA; such an anim keeps the
+    /// non-techno answer.
     #[cfg(feature = "phobos")]
-    pub fn anim_hidden_by_cloaked_owner(
+    pub fn anim_visibility_skipped(
         &self,
         id: AnimId,
         rules: &RuleSet,
         viewer: Option<InternedId>,
     ) -> bool {
+        use crate::rules::phobos_shields::AffectedHouse;
         let Some(anim) = self.anim(id) else {
             return false;
         };
-        let restricted = rules
+        let Some(config) = rules
             .art()
             .anim_runtime_config(self.interner().resolve(anim.type_id()))
-            .is_some_and(|config| config.phobos_restrict_visibility_if_cloaked);
-        if !restricted {
+        else {
+            return false;
+        };
+        let visible_to = config.phobos_visible_to.unwrap_or(AffectedHouse::ALL);
+        if !config.phobos_restrict_visibility_if_cloaked && visible_to == AffectedHouse::ALL {
             return false;
         }
         let Some(viewer) = viewer.or_else(|| self.session().current_house()) else {
@@ -1525,26 +1530,45 @@ impl Simulation {
         if self.session().is_observer_house(viewer) {
             return false;
         }
-        let Some(owner_id) = anim.owner_entity() else {
-            return false;
-        };
-        let Some(owner) = self.entities().get(owner_id) else {
-            return false;
-        };
-        if !matches!(owner.cloak.as_ref().map_or(0, |cloak| cloak.state()), 1 | 2) {
-            return false;
-        }
-        if self
-            .house_alliances()
-            .is_allied(self.interner(), viewer, owner.owner())
+        if config.phobos_restrict_visibility_if_cloaked
+            && let Some(owner_id) = anim.owner_entity()
+            && let Some(owner) = self.entities().get(owner_id)
+            && matches!(owner.cloak.as_ref().map_or(0, |cloak| cloak.state()), 1 | 2)
+            && !self
+                .house_alliances()
+                .is_allied(self.interner(), viewer, owner.owner())
+            // `pTechno->GetCell()->Sensors_InclHouse(current)`: a sensor over
+            // the owner's cell reveals it regardless of the alliance.
+            && !self
+                .fog()
+                .has_sensor_for_house(viewer, owner.position.rx(), owner.position.ry())
         {
-            return false;
+            return true;
         }
-        // `pTechno->GetCell()->Sensors_InclHouse(current)`: a sensor over the
-        // owner's cell reveals it regardless of the alliance.
-        !self
-            .fog()
-            .has_sensor_for_house(viewer, owner.position.rx(), owner.position.ry())
+        // `pOwner = OwnerObject ? OwnerObject->GetOwningHouse() : pThis->Owner`.
+        let mut owner = anim
+            .owner_entity()
+            .and_then(|owner_id| self.entities().get(owner_id))
+            .map(|entity| entity.owner())
+            .or_else(|| anim.owner_house());
+        if config.phobos_visible_to_consider_invoker_as_owner {
+            if let Some(invoker) = anim.invoker() {
+                owner = self.entities().get(invoker).map(|entity| entity.owner());
+            } else if let Some(house) = anim.invoker_house() {
+                owner = Some(house);
+            }
+        }
+        let Some(owner) = owner else {
+            return false;
+        };
+        !crate::sim::combat::can_target_house(
+            visible_to,
+            viewer,
+            owner,
+            self.houses(),
+            self.house_alliances(),
+            self.interner(),
+        )
     }
 
     /// The anim's entity owner is Cloaking (1) or Cloaked (2): the
@@ -6064,20 +6088,20 @@ mod tests {
         assert!(rules.art().anim_runtime_config(ANIM).is_some());
         let anim = attach(&mut sim, ANIM, Some(target));
         // An uncloaked owner draws, whatever the viewer.
-        assert!(!sim.anim_hidden_by_cloaked_owner(anim, &rules, Some(americans)));
+        assert!(!sim.anim_visibility_skipped(anim, &rules, Some(americans)));
 
         cloak(&mut sim, 2);
         assert!(
-            sim.anim_hidden_by_cloaked_owner(anim, &rules, Some(americans)),
+            sim.anim_visibility_skipped(anim, &rules, Some(americans)),
             "an enemy viewer without a sensor loses the cloaked owner's anim"
         );
         cloak(&mut sim, 1);
         assert!(
-            sim.anim_hidden_by_cloaked_owner(anim, &rules, Some(americans)),
+            sim.anim_visibility_skipped(anim, &rules, Some(americans)),
             "Cloaking (1) hides like Cloaked (2)"
         );
         // The owner's own house is allied with itself.
-        assert!(!sim.anim_hidden_by_cloaked_owner(anim, &rules, Some(russians)));
+        assert!(!sim.anim_visibility_skipped(anim, &rules, Some(russians)));
 
         // `Sensors_InclHouse` on the owner's cell reveals it to the enemy.
         let cell = {
@@ -6086,13 +6110,104 @@ mod tests {
         };
         sim.fog_mut_for_test()
             .increment_sensor_at(americans, cell.0, cell.1);
-        assert!(!sim.anim_hidden_by_cloaked_owner(anim, &rules, Some(americans)));
+        assert!(!sim.anim_visibility_skipped(anim, &rules, Some(americans)));
 
         // The key off, and an anim without a techno owner, both draw.
         let plain = attach(&mut sim, PLAIN, Some(target));
-        assert!(!sim.anim_hidden_by_cloaked_owner(plain, &rules, Some(americans)));
+        assert!(!sim.anim_visibility_skipped(plain, &rules, Some(americans)));
         let free = attach(&mut sim, ANIM, None);
-        assert!(!sim.anim_hidden_by_cloaked_owner(free, &rules, Some(americans)));
+        assert!(!sim.anim_visibility_skipped(free, &rules, Some(americans)));
+    }
+
+    /// Phobos `VisibleTo` (`Ext/AnimType/Body.cpp:109`,
+    /// `Valueable<AffectedHouse>` default All) and
+    /// `VisibleTo.ConsiderInvokerAsOwner` at `AnimClass_DrawIt_Visibility`
+    /// (`0x423061`, `Ext/Anim/Hooks.cpp:530-568`): the anim's owning house
+    /// gates the draw, and the invoker's house replaces it when keyed.
+    #[test]
+    #[cfg(feature = "phobos")]
+    fn visible_to_filters_anim_draws_by_the_owner_or_invoker_house() {
+        use crate::rules::phobos_shields::AffectedHouse;
+        use crate::sim::world::Simulation;
+
+        let ini = crate::sim::arena_fixture::clear_ground_ini(
+            "[VehicleTypes]\n0=VICTIM\n1=INVOKER\n\
+             [VICTIM]\nStrength=1000\nArmor=heavy\nSpeed=4\n\
+             [INVOKER]\nStrength=1000\nArmor=heavy\nSpeed=4\n",
+        );
+        let mut rules = RuleSet::from_ini(&ini).expect("arena rules");
+        let mut art = ArtRegistry::from_ini(&IniFile::from_str(
+            "[VISOWNER]\nVisibleTo=owner\n\
+             [VISENEMY]\nVisibleTo=enemies\n\
+             [VISINVOKER]\nVisibleTo=owner\nVisibleTo.ConsiderInvokerAsOwner=yes\n",
+        ));
+        for name in ["VISOWNER", "VISENEMY", "VISINVOKER"] {
+            art.bind_anim_frame_count_for_test(name, 8);
+        }
+        rules.replace_art_registry_for_test(art);
+        assert_eq!(
+            rules
+                .art()
+                .anim_runtime_config("VISOWNER")
+                .unwrap()
+                .phobos_visible_to,
+            Some(AffectedHouse::OWNER)
+        );
+        let mut sim = crate::sim::arena_fixture::rival_arena(&rules, 17);
+        sim.intern_rule_type_ids(&rules);
+        let owner = sim
+            .spawn_object("VICTIM", "Russians", 10, 10, 0, &rules)
+            .expect("owner");
+        let invoker = sim
+            .spawn_object("INVOKER", "Americans", 12, 10, 0, &rules)
+            .expect("invoker");
+        let americans = sim.intern("Americans");
+        let russians = sim.intern("Russians");
+        let attach = |sim: &mut Simulation, name: &str| {
+            let ty = sim.intern(name);
+            let anim = sim
+                .spawn_anim_at_world(
+                    &rules,
+                    AnimClassSpawnDescriptor::new(
+                        ty,
+                        16,
+                        16,
+                        crate::util::fixed_math::SIM_ZERO,
+                        crate::util::fixed_math::SIM_ZERO,
+                        0,
+                    ),
+                    AnimWorldCoord {
+                        x: 10 * 256,
+                        y: 10 * 256,
+                        z: 0,
+                    },
+                )
+                .expect("the art section spawns the anim");
+            assert!(sim.set_anim_owner_object(anim, Some(owner), &rules));
+            anim
+        };
+        let owner_only = attach(&mut sim, "VISOWNER");
+        assert!(sim.anim_visibility_skipped(owner_only, &rules, Some(americans)));
+        assert!(!sim.anim_visibility_skipped(owner_only, &rules, Some(russians)));
+        let enemies_only = attach(&mut sim, "VISENEMY");
+        assert!(sim.anim_visibility_skipped(enemies_only, &rules, Some(russians)));
+        assert!(!sim.anim_visibility_skipped(enemies_only, &rules, Some(americans)));
+        // The invoker's American house replaces the Russian owner: the
+        // American viewer becomes the "owner", the Russian one an enemy.
+        let invoker_owned = attach(&mut sim, "VISINVOKER");
+        assert!(
+            sim.substrate
+                .set_anim_invoker(invoker_owned, Some(invoker), Some(americans))
+        );
+        assert!(!sim.anim_visibility_skipped(invoker_owned, &rules, Some(americans)));
+        assert!(sim.anim_visibility_skipped(invoker_owned, &rules, Some(russians)));
+        // Without the key the owner object's house wins even with an invoker.
+        assert!(
+            sim.substrate
+                .set_anim_invoker(owner_only, Some(invoker), Some(americans))
+        );
+        assert!(!sim.anim_visibility_skipped(owner_only, &rules, Some(russians)));
+        assert!(sim.anim_visibility_skipped(owner_only, &rules, Some(americans)));
     }
 
     /// Phobos' `AnimClass_AI_Early @ 0x423B95` replacement of the stock

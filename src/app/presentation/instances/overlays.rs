@@ -529,11 +529,11 @@ pub(crate) fn build_display_effect_instances(
             continue;
         }
         // Phobos `AnimClass_DrawIt_Visibility @ 0x423061`
-        // (`Ext/Anim/Hooks.cpp:524-570`) sits after these fog queries and
+        // (`Ext/Anim/Hooks.cpp:520-570`) sits after these fog queries and
         // before any arm resolves its source, so the skip precedes the
         // building-slot hand-off below.
         #[cfg(feature = "phobos")]
-        if sim.anim_hidden_by_cloaked_owner(stable_id, input.rules, local_owner) {
+        if sim.anim_visibility_skipped(stable_id, input.rules, local_owner) {
             continue;
         }
         if is_building_anim {

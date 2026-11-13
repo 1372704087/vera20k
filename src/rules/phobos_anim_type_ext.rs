@@ -134,9 +134,14 @@ impl PhobosAnimTypeExt {
         )
     }
 
-    /// `VisibleTo` (`Nullable<AffectedHouse>`): who may see the anim.
+    /// `VisibleTo` (`Valueable<AffectedHouse>`, constructed `All` at
+    /// `Ext/AnimType/Body.h:64,116`): who may see the anim. `None` is the
+    /// unset default (All); a present value assigns even `none`, and rejected
+    /// text keeps the previous value.
     pub fn visible_to(section: &IniSection) -> Option<AffectedHouse> {
-        section.read_phobos_nullable_with("VisibleTo", None, AffectedHouse::parse)
+        section.read_string_with("VisibleTo", 2048, None, |current, raw| {
+            AffectedHouse::parse(raw).or(current)
+        })
     }
 
     /// `FireAnimDisallowedLandTypes` (`Nullable<LandTypeFlags>`), read with
@@ -302,6 +307,26 @@ mod tests {
         assert_eq!(
             PhobosAnimTypeExt::visible_to(set),
             Some(AffectedHouse::TEAM)
+        );
+        let none = IniFile::from_str(
+            "[ANIM]
+VisibleTo=none
+",
+        );
+        assert_eq!(
+            PhobosAnimTypeExt::visible_to(none.section("ANIM").unwrap()),
+            Some(AffectedHouse::NONE),
+            "none is a valid AffectedHouse value, not a clearing token"
+        );
+        let rejected = IniFile::from_str(
+            "[ANIM]
+VisibleTo=bogus
+",
+        );
+        assert_eq!(
+            PhobosAnimTypeExt::visible_to(rejected.section("ANIM").unwrap()),
+            None,
+            "rejected text keeps the unset default"
         );
         assert_eq!(
             PhobosAnimTypeExt::fire_anim_disallowed_land_types(set),

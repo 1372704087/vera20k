@@ -6245,6 +6245,7 @@ impl ObjectType {
             #[cfg(feature = "phobos")]
             phobos_deploying_anim_use_unit_drawer: category != ObjectCategory::Vehicle
                 || section.read_bool("DeployingAnim.UseUnitDrawer", true),
+            #[cfg(feature = "phobos")]
             phobos_tilts_when_crushes_vehicles: (category == ObjectCategory::Vehicle)
                 .then(|| section.read_phobos_nullable_bool("TiltsWhenCrushes.Vehicles", None))
                 .flatten(),

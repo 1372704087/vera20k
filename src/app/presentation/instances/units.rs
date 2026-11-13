@@ -2416,21 +2416,29 @@ fn aircraft_shadow_scale(
     entity: &crate::sim::game_entity::GameEntity,
     height_leptons: i32,
 ) -> f32 {
-    let Some(runtime) = state.match_state.sim_runtime.as_ref() else {
-        return 1.0;
-    };
-    let view = runtime.view();
-    let rules = &runtime.resources.rules;
-    let Some(object) = view.interner().object_type(entity.type_ref(), rules) else {
-        return 1.0;
-    };
-    crate::rules::phobos_shadow::aircraft_size_scale(
-        &rules.phobos_globals,
-        height_leptons,
-        object.flight_level(rules.general.flight_level),
-        object.phobos_shadow_size_characteristic_height,
-        object.considered_aircraft,
-    ) as f32
+    #[cfg(feature = "phobos")]
+    {
+        let Some(runtime) = state.match_state.sim_runtime.as_ref() else {
+            return 1.0;
+        };
+        let view = runtime.view();
+        let rules = &runtime.resources.rules;
+        let Some(object) = view.interner().object_type(entity.type_ref(), rules) else {
+            return 1.0;
+        };
+        crate::rules::phobos_shadow::aircraft_size_scale(
+            &rules.phobos_globals,
+            height_leptons,
+            object.flight_level(rules.general.flight_level),
+            object.phobos_shadow_size_characteristic_height,
+            object.considered_aircraft,
+        ) as f32
+    }
+    #[cfg(not(feature = "phobos"))]
+    {
+        let _ = (state, entity, height_leptons);
+        1.0
+    }
 }
 
 /// Phobos' unit height scale (`Ext/TechnoType/Hooks.MatrixOp.cpp:677-709`).
@@ -2440,23 +2448,31 @@ fn unit_shadow_scale(
     object: &crate::rules::object_type::ObjectType,
     height_leptons: i32,
 ) -> f32 {
-    let Some(rules) = state.rules() else {
-        return 1.0;
-    };
-    crate::rules::phobos_shadow::unit_size_scale(
-        &rules.phobos_globals,
-        height_leptons,
-        entity.locomotor.as_ref().and_then(|locomotor| {
-            matches!(
-                locomotor.active_kind(),
-                crate::rules::locomotor_type::LocomotorKind::Jumpjet
-            )
-            .then_some(object.jumpjet_params.height)
-        }),
-        object.phobos_shadow_size_characteristic_height,
-        rules.general.display_cruise_height,
-        object.considered_aircraft,
-    ) as f32
+    #[cfg(feature = "phobos")]
+    {
+        let Some(rules) = state.rules() else {
+            return 1.0;
+        };
+        crate::rules::phobos_shadow::unit_size_scale(
+            &rules.phobos_globals,
+            height_leptons,
+            entity.locomotor.as_ref().and_then(|locomotor| {
+                matches!(
+                    locomotor.active_kind(),
+                    crate::rules::locomotor_type::LocomotorKind::Jumpjet
+                )
+                .then_some(object.jumpjet_params.height)
+            }),
+            object.phobos_shadow_size_characteristic_height,
+            rules.general.display_cruise_height,
+            object.considered_aircraft,
+        ) as f32
+    }
+    #[cfg(not(feature = "phobos"))]
+    {
+        let _ = (state, entity, object, height_leptons);
+        1.0
+    }
 }
 
 fn push_unit_sprite(
@@ -2933,7 +2949,11 @@ fn emit_turret_shadow_sprite(
         });
     // The grounded sunk/sinking gate is the same one `73C1D2` applies to the
     // body stencil, and `no_shadow` is the unit's own draw suppression.
-    if !enabled || no_shadow || has_lifted_unit_shadow(entity) || !unit_shadow_admitted(entity, no_shadow, band) {
+    if !enabled
+        || no_shadow
+        || has_lifted_unit_shadow(entity)
+        || !unit_shadow_admitted(entity, no_shadow, band)
+    {
         return;
     }
     key.layer = VxlLayer::ShadowTurret;

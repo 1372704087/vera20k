@@ -435,6 +435,8 @@ mod tests {
 
     pub(super) fn make_art_entry(walk: Option<u16>, firing: Option<u16>) -> ArtEntry {
         ArtEntry {
+            #[cfg(feature = "phobos")]
+            roof_production_anim: Default::default(),
             image: None,
             cameo: None,
             alt_cameo: None,

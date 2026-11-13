@@ -82,8 +82,11 @@ impl BriefingDialogUi {
 
     pub fn from_section(section: &IniSection) -> Self {
         // `INI_EX::ReadString`: the default is copied only when the key is
-        // absent; an authored empty value stays empty. The status label lands
-        // in native's `char[0x20]`, while the button label uses the shared
+        // absent. The physical INI loader drops an authored empty value
+        // (gamemd's parser stores no empty entry), so a file can only ever
+        // produce the default; a projected section may still hold an empty
+        // string, which `read_string` keeps. The status label lands in
+        // native's `char[0x20]`, while the button label uses the shared
         // `Phobos::readBuffer` (`Phobos.h:26`, 2048 bytes).
         Self {
             resume_button_label: section.read_string(
@@ -160,11 +163,13 @@ mod tests {
     }
 
     #[test]
-    fn an_authored_empty_status_label_stays_empty_like_read_string() {
+    fn an_authored_empty_status_label_reads_as_absent_in_a_physical_ini() {
+        // gamemd's loader stores no empty entry, so the key is missing and
+        // `ReadString` copies the default.
         let ui = BriefingDialogUi::from_uimd_bytes(
             b"[UISettings]\nShowBriefingResumeButtonStatusLabel=\n",
         );
-        assert_eq!(ui.resume_button_status_label, "");
+        assert_eq!(ui.resume_button_status_label, "STT:BriefingButtonReturn");
         assert_eq!(ui.resume_button_label, "GUI:Resume");
     }
 }

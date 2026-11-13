@@ -347,24 +347,31 @@ fn an_unloading_factory_takes_over_its_products_draw() {
 /// A synthetic war factory whose art carries both art pairs, so the
 /// `ExitThroughRoof=` value can be varied per product type.
 fn exit_roof_rules(product: &str, product_keys: &str) -> RuleSet {
+    // A repeated `[MTNK]`/`[SHAD]` section is a later physical duplicate the
+    // INI owner ignores (first section wins), so the key lands in the type's
+    // own section.
+    let tank_key = if product == "MTNK" { product_keys } else { "" };
+    let hawk_key = if product == "SHAD" { product_keys } else { "" };
     let rules = crate::rules::ini_parser::IniFile::from_str(&format!(
         "[Clear]\nBuildable=yes\n\
          [InfantryTypes]\n\
          [VehicleTypes]\n0=MTNK\n\
          [AircraftTypes]\n0=SHAD\n\
          [BuildingTypes]\n0=GAWEAP\n\
-         [MTNK]\nName=Tank\nStrength=300\nSpeed=6\n\
+         [MTNK]\nName=Tank\nStrength=300\nSpeed=6\n{tank_key}\
          Locomotor={{4A582741-9839-11d1-B709-00A024DDAFD1}}\n\
-         [SHAD]\nName=Night Hawk\nStrength=200\nSpeed=14\nJumpJet=yes\nMovementZone=Fly\n\
+         [SHAD]\nName=Night Hawk\nStrength=200\nSpeed=14\nJumpJet=yes\nMovementZone=Fly\n{hawk_key}\
          Locomotor={{4A582746-9839-11d1-B709-00A024DDAFD1}}\n\
-         [GAWEAP]\nName=War Factory\nStrength=1000\nFoundation=3x3\nFactory=UnitType\n\
-         [{product}]\n{product_keys}\n"
+         [GAWEAP]\nName=War Factory\nStrength=1000\nFoundation=3x3\nFactory=UnitType\n"
     ));
     let art = crate::rules::ini_parser::IniFile::from_str(
         "[GAWEAP]\nDeployingAnim=GDOOR\nRoofDeployingAnim=GROOF\n\
          UnderDoorAnim=GUNDER\nUnderRoofDoorAnim=GUROOF\n",
     );
-    RuleSet::from_ini_with_fixed_art_for_test(&rules, &art).expect("exit-through-roof fixture")
+    let mut rules =
+        RuleSet::from_ini_with_fixed_art_for_test(&rules, &art).expect("exit-through-roof fixture");
+    rules.install_art_data(crate::rules::art_data::ArtRegistry::from_ini(&art));
+    rules
 }
 
 /// Phobos `BuildingClass_DrawUnderDoorAnim_ExitThroughRoof @ 0x43D363`

@@ -3388,6 +3388,12 @@ fn assert_crush_history_state(actor: &GameEntity, expected: &serde_json::Value) 
 /// Original component histories plus production paid-point/Mark and full Unit
 /// PerCell integration. Inputs supply admission, budget and uniform overlays;
 /// this does not certify whole native path admission or rendering.
+///
+/// The fixture always seeds a nonzero pre-crush forward rate, and the Phobos
+/// OverrunSquare hook (`0x741941`) replaces the stock zero test with an
+/// unconditional store, so the captured stock rocking words no longer apply
+/// in a phobos build; that behaviour has its own regression tests.
+#[cfg(not(feature = "phobos"))]
 #[test]
 fn crusher_all_paid_crossing_caps_the_next_track_speed_prefix() {
     use crate::sim::occupancy::CellListInsertion;

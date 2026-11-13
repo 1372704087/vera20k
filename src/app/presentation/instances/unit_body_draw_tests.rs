@@ -1314,10 +1314,10 @@ fn deploying_anim_keep_unit_visible_gates_the_unit_body() {
         .spawn_object("KEEP", "Americans", 10, 10, 0, &rules)
         .unwrap();
     let hide = sim
-        .spawn_object("HIDE", "Americans", 10, 10, 0, &rules)
+        .spawn_object("HIDE", "Americans", 12, 10, 0, &rules)
         .unwrap();
     let begin = sim
-        .spawn_object("HIDE", "Americans", 10, 10, 0, &rules)
+        .spawn_object("HIDE", "Americans", 14, 10, 0, &rules)
         .unwrap();
     for id in [keep, hide] {
         sim.entities_mut_for_test()
@@ -1330,7 +1330,7 @@ fn deploying_anim_keep_unit_visible_gates_the_unit_body() {
         .unwrap()
         .set_unit_simple_deploy_for_test(false, true, false);
     let hides = |sim: &Simulation, id: u64| {
-        super::helpers::deploy_hides_unit_body(
+        super::super::helpers::deploy_hides_unit_body(
             sim.entities().get(id).unwrap(),
             sim.interner(),
             Some(&rules),

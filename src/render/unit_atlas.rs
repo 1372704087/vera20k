@@ -779,9 +779,17 @@ pub(crate) fn turret_shadow_enabled(
     rules: Option<&RuleSet>,
     object: &crate::rules::object_type::ObjectType,
 ) -> bool {
-    object
-        .phobos_turret_shadow
-        .unwrap_or(rules.is_some_and(|rules| rules.phobos_globals.draw_turret_shadow))
+    #[cfg(feature = "phobos")]
+    {
+        object
+            .phobos_turret_shadow
+            .unwrap_or(rules.is_some_and(|rules| rules.phobos_globals.draw_turret_shadow))
+    }
+    #[cfg(not(feature = "phobos"))]
+    {
+        let _ = (rules, object);
+        false
+    }
 }
 
 fn seed_unit_variant_keys(

@@ -446,6 +446,7 @@ fn phobos_shadow_indices_read_the_image_section_on_every_pass() {
 /// Phobos `TurretShadow=` (`Ext/TechnoType/Body.cpp:1323`): read from the
 /// fixed ART section that pass's `Image=` selects, `Nullable<bool>` so a
 /// section without the key keeps the value the previous pass left.
+#[cfg(feature = "phobos")]
 #[test]
 fn phobos_turret_shadow_reads_the_image_section_and_keeps_its_prior_value() {
     use crate::rules::ruleset::RuleSet;

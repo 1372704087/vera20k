@@ -6035,6 +6035,7 @@ impl RuleSet {
                 object.set_phobos_shadow_indices(indices.to_vec());
             }
         }
+        #[cfg(feature = "phobos")]
         for (category, name, turret_shadow) in processed.phobos_turret_shadow_states() {
             if let Some(object) = rules
                 .object_list

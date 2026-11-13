@@ -273,6 +273,14 @@ pub struct PhobosGlobals {
     /// (`Ext/Techno/Hooks.cpp:323-326`).
     #[serde(default)]
     pub distribute_targeting_frame_ai_only: bool,
+    /// `[Basic] RepairBaseNodes=` (`Valueable<bool>`, default **false**;
+    /// `Ext/Rules/Body.cpp:399`, `Body.h:302,817`): the fallback of a map
+    /// house's `RepairBaseNodes` difficulty slots (`Ext/House/Body.cpp:626`);
+    /// the resolved flag lets `BuildingClass::Unlimbo` mark a campaign AI
+    /// building AI-repairable (`Ext/Building/Hooks.cpp:316-331`, hook
+    /// `0x440B4F`).
+    #[serde(default)]
+    pub repair_base_nodes: bool,
     /// `[General] CrushSlowdownMultiplier=` (`Valueable<double>`, default
     /// 0.2; `Ext/Rules/Body.cpp:273`, `Body.h:191,715`): the cap for the
     /// Drive/Ship crush slowdown (`0x4B1150`, `0x6A0813`).
@@ -1299,6 +1307,7 @@ impl Default for PhobosGlobals {
             player_attack_move_targeting_delay: None,
             distribute_targeting_frame: false,
             distribute_targeting_frame_ai_only: true,
+            repair_base_nodes: false,
             crush_slowdown_multiplier: crush_slowdown_default(),
             skip_crush_slowdown: false,
             aircraft_firing_force_scatter: aircraft_firing_force_scatter_default(),
@@ -1865,6 +1874,10 @@ impl PhobosGlobals {
             "DistributeTargetingFrame.AIOnly",
             globals.distribute_targeting_frame_ai_only,
         );
+        // `Ext/Rules/Body.cpp:399`: a `[Basic]` read in the same pass.
+        globals.repair_base_nodes = ini
+            .section_or_empty("Basic")
+            .read_bool("RepairBaseNodes", globals.repair_base_nodes);
         globals.crush_slowdown_multiplier = read_double_bits(
             &general,
             "CrushSlowdownMultiplier",

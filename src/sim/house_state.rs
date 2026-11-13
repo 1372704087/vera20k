@@ -746,6 +746,13 @@ pub struct HouseState {
     /// Native `HouseClass+0x5700` BaseClass reservation writer outputs.
     #[serde(default)]
     base_reservation: BaseReservationState,
+    /// Phobos `HouseExt::RepairBaseNodes[3]` (`Nullable<bool>` slots,
+    /// `Ext/House/Body.h:51`, read `Ext/House/Body.cpp:626`): the campaign
+    /// difficulty slots the Unlimbo AI-repairable grant consults
+    /// (`Ext/Building/Hooks.cpp:329`, hook `0x440B4F`).
+    #[cfg(feature = "phobos")]
+    #[serde(default)]
+    repair_base_nodes: [Option<bool>; 3],
     /// House TechLevel: launch options offline, or the campaign map reader with
     /// Scenario's retained mission counter as its default.
     tech_level: i32,
@@ -1380,6 +1387,30 @@ impl HouseState {
 
     pub(crate) fn base_reservation_mut(&mut self) -> &mut BaseReservationState {
         &mut self.base_reservation
+    }
+
+    /// Install the scenario's parsed difficulty slots (`Ext/House/Body.cpp:626`).
+    #[cfg(feature = "phobos")]
+    pub(crate) fn install_repair_base_nodes(&mut self, slots: [Option<bool>; 3]) {
+        self.repair_base_nodes = slots;
+    }
+
+    /// `HouseExt::Fetch(owner)->RepairBaseNodes[Difficulty].Get(global)`
+    /// (`Ext/Building/Hooks.cpp:329`): the house's slot for the game
+    /// difficulty row, else the `[Basic]` global.
+    #[cfg(feature = "phobos")]
+    pub(crate) fn repair_base_nodes_for_difficulty(
+        &self,
+        difficulty: HouseDifficulty,
+        global: bool,
+    ) -> bool {
+        self.repair_base_nodes[difficulty.table_index()].unwrap_or(global)
+    }
+
+    /// Install a fixture's slots.
+    #[cfg(any(test, feature = "test-support"))]
+    pub(crate) fn set_repair_base_nodes_for_test(&mut self, slots: [Option<bool>; 3]) {
+        self.repair_base_nodes = slots;
     }
 
     pub(crate) fn strategy_emergency_mut(&mut self) -> &mut HouseStrategyEmergencyState {
@@ -3077,6 +3108,8 @@ impl HouseState {
             base_plan: crate::sim::base_plan::BasePlanState::default(),
             base_plan_center: (0, 0),
             base_reservation: BaseReservationState::default(),
+            #[cfg(feature = "phobos")]
+            repair_base_nodes: [None; 3],
             tech_level,
             current_iq: 0,
             authored_iq: 0,

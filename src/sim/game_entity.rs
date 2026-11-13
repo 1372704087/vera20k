@@ -188,6 +188,13 @@ pub struct GameEntity {
     #[cfg(feature = "phobos")]
     #[serde(default)]
     phobos_random_factor: i32,
+    /// Phobos `BuildingExt::IsCreatedFromMapFile`: the map's `[Structures]`
+    /// reader built this building. `BuildingClass_Unlimbo_SetShouldRebuild`
+    /// (`Ext/Building/Hooks.cpp:321-323`) skips the AI-repairable grant for
+    /// one — preplaced structures keep the map line's own AI Repairable.
+    #[cfg(feature = "phobos")]
+    #[serde(default)]
+    created_from_map_file: bool,
     /// Phobos `InfantryExt::HasUndeployConverted` (`Ext/Infantry/Body.h`):
     /// this Undeploy sequence already converted the infantryman; the DoingAI
     /// reset clears it outside the Deploy/Undeploy sequences (`0x520E75`).
@@ -2360,6 +2367,18 @@ impl GameEntity {
         self.phobos_random_factor = factor;
     }
 
+    /// Phobos `BuildingExt::IsCreatedFromMapFile`: set by the map's
+    /// `[Structures]` spawn (`CreateBuildingFromINIFile`).
+    #[cfg(feature = "phobos")]
+    pub(crate) const fn created_from_map_file(&self) -> bool {
+        self.created_from_map_file
+    }
+
+    #[cfg(feature = "phobos")]
+    pub(crate) fn set_created_from_map_file(&mut self, value: bool) {
+        self.created_from_map_file = value;
+    }
+
     #[cfg(feature = "phobos")]
     pub(crate) const fn phobos_infantry_undeploy_converted(&self) -> bool {
         self.phobos_infantry_undeploy_converted
@@ -2719,6 +2738,8 @@ impl GameEntity {
             phobos_keep_target_on_move: false,
             #[cfg(feature = "phobos")]
             phobos_random_factor: 0,
+            #[cfg(feature = "phobos")]
+            created_from_map_file: false,
             #[cfg(feature = "phobos")]
             phobos_infantry_undeploy_converted: false,
             #[cfg(feature = "phobos")]

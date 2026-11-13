@@ -611,6 +611,12 @@ impl Simulation {
                         map_ent.structure_ai_sellable,
                         map_ent.structure_ai_repairable,
                     );
+                    // Phobos `BuildingExt::IsCreatedFromMapFile` marks the
+                    // `CreateBuildingFromINIFile` origin; Unlimbo's
+                    // AI-repairable grant skips these preplaced structures
+                    // (`Ext/Building/Hooks.cpp:321-323`).
+                    #[cfg(feature = "phobos")]
+                    ge.set_created_from_map_file(true);
                 }
                 // The map readers apply optional signed percentages after the
                 // class constructor (including Init_Managers) and before Unlimbo:

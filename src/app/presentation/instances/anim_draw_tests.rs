@@ -154,6 +154,63 @@ fn flat_has_one_flat_body_with_its_separate_minus_three_term() {
     assert_eq!(pieces[0].instance.z_adjust, 12.0);
 }
 
+/// Phobos `AnimClass_DrawIt_Tiled_Interval` (`0x423654`,
+/// `Ext/Anim/Hooks.cpp:431-446`) substitutes a positive `Tiled.Interval` for
+/// the frame height before the halving and row step, and
+/// `AnimClass_DrawIt_Tiled_Center` (`0x423660`, `Hooks.cpp:448-462`) zeroes
+/// the `height / 2` term for `Tiled.AlignToCenter`, starting the column on
+/// the draw point and stepping rows and Z by the height alone.
+#[cfg(feature = "phobos")]
+#[test]
+fn tiled_interval_and_align_to_center_override_the_frame_geometry() {
+    let column = |keys: &str| {
+        let (source, key, config) = fixture(keys);
+        let frame_zero = ShpSpriteEntry {
+            pixel_size: [8.0, 10.0],
+            ..*source.get(&key).unwrap()
+        };
+        let body = *source.get(&key).unwrap();
+        let atlas = SpriteAtlas::from_test_entries(HashMap::from([
+            (key.clone(), body),
+            (crate::render::sprite_atlas::tiled_anim_key("ANIM", 1), body),
+            (
+                crate::render::sprite_atlas::tiled_anim_key("ANIM", 0),
+                frame_zero,
+            ),
+        ]));
+        let mut draw = input(&atlas, &key, &config);
+        draw.viewport[1] = 170.0;
+        let pieces = anim_draw_pieces(&atlas, draw);
+        assert!(
+            pieces
+                .iter()
+                .all(|piece| piece.target == ObjectTexture::ShpPage(1))
+        );
+        pieces
+            .iter()
+            .map(|tile| (tile.instance.position, tile.instance.z_adjust))
+            .collect::<Vec<_>>()
+    };
+    assert_eq!(
+        column("Tiled=yes\nTiled.Interval=20\n"),
+        [
+            ([103.0, 201.0], -35.0),
+            ([103.0, 181.0], -65.0),
+            ([103.0, 161.0], -95.0),
+        ],
+        "the interval is the height: rows step 20 from 10 above the point"
+    );
+    assert_eq!(
+        column("Tiled=yes\nTiled.Interval=20\nTiled.AlignToCenter=yes\n"),
+        [
+            ([103.0, 211.0], -35.0),
+            ([103.0, 191.0], -55.0),
+            ([103.0, 171.0], -75.0),
+        ],
+        "align-to-center starts on the point and falls by the height"
+    );
+}
+
 #[test]
 fn a_disabled_shadow_draws_no_second_pass() {
     let (atlas, key, config) = fixture("Shadow=no\n");

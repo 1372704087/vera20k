@@ -617,6 +617,18 @@ pub struct AnimTypeRuntimeConfig {
     pub layer: AnimLayer,
     pub flat: bool,
     pub tiled: bool,
+    /// Phobos `Tiled.Interval=` (`Ext/AnimType/Body.cpp:128`,
+    /// `Valueable<int>` constructed 0 at `Ext/AnimType/Body.h:83,135`): the
+    /// hook at `0x423654` replaces DrawIt's frame-height term for a Tiled
+    /// anim when positive, driving both the row step and the Z fall.
+    #[cfg(feature = "phobos")]
+    pub phobos_tiled_interval: i32,
+    /// Phobos `Tiled.AlignToCenter=` (`Ext/AnimType/Body.cpp:129`,
+    /// `Valueable<bool>` constructed false at `Ext/AnimType/Body.h:84,136`):
+    /// the hook at `0x423660` zeroes the `height / 2` term, so the column
+    /// starts on the draw point and falls by `height` per tile.
+    #[cfg(feature = "phobos")]
+    pub phobos_tiled_align_to_center: bool,
     /// Raw art.ini `Translucency=` value; zero when omitted.
     pub translucency: i32,
     /// Raw art.ini `TranslucencyDetailLevel=` value; zero when omitted.
@@ -1111,6 +1123,10 @@ fn parse_anim_runtime_config(section: &IniSection) -> AnimTypeRuntimeConfig {
         layer: AnimLayer::from_ini(section),
         flat: section.read_bool("Flat", false),
         tiled: section.read_bool("Tiled", false),
+        #[cfg(feature = "phobos")]
+        phobos_tiled_interval: section.read_int("Tiled.Interval", 0),
+        #[cfg(feature = "phobos")]
+        phobos_tiled_align_to_center: section.read_bool("Tiled.AlignToCenter", false),
         translucency: section.read_int("Translucency", 0),
         translucency_detail_level: section.read_int("TranslucencyDetailLevel", 0),
         translucent: section.read_bool("Translucent", false),

@@ -123,6 +123,7 @@ Supported extensions:
 - [MakesWake](phobos-makes-wake.md) (`MakesWake` per type over the four `[AudioVisual] *LocomotorMakesWake=` globals skips a moving hull's water wake; 5 keys)
 - [MindControl.ThreatDelay](phobos-mind-control-threat-delay.md) (a warhead's capture shields the new pawn from its former allies' retaliation and auto-targeting for the warhead or `[General]` delay; 2 keys)
 - [Psychedelic.StackingMode](phobos-psychedelic-stacking-mode.md) (a Psychedelic hit combines its damage with the victim's remaining berserk time through a per-warhead or `[CombatDamage]` mode; a non-positive result skips the flag, removal, target clear and Hunt; 2 keys)
+- [Tiled.Interval / Tiled.AlignToCenter](phobos-tiled-anim-options.md) (a Tiled anim's row height can be overridden and its column can start on the draw point; 2 keys)
 - [Bolt.Duration / Bolt.FollowFLH](phobos-bolt-duration-follow-flh.md) (a weapon sets an electric bolt's lifetime exponent and whether its bolt follows a non-Unit firer; 2 keys)
 - [TeamMember.ConsideredAs](phobos-team-member-considered-as.md) (a TechnoType fills a TaskForce entry for the types it lists in the team add/liberate/recruit matches and the missing-type tally; 1 key)
 - [Anim Damage.ApplyFirepowerMult](phobos-anim-damage-firepower-mult.md) (an anim's invoker hands it its current firepower multiplier for loop damage, per AnimType over the `[CombatDamage]` global; 2 keys)

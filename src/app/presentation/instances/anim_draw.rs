@@ -183,9 +183,18 @@ pub(super) fn anim_draw_pieces(
     if tiled {
         if let Some(entry) = entry {
             let frame_zero = tiled_anim_key(&input.key.type_id, 0);
-            let height = atlas
+            let mut height = atlas
                 .get(&frame_zero)
                 .map_or(0, |frame| frame.pixel_size[1] as i32);
+            // Phobos `AnimClass_DrawIt_Tiled_Interval` (`0x423654`,
+            // `Ext/Anim/Hooks.cpp:431-446`): a positive `Tiled.Interval`
+            // replaces the frame-height term before the halving and row step.
+            #[cfg(feature = "phobos")]
+            if let Some(config) = input.config
+                && config.phobos_tiled_interval > 0
+            {
+                height = config.phobos_tiled_interval;
+            }
             pieces.extend(
                 tiled_column(&input, entry, body, height)
                     .into_iter()
@@ -332,15 +341,17 @@ fn bounce_ground_shadow(
 
 /// DrawIt's Tiled arm (`0x00423644..0x0042371B`): the body frame again and
 /// again up the screen. `height` is frame 0's stored height h
-/// (`SHPStruct::GetFrameBounds @ 0x0069E7E0`). The first tile's row is the
-/// draw point less h/2, and its Z term `YDrawOffset + ZAdjust -
-/// AdjustForZ - 50`, 48 below the ordinary body's; each next tile rises h
-/// rows and its Z term falls h/2 + h. The loop stops after the tile whose
-/// row, before YDrawOffset, is above the view. Every tile draws through the
-/// literal ANIM.PAL Convert (`[0x0087F6C0]`) with no remap, the selected
-/// flags plus Z read (`0x004236A4`), gradient 2 and the shared intensity and
-/// colour word: neither the cell, ColorScheme nor AltPalette Convert DrawIt
-/// selected reaches it. No Shadow= pass follows.
+/// (`SHPStruct::GetFrameBounds @ 0x0069E7E0`), unless Phobos' `Tiled.Interval`
+/// replaced it. The first tile's row is the draw point less h/2
+/// (`0x423660`'s halving, which Phobos' `Tiled.AlignToCenter` zeroes), and its
+/// Z term `YDrawOffset + ZAdjust - AdjustForZ - 50`, 48 below the ordinary
+/// body's; each next tile rises h rows and its Z term falls h/2 + h. The loop
+/// stops after the tile whose row, before YDrawOffset, is above the view.
+/// Every tile draws through the literal ANIM.PAL Convert (`[0x0087F6C0]`)
+/// with no remap, the selected flags plus Z read (`0x004236A4`), gradient 2
+/// and the shared intensity and colour word: neither the cell, ColorScheme
+/// nor AltPalette Convert DrawIt selected reaches it. No Shadow= pass
+/// follows.
 ///
 /// RESIDUAL: an empty frame 0 (h = 0) never moves the row, so gamemd loops
 /// forever unless the first row is already above the view; VERA draws the
@@ -351,7 +362,13 @@ fn tiled_column(
     body: SpriteInstance,
     height: i32,
 ) -> Vec<ObjectPieceInstance> {
-    let half = height / 2;
+    #[cfg(feature = "phobos")]
+    let align_to_center = input
+        .config
+        .is_some_and(|config| config.phobos_tiled_align_to_center);
+    #[cfg(not(feature = "phobos"))]
+    let align_to_center = false;
+    let half = if align_to_center { 0 } else { height / 2 };
     let mut tile = body;
     tile.palette_light = PaletteLight::plain(53, body.palette_light.brightness())
         .with_colour_word(body.palette_light.colour_word());

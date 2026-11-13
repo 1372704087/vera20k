@@ -9241,6 +9241,19 @@ impl RulesPassProcessor {
                                 gathering.frames_per_dir = frames;
                             }
                             self.family_mut(family)[index].ore_gathering = gathering;
+                            // `UnitTypeExt::LoadFromINI` reads
+                            // `DeployingAnims=` as a `ValueableVector<AnimType*>`
+                            // just before the three `DeployingAnim.*` keys: an
+                            // absent key retains the list, a present one
+                            // replaces it and drops unknown tokens.
+                            if let Some(anims) = self.resolve_existing_list_from(
+                                &raw,
+                                "DeployingAnims",
+                                RulesTypeFamily::Animation,
+                                0x800,
+                            ) {
+                                self.family_mut(family)[index].phobos_deploying_anims = anims;
+                            }
                         }
                     }
                     RulesTypeFamily::Infantry => {

@@ -1416,6 +1416,33 @@ mod tests {
     }
 }
 
+/// Phobos `UnitClass_Draw_It_KeepUnitVisible` (hook `0x73CF46`,
+/// `Ext/Unit/Hooks.SimpleDeployer.cpp:378-397`): a Unit hides its body during
+/// either deploy transition unless `DeployingAnim.KeepUnitVisible` keeps it,
+/// or it is deploying with no deploy animation attached at all.
+pub(crate) fn deploy_hides_unit_body(
+    entity: &GameEntity,
+    interner: &crate::sim::intern::StringInterner,
+    rules: Option<&crate::rules::ruleset::RuleSet>,
+) -> bool {
+    if entity.category() != EntityCategory::Unit || !entity.unit_deploying() {
+        return false;
+    }
+    #[cfg(feature = "phobos")]
+    {
+        let object = rules.and_then(|rules| rules.object(interner.resolve(entity.type_ref())));
+        if object.is_some_and(|object| object.phobos_deploying_anim_keep_unit_visible) {
+            return false;
+        }
+        if entity.unit_deploy_begin_active() && entity.deploy_anim().is_none() {
+            return false;
+        }
+    }
+    #[cfg(not(feature = "phobos"))]
+    let _ = (interner, rules);
+    true
+}
+
 #[cfg(test)]
 #[path = "building_warp_draw_tests.rs"]
 mod building_warp_draw_tests;

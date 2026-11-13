@@ -246,7 +246,7 @@ pub(crate) fn shp_visitor<'a>(
         #[cfg(not(feature = "phobos"))]
         let water = false;
         let type_name = if entity.category() == EntityCategory::Unit {
-            if entity.unit_deploying() {
+            if super::helpers::deploy_hides_unit_body(entity, sim.interner(), rules) {
                 return;
             }
             super::units::drawn_model_id(

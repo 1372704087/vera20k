@@ -1202,6 +1202,23 @@ pub struct ObjectType {
     /// `DeployingAnim=`. Unit types only.
     #[cfg(feature = "phobos")]
     pub phobos_deploying_anims: Vec<String>,
+    /// Phobos `DeployingAnim.KeepUnitVisible=` (`Ext/UnitType/Body.cpp:59`,
+    /// `Valueable<bool>`, `Body.h:44`, constructed `false`): a Unit keeps its
+    /// body drawn during either deploy transition (`0x73CF46`). Unit types
+    /// only.
+    #[cfg(feature = "phobos")]
+    pub phobos_deploying_anim_keep_unit_visible: bool,
+    /// Phobos `DeployingAnim.ReverseForUndeploy=` (`Ext/UnitType/Body.cpp:60`,
+    /// `Valueable<bool>`, `Body.h:45`, constructed `true`): the undeploy
+    /// animation plays in reverse. Unit types only.
+    #[cfg(feature = "phobos")]
+    pub phobos_deploying_anim_reverse_for_undeploy: bool,
+    /// Phobos `DeployingAnim.UseUnitDrawer=` (`Ext/UnitType/Body.cpp:61`,
+    /// `Valueable<bool>`, `Body.h:46`, constructed `true`): the animation
+    /// draws through the Unit's drawer tint (`Hooks.SimpleDeployer.cpp:89-93`).
+    /// Unit types only.
+    #[cfg(feature = "phobos")]
+    pub phobos_deploying_anim_use_unit_drawer: bool,
     /// Phobos `CrushOverlayExtraForwardTilt=` (`Ext/UnitType/Body.cpp:72`,
     /// `Valueable<double>`, default **0.02**): the extra forward rocking rate
     /// a crushing Unit adds (`Ext/Unit/Hooks.Crushing.cpp:18`). Phobos reads it
@@ -6098,6 +6115,15 @@ impl ObjectType {
                 Vec::new()
             },
             #[cfg(feature = "phobos")]
+            phobos_deploying_anim_keep_unit_visible: category == ObjectCategory::Vehicle
+                && section.read_bool("DeployingAnim.KeepUnitVisible", false),
+            #[cfg(feature = "phobos")]
+            phobos_deploying_anim_reverse_for_undeploy: category != ObjectCategory::Vehicle
+                || section.read_bool("DeployingAnim.ReverseForUndeploy", true),
+            #[cfg(feature = "phobos")]
+            phobos_deploying_anim_use_unit_drawer: category != ObjectCategory::Vehicle
+                || section.read_bool("DeployingAnim.UseUnitDrawer", true),
+            #[cfg(feature = "phobos")]
             phobos_crush_overlay_extra_forward_tilt: if category == ObjectCategory::Vehicle {
                 section.read_phobos_double("CrushOverlayExtraForwardTilt", 0.02)
             } else {
@@ -8098,7 +8124,7 @@ mod tests {
     }
 
     /// `Ext/BuildingType/Body.cpp:233-234,282,311`,
-    /// `Ext/UnitType/Body.cpp:58,72` and `Ext/AircraftType/Body.cpp:27,37,41`:
+    /// `Ext/UnitType/Body.cpp:58-61,72` and `Ext/AircraftType/Body.cpp:27,37,41`:
     /// each key keeps its own constructor value and its own category.
     #[cfg(feature = "phobos")]
     #[test]
@@ -8119,7 +8145,9 @@ mod tests {
 
         let unit = IniFile::from_str(
             "[UNT]\nStrength=100\nDeployingAnims=A,B,C\nCrushOverlayExtraForwardTilt=0.05\n\
-             SkipCrushSlowdown=yes\nCrushForwardTiltPerFrame=-0.125\n",
+             SkipCrushSlowdown=yes\nCrushForwardTiltPerFrame=-0.125\n\
+             DeployingAnim.KeepUnitVisible=yes\n\
+             DeployingAnim.ReverseForUndeploy=no\nDeployingAnim.UseUnitDrawer=no\n",
         );
         let object = ObjectType::from_ini_section(
             "UNT",
@@ -8132,6 +8160,9 @@ mod tests {
             Some(f64::from(-0.125_f32))
         );
         assert_eq!(object.phobos_deploying_anims, ["A", "B", "C"]);
+        assert!(object.phobos_deploying_anim_keep_unit_visible);
+        assert!(!object.phobos_deploying_anim_reverse_for_undeploy);
+        assert!(!object.phobos_deploying_anim_use_unit_drawer);
         // Phobos `ReadDouble` writes a `float`; the literal therefore lands as
         // the nearest binary32 widened back to double.
         assert_eq!(
@@ -8141,7 +8172,9 @@ mod tests {
 
         let aircraft = IniFile::from_str(
             "[AIR]\nStrength=100\nLandingAnim=LAND\nParadropDelay=8\nParadropEndDelay=12\n\
-             SpawnHeight=200\nFiringForceScatter=no\n",
+             SpawnHeight=200\nFiringForceScatter=no\n\
+             DeployingAnim.KeepUnitVisible=yes\n\
+             DeployingAnim.ReverseForUndeploy=no\nDeployingAnim.UseUnitDrawer=no\n",
         );
         let object = ObjectType::from_ini_section(
             "AIR",
@@ -8153,6 +8186,10 @@ mod tests {
         assert_eq!(object.phobos_paradrop_end_delay, Some(12));
         assert_eq!(object.phobos_spawn_height, Some(200));
         assert_eq!(object.phobos_firing_force_scatter, Some(false));
+        // UnitType-only keys: an Aircraft section never sets them.
+        assert!(!object.phobos_deploying_anim_keep_unit_visible);
+        assert!(object.phobos_deploying_anim_reverse_for_undeploy);
+        assert!(object.phobos_deploying_anim_use_unit_drawer);
 
         let unset = IniFile::from_str("[UNT]\nStrength=100\n");
         let object = ObjectType::from_ini_section(
@@ -8169,6 +8206,11 @@ mod tests {
         assert!(!object.phobos_no_build_area_on_buildup);
         assert_eq!(object.phobos_set_tab_by_selecting, -1);
         assert!(object.phobos_deploying_anims.is_empty());
+        // The UnitType constructor values: keep visible off, reverse and unit
+        // drawer on.
+        assert!(!object.phobos_deploying_anim_keep_unit_visible);
+        assert!(object.phobos_deploying_anim_reverse_for_undeploy);
+        assert!(object.phobos_deploying_anim_use_unit_drawer);
         // The constructor value, not zero.
         assert_eq!(object.phobos_crush_overlay_extra_forward_tilt, 0.02);
         assert_eq!(object.phobos_landing_anim, None);

@@ -907,3 +907,119 @@ fn phobos_auto_deploy_band_queues_and_cancels_unload() {
         "the cancel commences Guard"
     );
 }
+
+/// Phobos `Ext/UnitType/Body.cpp:59-61` and `Hooks.SimpleDeployer.cpp:75-93`:
+/// a non-empty `DeployingAnims=` picks by primary facing,
+/// `ReverseForUndeploy=no` plays the undeploy animation forward and
+/// `UseUnitDrawer=no` leaves the animation off the cell drawer.
+#[cfg(feature = "phobos")]
+#[test]
+fn phobos_deploying_anim_keys_select_facing_type_reverse_and_drawer() {
+    let rules_with = |keys: &str| {
+        let ini = IniFile::from_str(&format!(
+            "[VehicleTypes]\n0=TANK\n[Animations]\n0=DEPL0\n1=DEPL1\n2=DEPL2\n3=DEPL3\n\
+             4=DEPL4\n5=DEPL5\n6=DEPL6\n7=DEPL7\n\
+             [TANK]\nStrength=300\nSpeed=4\nIsSimpleDeployer=yes\nDeployDir=0\n\
+             DeployingAnims=DEPL0,DEPL1,DEPL2,DEPL3,DEPL4,DEPL5,DEPL6,DEPL7\n{keys}"
+        ));
+        let art_ini = IniFile::from_str(
+            "[DEPL0]\nRate=100\n[DEPL1]\nRate=100\n[DEPL2]\nRate=100\n[DEPL3]\nRate=100\n\
+             [DEPL4]\nRate=100\n[DEPL5]\nRate=100\n[DEPL6]\nRate=100\n[DEPL7]\nRate=100\n",
+        );
+        let mut art = ArtRegistry::from_ini(&art_ini);
+        for name in [
+            "DEPL0", "DEPL1", "DEPL2", "DEPL3", "DEPL4", "DEPL5", "DEPL6", "DEPL7",
+        ] {
+            art.bind_anim_frame_count_for_test(name, 11);
+        }
+        let mut rules = RuleSet::from_ini_with_fixed_art_for_test(&ini, &art_ini).unwrap();
+        rules.install_art_data(art);
+        rules
+    };
+    let spawn = |rules: &RuleSet| {
+        let mut sim = Simulation::with_seed(0);
+        crate::sim::arena_fixture::flat_ground(&mut sim, rules);
+        let id = sim
+            .spawn_object("TANK", "Russians", 10, 10, 0, rules)
+            .unwrap();
+        // PrimaryFacing raw 0 is eighth-turn 0: the Ares DeployDir gate
+        // (`DeployDir=0`) does not turn, and the 8-item list takes index 1.
+        sim.substrate.entities.get_mut(id).unwrap().body_facing =
+            crate::sim::movement::FacingClass::new(0, 0);
+        (sim, id)
+    };
+
+    // Explicit `no` keys: the undeploy animation plays forward, off the
+    // unit drawer.
+    let rules = rules_with("DeployingAnim.ReverseForUndeploy=no\nDeployingAnim.UseUnitDrawer=no\n");
+    let (mut sim, id) = spawn(&rules);
+    sim.update_unit_simple_deploy(id, true, &rules, FrameEffects::default())
+        .unwrap();
+    let forward = sim
+        .substrate
+        .entities
+        .get(id)
+        .unwrap()
+        .deploy_anim()
+        .unwrap();
+    {
+        let anim = sim.anim(forward).unwrap();
+        assert_eq!(sim.interner.resolve(anim.type_id()), "DEPL1");
+        assert!(!anim.runtime().constructor_reverse);
+        assert!(!anim.use_cell_drawer());
+    }
+    {
+        let entity = sim.substrate.entities.get_mut(id).unwrap();
+        entity.set_unit_simple_deploy_for_test(true, false, false);
+        let _ = entity.take_deploy_anim();
+    }
+    sim.update_unit_simple_deploy(id, false, &rules, FrameEffects::default())
+        .unwrap();
+    let reverse = sim
+        .substrate
+        .entities
+        .get(id)
+        .unwrap()
+        .deploy_anim()
+        .unwrap();
+    {
+        let anim = sim.anim(reverse).unwrap();
+        assert_eq!(sim.interner.resolve(anim.type_id()), "DEPL1");
+        assert!(
+            !anim.runtime().constructor_reverse,
+            "ReverseForUndeploy=no keeps the undeploy animation forward"
+        );
+        assert!(!anim.use_cell_drawer());
+    }
+
+    // Unset keys keep the constructor values: reverse undeploy, unit drawer.
+    let rules = rules_with("");
+    let (mut sim, id) = spawn(&rules);
+    sim.update_unit_simple_deploy(id, true, &rules, FrameEffects::default())
+        .unwrap();
+    {
+        let anim_id = sim
+            .substrate
+            .entities
+            .get(id)
+            .unwrap()
+            .deploy_anim()
+            .unwrap();
+        assert!(sim.anim(anim_id).unwrap().use_cell_drawer());
+    }
+    {
+        let entity = sim.substrate.entities.get_mut(id).unwrap();
+        entity.set_unit_simple_deploy_for_test(true, false, false);
+        let _ = entity.take_deploy_anim();
+    }
+    sim.update_unit_simple_deploy(id, false, &rules, FrameEffects::default())
+        .unwrap();
+    let anim_id = sim
+        .substrate
+        .entities
+        .get(id)
+        .unwrap()
+        .deploy_anim()
+        .unwrap();
+    assert!(sim.anim(anim_id).unwrap().runtime().constructor_reverse);
+}

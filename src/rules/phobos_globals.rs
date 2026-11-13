@@ -1675,20 +1675,19 @@ impl PhobosGlobals {
         globals.reload_in_transport =
             general.read_bool("ReloadInTransport", globals.reload_in_transport);
         // `Ext/Rules/Body.cpp:111-115`: the gained-self-heal caps and gates.
-        globals.infantry_gain_self_heal_cap = general.read_phobos_nullable_int(
-            "InfantryGainSelfHealCap",
-            globals.infantry_gain_self_heal_cap,
-        );
+        // Each key stays literal on its reader line: the v3 scanner attributes
+        // a read by the literal argument of the call on that line.
+        let infantry_cap = globals.infantry_gain_self_heal_cap;
+        globals.infantry_gain_self_heal_cap =
+            general.read_phobos_nullable_int("InfantryGainSelfHealCap", infantry_cap);
         globals.units_gain_self_heal_cap = general
             .read_phobos_nullable_int("UnitsGainSelfHealCap", globals.units_gain_self_heal_cap);
-        globals.gain_self_heal_allow_multiplay_passive = general.read_bool(
-            "GainSelfHealAllowMultiplayPassive",
-            globals.gain_self_heal_allow_multiplay_passive,
-        );
-        globals.gain_self_heal_from_player_control = general.read_bool(
-            "GainSelfHealFromPlayerControl",
-            globals.gain_self_heal_from_player_control,
-        );
+        let allow_passive = globals.gain_self_heal_allow_multiplay_passive;
+        globals.gain_self_heal_allow_multiplay_passive =
+            general.read_bool("GainSelfHealAllowMultiplayPassive", allow_passive);
+        let from_player_control = globals.gain_self_heal_from_player_control;
+        globals.gain_self_heal_from_player_control =
+            general.read_bool("GainSelfHealFromPlayerControl", from_player_control);
         globals.gain_self_heal_from_allies =
             general.read_bool("GainSelfHealFromAllies", globals.gain_self_heal_from_allies);
         // `Ext/Rules/Body.cpp:213-214`: the Ares radar-jam scan's House filter

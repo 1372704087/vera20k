@@ -475,6 +475,15 @@ pub struct AnimTypeRuntimeConfig {
     /// `RandomRanged(0, last)` instead of the meteor/first default.
     #[cfg(feature = "phobos")]
     pub splash_anims_pick_random: bool,
+    /// Phobos `ExplodeOnWater=` (`Ext/AnimType/Body.cpp:99`, `Body.h:54`,
+    /// `Valueable<bool>` constructed **false** `Body.h:106`): a water impact
+    /// takes the explosion arm — the warhead and `ExpireAnim=` — instead of the
+    /// wake/splash arm (`Ext/Anim/Body.cpp:252`, `:273-290`).
+    /// The VoxelAnimType twin (`Ext/VoxelAnimType/Body.cpp:13`,
+    /// `Ext/VoxelAnim/Hooks.cpp:42`) is not ported: that class has no Phobos
+    /// extension in VERA yet.
+    #[cfg(feature = "phobos")]
+    pub explode_on_water: bool,
     /// Phobos `Crater.DestroyTiberium=` (`Ext/AnimType/Body.cpp:126`,
     /// `Ext/AnimType/Body.h:81`, a `Nullable<bool>`): unset keeps the
     /// `[General] AnimCraterDestroyTiberium=` fallback; false makes
@@ -922,6 +931,8 @@ fn parse_anim_runtime_config(section: &IniSection) -> AnimTypeRuntimeConfig {
         splash_anims: section.read_phobos_nullable_type_list("SplashAnims"),
         #[cfg(feature = "phobos")]
         splash_anims_pick_random: section.read_bool("SplashAnims.PickRandom", false),
+        #[cfg(feature = "phobos")]
+        explode_on_water: section.read_bool("ExplodeOnWater", false),
         #[cfg(feature = "phobos")]
         crater_destroy_tiberium: section.read_phobos_nullable_bool("Crater.DestroyTiberium", None),
         sticky: section.read_bool("Sticky", false),

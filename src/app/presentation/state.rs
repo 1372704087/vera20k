@@ -187,6 +187,11 @@ pub(crate) struct MatchPresentationState {
     /// gates the `LowDeployPriority` filter in the selection-wide deploy walk.
     #[cfg(feature = "phobos")]
     pub(crate) priority_deploy_filtering: bool,
+    /// Phobos `[Phobos] PrioritySelectionFiltering=` (source default `yes`):
+    /// gates the `LowSelectionPriority` filter in the band walk
+    /// (`Misc/Selection.cpp:169`, `:92`).
+    #[cfg(feature = "phobos")]
+    pub(crate) priority_selection_filtering: bool,
     /// Phobos placement preview SHP cache for the current placing type.
     #[cfg(feature = "phobos")]
     pub(crate) placement_preview_art:

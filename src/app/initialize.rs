@@ -1094,6 +1094,8 @@ impl App {
                     #[cfg(feature = "phobos")]
                     priority_deploy_filtering: phobos_client.priority_deploy_filtering,
                     #[cfg(feature = "phobos")]
+                    priority_selection_filtering: phobos_client.priority_selection_filtering,
+                    #[cfg(feature = "phobos")]
                     show_power_plant_enhancer_range: phobos_client
                         .show_power_plant_enhancer_range,
                     #[cfg(feature = "phobos")]

@@ -651,6 +651,7 @@ pub(crate) fn compute_box_selection_snapshot(
         houses,
         interner,
         false,
+        false,
     )
 }
 
@@ -670,6 +671,7 @@ pub(crate) fn compute_box_selection_snapshot_with_playfield(
     houses: Option<&HouseStates>,
     interner: Option<&crate::sim::intern::StringInterner>,
     require_playfield_membership: bool,
+    priority_selection_filtering: bool,
 ) -> Option<SelectionMutation> {
     if !band_rect_contains_drawn_object(
         source,
@@ -697,6 +699,13 @@ pub(crate) fn compute_box_selection_snapshot_with_playfield(
         houses,
         interner,
         require_playfield_membership,
+    );
+    let candidates = filter_low_selection_priority(
+        candidates,
+        source.entities(),
+        rules,
+        interner,
+        priority_selection_filtering,
     );
     if additive {
         // The native band callback only ever calls Select — there is no Deselect
@@ -1094,6 +1103,39 @@ fn matching_type_group(
             }
             Some(*id)
         })
+        .collect()
+}
+
+/// Phobos `[Phobos] PrioritySelectionFiltering=` with `LowSelectionPriority=`
+/// (`Misc/Selection.cpp:58-73`, `:92`): once the band rectangle holds a
+/// selectable object that is *not* low priority, every low-priority candidate
+/// is skipped. Types the interner cannot resolve do not participate, the way
+/// `TechnoTypeExt::TryFetch` leaves a non-techno object unfiltered.
+fn filter_low_selection_priority(
+    candidates: Vec<u64>,
+    entities: &EntityStore,
+    rules: Option<&RuleSet>,
+    interner: Option<&crate::sim::intern::StringInterner>,
+    enabled: bool,
+) -> Vec<u64> {
+    let low_priority = |id: u64| -> Option<bool> {
+        let entity = entities.get(id)?;
+        let object = interner?.object_type(entity.type_ref(), rules?)?;
+        #[cfg(feature = "phobos")]
+        let low = object.phobos_techno_extras.low_selection_priority;
+        #[cfg(not(feature = "phobos"))]
+        let low = {
+            let _ = object;
+            false
+        };
+        Some(low)
+    };
+    if !enabled || !candidates.iter().any(|&id| low_priority(id) == Some(false)) {
+        return candidates;
+    }
+    candidates
+        .into_iter()
+        .filter(|&id| low_priority(id) != Some(true))
         .collect()
 }
 
@@ -1506,6 +1548,10 @@ mod invisible_tests;
 #[cfg(test)]
 #[path = "entity_pick_band_owner_tests.rs"]
 mod band_owner_tests;
+
+#[cfg(test)]
+#[path = "entity_pick_priority_tests.rs"]
+mod priority_tests;
 
 #[cfg(test)]
 mod tests {

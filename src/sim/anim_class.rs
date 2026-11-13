@@ -3471,6 +3471,38 @@ impl Simulation {
         Some(owner)
     }
 
+    /// Phobos `DetachOnCloak=` (`Ext/AnimType/Body.cpp:112`, `Valueable<bool>`
+    /// constructor `true`): `Detach_All(false)` on a cloaking object detaches
+    /// every attached anim (`TechnoClass::Do_Cloak @ 0x703789` reaches vtable
+    /// `+0xDC`), and the hook `AnimClass_Detach_Cloak @ 0x425174`
+    /// (`Ext/Anim/Hooks.cpp:663-684`) suppresses that detach only for a type
+    /// whose key reads `no`.
+    pub(crate) fn detach_attached_anims_for_cloak(&mut self, owner_id: u64, rules: &RuleSet) {
+        let ids: Vec<AnimId> = self
+            .anims()
+            .filter(|(_, anim)| anim.owner_entity() == Some(owner_id))
+            .filter(|(_, anim)| {
+                let name = self.interner.resolve(anim.type_id());
+                #[cfg(feature = "phobos")]
+                {
+                    rules
+                        .art()
+                        .anim_runtime_config(name)
+                        .is_none_or(|config| config.phobos_detach_on_cloak)
+                }
+                #[cfg(not(feature = "phobos"))]
+                {
+                    let _ = name;
+                    true
+                }
+            })
+            .map(|(&id, _)| id)
+            .collect();
+        for id in ids {
+            self.detach_anim_from_owner(id, rules);
+        }
+    }
+
     /// Anim PointerExpired425150 removes Display, calls owner+60, clears +CC,
     /// sets +19B and Mark(REMOVE). Stored relative coordinates remain unchanged.
     /// Normal SetOwner(NULL) would instead convert and potentially resubmit.
@@ -6102,6 +6134,60 @@ mod tests {
         }
         rules.install_art_fixture(art);
         rules
+    }
+
+    /// Phobos `DetachOnCloak=`: `Detach_All(false)` on a cloaking object
+    /// detaches attached anims, and only the type that reads the key `no`
+    /// stays attached (`Ext/AnimType/Body.cpp:112`, hook `0x425174`).
+    #[test]
+    fn detach_on_cloak_keeps_only_the_anim_type_that_asks_for_it() {
+        let rules = runtime_rules(
+            "[CLOAKKEEP]\nDetachOnCloak=no\nLayer=Ground\n[CLOAKNORM]\nLayer=Ground\n",
+            &[("CLOAKKEEP", 8), ("CLOAKNORM", 8)],
+        );
+        let mut sim = Simulation::new();
+        let owner_id = 100;
+        let type_ref = sim.interner.intern("CLOAKOWNER");
+        let mut entity = GameEntity::new_at_frame_zero_for_test(
+            owner_id,
+            5,
+            5,
+            0,
+            0,
+            sim.interner.intern("Americans"),
+            Health::new(100),
+            type_ref,
+            EntityCategory::Unit,
+            0,
+            5,
+            false,
+        );
+        entity.lifecycle.set_in_limbo_for_test(false);
+        sim.substrate.entities.insert(entity);
+        let keep_type = sim.interner.intern("CLOAKKEEP");
+        let norm_type = sim.interner.intern("CLOAKNORM");
+        let keep = sim
+            .spawn_anim_object(&rules, runtime_descriptor(keep_type, 0))
+            .unwrap();
+        let norm = sim
+            .spawn_anim_object(&rules, runtime_descriptor(norm_type, 0))
+            .unwrap();
+        for id in [keep, norm] {
+            assert!(sim.set_anim_owner_object(id, Some(owner_id), &rules));
+        }
+
+        sim.detach_attached_anims_for_cloak(owner_id, &rules);
+
+        assert_eq!(
+            sim.anim(keep).unwrap().owner_entity,
+            Some(owner_id),
+            "DetachOnCloak=no keeps the attached anim"
+        );
+        assert_eq!(
+            sim.anim(norm).unwrap().owner_entity,
+            None,
+            "the default detaches"
+        );
     }
 
     fn runtime_descriptor(type_name: InternedId, delay: u16) -> AnimClassSpawnDescriptor {

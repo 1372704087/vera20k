@@ -680,6 +680,9 @@ fn start_cloaking_detach(
         false,
         UninitContext::new(rules, registry).with_effects(effects),
     );
+    // Detach_All's anim arm, gated per anim type by Phobos `DetachOnCloak=`
+    // (`Ext/AnimType/Body.cpp:112`, hook `0x425174`).
+    sim.detach_attached_anims_for_cloak(id, rules);
     let player = sim.session.current_house();
     if let Some(entity) = sim.substrate.entities.get_mut(id)
         && player != Some(entity.owner())

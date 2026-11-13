@@ -115,6 +115,10 @@ pub struct ArtEntry {
     pub x_draw_offset: i32,
     /// Building animation overlays (ActiveAnim, IdleAnim, etc.).
     pub building_anims: Vec<BuildingAnimConfig>,
+    /// Phobos `RoofProductionAnim*` ART overrides (`Ext/BuildingType/Body.cpp:325-335`):
+    /// the roof-exit production animation and its placement/power values.
+    #[cfg(feature = "phobos")]
+    pub roof_production_anim: crate::rules::phobos_roof_production_anim::PhobosRoofProductionAnim,
     /// All21 native records exist even when their selected names are empty.
     pub building_anim_power: [BuildingAnimPowerFlags; 21],
     /// Signed GateStages (BuildingType+16F8): constructor45E1F0 defaults to9;
@@ -1556,6 +1560,11 @@ impl ArtRegistry {
                     y_draw_offset,
                     x_draw_offset,
                     building_anims,
+                    #[cfg(feature = "phobos")]
+                    roof_production_anim:
+                        crate::rules::phobos_roof_production_anim::PhobosRoofProductionAnim::from_section(
+                            section,
+                        ),
                     building_anim_power: {
                         let mut records = [BuildingAnimPowerFlags::default(); 21];
                         read_building_anim_power(section, &mut records);

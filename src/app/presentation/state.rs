@@ -136,6 +136,11 @@ pub(crate) struct MatchPresentationState {
     /// Phobos `[Phobos] ShowPlacementPreview` (source default true).
     #[cfg(feature = "phobos")]
     pub(crate) show_placement_preview: bool,
+    /// Phobos `[Phobos] ToolTipDescriptions=` (source default yes,
+    /// `Phobos.INI.cpp:91`): the gate of the cameo/superweapon tooltip's
+    /// `UIDescription` line (`Misc/PhobosToolTip.cpp:22-32`).
+    #[cfg(feature = "phobos")]
+    pub(crate) tool_tip_descriptions: bool,
     /// Phobos `[Phobos] ShowFlashOnSelecting` (source default false): gates
     /// `[AudioVisual] SelectionFlashDuration` on each local selection.
     #[cfg(feature = "phobos")]

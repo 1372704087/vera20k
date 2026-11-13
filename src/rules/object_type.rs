@@ -490,6 +490,13 @@ pub struct ObjectType {
     /// None if not specified. Tooltip text resolves this through the CSF
     /// table; `name` (English `Name=`) is the fallback.
     pub ui_name: Option<String>,
+    /// Phobos `UIDescription=` (`Valueable<CSFText>`, `Ext/TechnoType/Body.cpp:765`,
+    /// `Body.h:40,478`, empty default): the CSF label of the tooltip
+    /// description line appended under the cameo's cost/power when
+    /// `ToolTipDescriptions` is on (`Misc/PhobosToolTip.cpp:22-32,150`,
+    /// hooks `0x6A9316` / `0x4AE51E`).
+    #[cfg(feature = "phobos")]
+    pub ui_description: Option<String>,
     /// Credit cost to produce this object.
     pub cost: i32,
     /// `Soylent=` (TechnoType `+0x614`): when nonzero, the refund
@@ -6022,6 +6029,8 @@ impl ObjectType {
             half_damage_smoke_location2: [0; 3],
             name: section.read_name("Name", 0x31).map(str::to_owned),
             ui_name: section.read_name("UIName", 0x20).map(str::to_owned),
+            #[cfg(feature = "phobos")]
+            ui_description: section.read_name("UIDescription", 0x20).map(str::to_owned),
             cost: section.read_int("Cost", 0),
             soylent: section.read_int("Soylent", 0),
             factory_plant: section.read_bool("FactoryPlant", false),

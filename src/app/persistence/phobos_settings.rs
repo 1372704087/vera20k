@@ -89,6 +89,12 @@ pub(crate) struct PhobosClientSettings {
     /// `[Phobos] EnableSelectBox=`, default `no` (`Phobos.INI.cpp:104`): the
     /// client switch for the `[SelectBoxTypes]` custom selection box.
     pub(crate) enable_select_box: bool,
+    /// `[Phobos] ToolTipDescriptions=`, default `yes` (`Phobos.INI.cpp:91`):
+    /// the gate of the extended tooltip's `UIDescription` line
+    /// (`Misc/PhobosToolTip.cpp:22-32`, reached from `0x6A9316` and
+    /// `0x4AE51E`); a techno or superweapon type with a non-empty
+    /// `UIDescription=` appends it as the tip's last line.
+    pub(crate) tool_tip_descriptions: bool,
     /// `[Phobos] CampaignDefaultGameSpeed=`, engine speed index
     /// (`6 - ReadInteger(4)` at `Phobos.INI.cpp:120`): 2 when the computed
     /// index leaves 0..=6 (`:121-124`), i.e. the stock `GS4` forced when speed
@@ -121,6 +127,7 @@ impl Default for PhobosClientSettings {
             hide_shake_effects: false,
             show_game_time: false,
             enable_select_box: false,
+            tool_tip_descriptions: true,
             campaign_default_game_speed: 2,
         }
     }
@@ -186,6 +193,9 @@ pub(crate) fn read(settings_dir: &Path) -> PhobosClientSettings {
         hide_shake_effects: section.read_bool("HideShakeEffects", defaults.hide_shake_effects),
         show_game_time: section.read_bool("ShowGameTime", defaults.show_game_time),
         enable_select_box: section.read_bool("EnableSelectBox", defaults.enable_select_box),
+        // `Phobos.INI.cpp:91`: `ReadBool(..., "ToolTipDescriptions", true)`.
+        tool_tip_descriptions: section
+            .read_bool("ToolTipDescriptions", defaults.tool_tip_descriptions),
         // `Phobos.INI.cpp:120-124`: index `6 - key`, then the same 0..=6 guard
         // that forces the stock `GS4` speed 2 when the read leaves the range.
         campaign_default_game_speed: {
@@ -231,7 +241,8 @@ mod tests {
              MessageDisplayInCenter=yes\nSaveGameOnScenarioStart=no\nShowBriefing=no\n\
              HideLaserTrailEffects=yes\nShowGameTime=yes\nEnableSelectBox=yes\n\
              CampaignDefaultGameSpeed=4\n\
-             HideLightFlashEffects=yes\nHideShakeEffects=yes\n",
+             HideLightFlashEffects=yes\nHideShakeEffects=yes\n\
+             ToolTipDescriptions=no\n",
         );
         assert_eq!(
             read(&dir),
@@ -256,6 +267,7 @@ mod tests {
                 hide_shake_effects: true,
                 show_game_time: true,
                 enable_select_box: true,
+                tool_tip_descriptions: false,
                 campaign_default_game_speed: 2,
             }
         );

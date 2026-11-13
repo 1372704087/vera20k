@@ -1073,6 +1073,8 @@ impl App {
                     #[cfg(feature = "phobos")]
                     show_placement_preview: phobos_client.show_placement_preview,
                     #[cfg(feature = "phobos")]
+                    tool_tip_descriptions: phobos_client.tool_tip_descriptions,
+                    #[cfg(feature = "phobos")]
                     show_flash_on_selecting: phobos_client.show_flash_on_selecting,
                     #[cfg(feature = "phobos")]
                     hide_light_flash_effects: phobos_client.hide_light_flash_effects,

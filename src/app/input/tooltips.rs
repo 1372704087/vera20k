@@ -579,6 +579,28 @@ fn superweapon_money_tip(money_format: Option<&str>, name: &str, amount: i32) ->
     }
 }
 
+/// Phobos `PhobosToolTip::GetUIDescription` (`Misc/PhobosToolTip.cpp:22-32`):
+/// `Config::ToolTipDescriptions && !UIDescription.empty()` — the label's
+/// resolved CSF text becomes the tip's last line (`:150` technos, `:205`
+/// supers). The cameo already splits its own words onto separate lines; the
+/// description joins as one more.
+#[cfg(feature = "phobos")]
+fn with_ui_description(state: &AppState, tip: String, label: Option<&str>) -> String {
+    if !state.match_state.match_presentation.tool_tip_descriptions {
+        return tip;
+    }
+    append_ui_description(tip, label.map(|label| csf_text(state, label)).as_deref())
+}
+
+/// The `!empty()` arm: a resolved description appends as the last line.
+#[cfg(feature = "phobos")]
+fn append_ui_description(tip: String, text: Option<&str>) -> String {
+    match text {
+        Some(text) if !text.is_empty() => format!("{tip}\n{text}"),
+        _ => tip,
+    }
+}
+
 /// `RadarClass` slot +0x88 @ 0x00654320 registers the two radar-top buttons
 /// with a CSF label: 0xF2 `Tip:BriefingButton` while GameMode is 0, else
 /// `Tip:DiplomacyButton`, and 0xF3 `Tip:OptionsButton`. A labelled tip is
@@ -713,18 +735,40 @@ fn in_game_regions(state: &AppState, demand: TextDemand) -> Vec<TipRegion> {
                         .csf
                         .as_ref()
                         .map(|csf| csf.text(CAMEO_TIP_MONEY_FORMAT));
-                    superweapon_money_tip(money_format.as_deref(), &item.display_name, amount)
+                    let tip =
+                        superweapon_money_tip(money_format.as_deref(), &item.display_name, amount);
+                    #[cfg(feature = "phobos")]
+                    let tip = with_ui_description(
+                        state,
+                        tip,
+                        item.super_weapon_section
+                            .as_deref()
+                            .and_then(|name| state.rules())
+                            .and_then(|rules| rules.super_weapon(name))
+                            .and_then(|sw| sw.ui_description.as_deref()),
+                    );
+                    tip
                 } else {
                     let money_format = state
                         .process_assets
                         .csf
                         .as_ref()
                         .map(|csf| csf.text(CAMEO_TIP_MONEY_FORMAT));
-                    cameo_tip_text(
+                    let tip = cameo_tip_text(
                         money_format.as_deref(),
                         &item.display_name,
                         item.cost.map(i64::from),
-                    )
+                    );
+                    #[cfg(feature = "phobos")]
+                    let tip = with_ui_description(
+                        state,
+                        tip,
+                        state
+                            .rules()
+                            .and_then(|rules| rules.object(&item.type_id))
+                            .and_then(|object| object.ui_description.as_deref()),
+                    );
+                    tip
                 }
             })
         };
@@ -765,7 +809,19 @@ fn in_game_regions(state: &AppState, demand: TextDemand) -> Vec<TipRegion> {
                         .csf
                         .as_ref()
                         .map(|csf| csf.text(CAMEO_TIP_MONEY_FORMAT));
-                    superweapon_money_tip(money_format.as_deref(), &entry.view.display_name, amount)
+                    let tip = superweapon_money_tip(
+                        money_format.as_deref(),
+                        &entry.view.display_name,
+                        amount,
+                    );
+                    with_ui_description(
+                        state,
+                        tip,
+                        state
+                            .rules()
+                            .and_then(|rules| rules.super_weapon(&entry.type_id))
+                            .and_then(|super_type| super_type.ui_description.as_deref()),
+                    )
                 });
                 regions.push(TipRegion {
                     id: SW_SIDEBAR_TIP_ID_BASE + index as u32,
@@ -1962,5 +2018,46 @@ mod tests {
         );
         assert_eq!(fill[0].tint, [0.0, 0.0, 0.0]);
         assert_eq!(fill[0].alpha, 1.0);
+    }
+
+    /// Phobos `UIDescription` (`Ext/TechnoType/Body.cpp:765`,
+    /// `Ext/SWType/Body.cpp:157`, both `Valueable<CSFText>` empty): the
+    /// reader keeps the 0x20-byte CSF label only when present, and the tip's
+    /// `!empty()` arm appends the resolved text as the last line
+    /// (`Misc/PhobosToolTip.cpp:22-32,150,205`).
+    #[cfg(feature = "phobos")]
+    #[test]
+    fn ui_description_reads_the_label_and_appends_the_last_line() {
+        use crate::rules::ini_parser::IniFile;
+        use crate::rules::object_type::{ObjectCategory, ObjectType};
+        use crate::rules::superweapon_type::SuperWeaponType;
+
+        let ini = IniFile::from_str("[T]\nUIDescription=Name:Desc\n");
+        let object = ObjectType::from_ini_section(
+            "T",
+            ini.section("T").expect("section"),
+            ObjectCategory::Vehicle,
+        );
+        assert_eq!(object.ui_description.as_deref(), Some("Name:Desc"));
+        let bare = ObjectType::from_ini_section(
+            "T",
+            IniFile::from_str("[T]\n").section("T").expect("section"),
+            ObjectCategory::Vehicle,
+        );
+        assert_eq!(bare.ui_description, None);
+        let sw = SuperWeaponType::from_ini_section(
+            "S",
+            IniFile::from_str("[S]\nUIDescription=Name:Storm\n")
+                .section("S")
+                .expect("section"),
+        );
+        assert_eq!(sw.ui_description.as_deref(), Some("Name:Storm"));
+
+        assert_eq!(
+            append_ui_description("Name\n100".to_owned(), Some("Desc")),
+            "Name\n100\nDesc"
+        );
+        assert_eq!(append_ui_description("Name".to_owned(), Some("")), "Name");
+        assert_eq!(append_ui_description("Name".to_owned(), None), "Name");
     }
 }

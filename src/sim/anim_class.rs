@@ -4278,6 +4278,25 @@ impl Simulation {
                 .expect("restarting animation remains present")
                 .start_sound_active = false;
         }
+        // Phobos `AnimClass_Start_DetachedReport` (`0x424CF1`,
+        // `Ext/Anim/Hooks.cpp:269-276`): a set DetachedReport plays as a
+        // one-shot positional sound at Start, outside the anim's handle.
+        #[cfg(feature = "phobos")]
+        if let Some(sound_name) = config.detached_report.clone()
+            && self.anim(id).is_some_and(|anim| !anim.no_effects())
+            && let Some(world) = self.anim_absolute_coord(id)
+        {
+            let (rx, ry, sub_x, sub_y, _) = world.to_cell_sub_z();
+            self.sound_events.emit(SimSoundEvent::VocAt {
+                sound_id: sound_name,
+                audible_to: None,
+                rx,
+                ry,
+                sub_x,
+                sub_y,
+                world_z_leptons: world.z,
+            });
+        }
         if middle_frame(config).is_none() {
             self.anim_middle(id, config, rules, overlay_registry);
         }
@@ -6400,6 +6419,62 @@ mod tests {
         sim.visit_anim(id, &rules, None, crate::sim::world::FrameEffects::default())
             .unwrap();
         assert_eq!(starts(&sim), 1, "Start runs once per delay");
+    }
+
+    /// Phobos `AnimClass_Start_DetachedReport` (`0x424CF1`,
+    /// `Ext/Anim/Hooks.cpp:269-276`): a set `DetachedReport=` plays one
+    /// positional one-shot at Start, independent of the attached
+    /// Report/StartSound handle.
+    #[cfg(feature = "phobos")]
+    #[test]
+    fn detached_report_plays_a_one_shot_at_start() {
+        let rules = runtime_rules(
+            "[TWLT036]\nEnd=8\nDetachedReport=Detached06\n",
+            &[("TWLT036", 8)],
+        );
+        let mut sim = Simulation::new();
+        let type_name = sim.interner.intern("TWLT036");
+        let descriptor = AnimClassSpawnDescriptor::new(
+            type_name,
+            7,
+            9,
+            crate::util::lepton::CELL_CENTER_LEPTON,
+            crate::util::lepton::CELL_CENTER_LEPTON,
+            0,
+        );
+        let id = sim
+            .spawn_anim_object(&rules, descriptor)
+            .expect("bound art constructs");
+        let detached = |sim: &Simulation| {
+            sim.sound_events
+                .iter()
+                .filter(|event| {
+                    matches!(event, SimSoundEvent::VocAt { sound_id, .. } if sound_id == "DETACHED06")
+                })
+                .count()
+        };
+        assert_eq!(detached(&sim), 1, "Start plays the detached report once");
+        assert!(
+            !sim.sound_events.iter().any(
+                |event| matches!(event, SimSoundEvent::AnimationStarted { anim_id, .. } if *anim_id == id)
+            ),
+            "no attached start handle without Report/StartSound"
+        );
+
+        let plain = runtime_rules("[TWLT036]\nEnd=8\n", &[("TWLT036", 8)]);
+        let mut sim = Simulation::new();
+        let type_name = sim.interner.intern("TWLT036");
+        let descriptor = AnimClassSpawnDescriptor::new(
+            type_name,
+            7,
+            9,
+            crate::util::lepton::CELL_CENTER_LEPTON,
+            crate::util::lepton::CELL_CENTER_LEPTON,
+            0,
+        );
+        sim.spawn_anim_object(&plain, descriptor)
+            .expect("bound art constructs");
+        assert_eq!(detached(&sim), 0, "the absent key plays nothing");
     }
 
     #[test]

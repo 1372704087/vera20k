@@ -559,6 +559,11 @@ pub struct WarheadType {
     /// Phobos `KillWeapon.*` (`Ext/WarheadType/Body.cpp:371-390`).
     #[cfg(feature = "phobos")]
     pub phobos_kill_weapon: crate::rules::phobos_kill_weapon::PhobosKillWeaponRules,
+    /// Phobos `SuppressRevengeWeapons=` / `.Types=`
+    /// (`Ext/WarheadType/Body.cpp:356-357`): the victim's revenge weapons do
+    /// not fire at this warhead's source.
+    #[cfg(feature = "phobos")]
+    pub phobos_revenge_weapon: crate::rules::phobos_revenge_weapon::SuppressRevengeWeaponsRules,
     /// Phobos `PenetratesTransport.*` (`Ext/WarheadType/Body.cpp:437-442`).
     #[cfg(feature = "phobos")]
     pub phobos_penetrates_transport:
@@ -1115,6 +1120,11 @@ impl WarheadType {
             phobos_kill_weapon: crate::rules::phobos_kill_weapon::PhobosKillWeaponRules::from_section(
                 section,
             ),
+            #[cfg(feature = "phobos")]
+            phobos_revenge_weapon:
+                crate::rules::phobos_revenge_weapon::SuppressRevengeWeaponsRules::from_section(
+                    section,
+                ),
             #[cfg(feature = "phobos")]
             phobos_penetrates_transport:
                 crate::rules::phobos_penetrates_transport::PenetratesTransportWarheadRules::from_section(

@@ -253,6 +253,8 @@ pub mod phobos_return_warhead;
 #[cfg(feature = "phobos")]
 pub mod phobos_return_weapon;
 #[cfg(feature = "phobos")]
+pub mod phobos_revenge_weapon;
+#[cfg(feature = "phobos")]
 pub mod phobos_selection_flash;
 pub mod phobos_shields;
 #[cfg(feature = "phobos")]

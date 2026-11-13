@@ -52,7 +52,7 @@ impl BannerNumberType {
 }
 
 /// One `[BannerTypes]` entry.
-#[derive(Debug, Clone, PartialEq, Eq, Hash, Default)]
+#[derive(Debug, Clone, PartialEq, Eq, Hash)]
 pub struct BannerType {
     pub name: String,
     /// `PCX=` (`PhobosPCXFile`, `BannerTypeClass.cpp:15`): the image file
@@ -88,6 +88,28 @@ pub struct BannerType {
     /// `ClampToScreen=` (`Valueable<bool>`, default **true**,
     /// `BannerTypeClass.h:34`): the banner keeps inside the tactical view.
     pub clamp_to_screen: bool,
+}
+
+impl Default for BannerType {
+    /// `BannerTypeClass`'s constructor defaults (`BannerTypeClass.h:25-35`):
+    /// `Duration`/`Delay` construct **-1**, `ClampToScreen` **true**; the
+    /// images and the CSF label construct empty.
+    fn default() -> Self {
+        Self {
+            name: String::new(),
+            pcx: None,
+            shape: None,
+            palette: None,
+            csf: None,
+            csf_color: None,
+            csf_background: false,
+            csf_variable_format: BannerNumberType::None,
+            duration: -1,
+            delay: -1,
+            shape_refresh_after_delay: false,
+            clamp_to_screen: true,
+        }
+    }
 }
 
 impl BannerType {

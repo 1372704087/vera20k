@@ -100,8 +100,6 @@ pub(crate) fn fallback_map_load_result() -> init::MapLoadResult {
             end_game_banner: None,
             #[cfg(feature = "phobos")]
             banner_art: None,
-            #[cfg(feature = "phobos")]
-            banners: Vec::new(),
             software_cursor: None,
             overlay_names: BTreeMap::new(),
             overlay_radar_colors: HashMap::new(),

@@ -3553,11 +3553,11 @@ fn distribute_targeting_frame_arms_the_construction_timer() {
     let unit = spawn(&mut sim, &rules, "E1", "AiHouse");
     assert_eq!(
         unit.passive_scan.timer().duration(),
-        45 + unit.phobos_random_factor(),
+        (45 + unit.phobos_random_factor()) as u32,
         "an AI house re-arms the timer at 45 + the init draw"
     );
     assert!(
-        (45..=60).contains(&unit.passive_scan.timer().duration()),
+        (45..=60).contains(&(unit.passive_scan.timer().duration() as i32)),
         "RandomFactor draws 0..=15"
     );
 
@@ -3572,7 +3572,7 @@ fn distribute_targeting_frame_arms_the_construction_timer() {
     let unit = spawn(&mut sim, &rules, "E1", "Americans");
     assert_eq!(
         unit.passive_scan.timer().duration(),
-        45 + unit.phobos_random_factor(),
+        (45 + unit.phobos_random_factor()) as u32,
         "AIOnly=no re-arms human-controlled houses too"
     );
 

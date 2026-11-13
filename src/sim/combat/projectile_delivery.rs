@@ -104,18 +104,20 @@ mod vertical_initial_facing_tests {
     #[test]
     fn vertical_initial_facing_resolves_the_fallback_and_override() {
         assert!(!vertical_initial_facing(None));
-        assert!(!vertical_initial_facing(Some(&projectile("[T]\n"))));
-        let mut voxel = projectile("[T]\n");
+        assert!(!vertical_initial_facing(Some(&projectile(
+            "[T]\nStrength=100\n"
+        ))));
+        let mut voxel = projectile("[T]\nStrength=100\n");
         voxel.voxel = true;
         assert!(vertical_initial_facing(Some(&voxel)));
         assert!(vertical_initial_facing(Some(&projectile(
-            "[T]\nVertical=yes\n"
+            "[T]\nStrength=100\nVertical=yes\n"
         ))));
-        let mut overridden = projectile("[T]\nVerticalInitialFacing=no\n");
+        let mut overridden = projectile("[T]\nStrength=100\nVerticalInitialFacing=no\n");
         overridden.voxel = true;
         assert!(!vertical_initial_facing(Some(&overridden)));
         assert!(vertical_initial_facing(Some(&projectile(
-            "[T]\nVerticalInitialFacing=yes\n"
+            "[T]\nStrength=100\nVerticalInitialFacing=yes\n"
         ))));
     }
 }

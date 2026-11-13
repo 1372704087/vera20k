@@ -232,7 +232,7 @@ fn build_shp(
 /// (`BannerClass::Render`). The shapes sample the shared banner atlas; the
 /// texts bind the game font.
 pub(crate) fn build_banner_instances(
-    state: &AppState,
+    state: &mut AppState,
 ) -> (Vec<SpriteInstance>, Vec<SpriteInstance>) {
     // The read-only phase gathers everything the tick loop needs; the loop
     // then borrows the presentation's blink store mutably on its own.

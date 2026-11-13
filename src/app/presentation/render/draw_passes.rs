@@ -1050,6 +1050,7 @@ pub(super) fn dispatch_draw_passes(
     // Phobos `TacticalClass_Render_Banner` (`0x6D4B25`, Hooks.UI.cpp:310):
     // every banner draws after the timer lines, before the outcome banner.
     // The shapes sample the shared banner atlas; the texts bind the font.
+    #[cfg(feature = "phobos")]
     if text_in_frame {
         draw_pooled_ui(
             &mut pass,

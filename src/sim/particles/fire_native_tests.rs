@@ -279,17 +279,17 @@ fn adjust_target_coords_on_rotation_gates_the_fire_sweep() {
         stable_id
     }
 
-    let rules = rules("");
+    let default_rules = rules("");
     let mut sim = Simulation::new();
-    let id = live_system(&mut sim, &rules);
-    super::fire::tick_system_with(&mut sim, &rules, id, &mut ScriptedSweep);
+    let id = live_system(&mut sim, &default_rules);
+    super::fire::tick_system_with(&mut sim, &default_rules, id, &mut ScriptedSweep);
     let sys = sim.particle_systems().get(id).unwrap();
     assert_eq!(sys.coords, IVec3::new(7, 9, 11), "the default sweeps");
 
-    let rules = rules("AdjustTargetCoordsOnRotation=no\n");
+    let muted_rules = rules("AdjustTargetCoordsOnRotation=no\n");
     let mut sim = Simulation::new();
-    let id = live_system(&mut sim, &rules);
-    super::fire::tick_system_with(&mut sim, &rules, id, &mut ScriptedSweep);
+    let id = live_system(&mut sim, &muted_rules);
+    super::fire::tick_system_with(&mut sim, &muted_rules, id, &mut ScriptedSweep);
     let sys = sim.particle_systems().get(id).unwrap();
     assert_eq!(sys.coords, IVec3::ZERO, "no freezes the coordinates");
 }

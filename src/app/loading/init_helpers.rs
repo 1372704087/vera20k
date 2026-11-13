@@ -793,8 +793,6 @@ pub(crate) fn finish_presentation_assets(
         end_game_banner,
         #[cfg(feature = "phobos")]
         banner_art,
-        #[cfg(feature = "phobos")]
-        banners: Vec::new(),
         software_cursor,
         overlay_names: overlays.overlay_names,
         overlay_radar_colors: overlays.overlay_radar_colors,

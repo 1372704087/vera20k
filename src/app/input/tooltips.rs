@@ -741,11 +741,12 @@ fn in_game_regions(state: &AppState, demand: TextDemand) -> Vec<TipRegion> {
                     let tip = with_ui_description(
                         state,
                         tip,
-                        item.super_weapon_section
-                            .as_deref()
-                            .and_then(|name| state.rules())
-                            .and_then(|rules| rules.super_weapon(name))
-                            .and_then(|sw| sw.ui_description.as_deref()),
+                        item.super_weapon_section.as_deref().and_then(|name| {
+                            state
+                                .rules()
+                                .and_then(|rules| rules.super_weapon(name))
+                                .and_then(|sw| sw.ui_description.as_deref())
+                        }),
                     );
                     tip
                 } else {

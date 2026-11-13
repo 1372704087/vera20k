@@ -902,7 +902,7 @@ pub struct ScenarioSession {
     /// [`crate::sim::banner`], the draw reads them.
     #[cfg(feature = "phobos")]
     #[serde(default)]
-    banners: Vec<crate::sim::banner::RuntimeBanner>,
+    pub(crate) banners: Vec<crate::sim::banner::RuntimeBanner>,
     /// Destination Scenario+1C78/+1C80; immutable after its Basic read.
     #[serde(default)]
     carry_over_money: Option<crate::util::native_x87::NativeF64Bits>,

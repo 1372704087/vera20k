@@ -1162,7 +1162,7 @@ pub(crate) struct AresSuperWeaponAvailability {
 /// RuleSet projects this one catalog independently of effect-body admission.
 #[cfg(feature = "ares")]
 #[derive(Debug, Clone, PartialEq, Eq, Hash)]
-pub(crate) struct AresSuperWeaponMetadata {
+pub struct AresSuperWeaponMetadata {
     availability: AresSuperWeaponAvailability,
     native_auxiliary: Option<String>,
     buildings: Option<SuperWeaponBuildingRequirements>,
@@ -2314,6 +2314,18 @@ impl AresSuperWeaponMetadata {
 
     pub(crate) fn influence(&self) -> &crate::rules::superweapon_influence::SuperWeaponInfluence {
         &self.influence
+    }
+
+    /// `SW.Designators`: the techno types whose rings the current player draws
+    /// for this armed superweapon.
+    pub fn designators(&self) -> &[TechnoTypeReference] {
+        &self.influence.designators
+    }
+
+    /// `SW.Inhibitors`: the hostile techno types whose rings an armed superweapon
+    /// draws.
+    pub fn inhibitors(&self) -> &[TechnoTypeReference] {
+        &self.influence.inhibitors
     }
 
     /// The ordered SWTypeExt targeting fields.

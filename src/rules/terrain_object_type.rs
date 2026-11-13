@@ -159,13 +159,13 @@ pub struct TerrainObjectType {
     /// (`Ext/TerrainType/Hooks.cpp:26`).
     #[cfg(feature = "phobos")]
     #[serde(default)]
-    pub(crate) animation_length: Option<i32>,
+    pub animation_length: Option<i32>,
     /// Phobos `HasDamagedFrames=` (`:80`, `Valueable<bool>`, constructor
     /// `Body.h:54`): the SHP holds a damaged half after the healthy frames
     /// (`Ext/TerrainType/Hooks.cpp:106-113`).
     #[cfg(feature = "phobos")]
     #[serde(default)]
-    pub(crate) has_damaged_frames: bool,
+    pub has_damaged_frames: bool,
     /// Phobos `MinimapColor=` (`:75`, `Nullable<ColorStruct>`, constructor
     /// `Body.h:51`): replaces the SHP-header minimap color when set
     /// (`Ext/TerrainType/Hooks.cpp:334-337`).

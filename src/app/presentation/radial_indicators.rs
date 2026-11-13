@@ -112,7 +112,10 @@ pub(crate) fn build(
     // The caller combines the [Phobos] client and [AudioVisual] rules switches
     // into show_designator_range; the armed [SuperWeaponType] switch is the
     // third gate, checked here.
-    #[cfg(feature = "phobos")]
+    // `SW.Designators`/`SW.Inhibitors` and `DesignatorRange`/`InhibitorRange`
+    // are Ares' SWTypeExt keys in VERA's rules; a phobos-only build carries no
+    // influence data, so the rings need both capabilities compiled in.
+    #[cfg(all(feature = "phobos", feature = "ares"))]
     if show_designator_range
         && let Some(section) = armed_super_weapon
         && let Some(super_weapon) = rules.super_weapon(section)
@@ -316,7 +319,7 @@ pub(crate) fn build(
 /// only the explicit lists, ignoring `SW.AnyDesignator`/`SW.AnyInhibitor` and
 /// the health/deactivated/building-power predicates. Radius is the techno's
 /// `DesignatorRange`/`InhibitorRange` falling back to `Sight`.
-#[cfg(feature = "phobos")]
+#[cfg(all(feature = "phobos", feature = "ares"))]
 fn push_designator_rings(
     draws: &mut Vec<RadialIndicatorDraw>,
     sim: &Simulation,
@@ -328,12 +331,10 @@ fn push_designator_rings(
     let Some(player) = sim.session().current_house() else {
         return;
     };
-    let Some(influence) = rules
-        .super_weapon_metadata(&super_weapon.id)
-        .map(|metadata| metadata.influence())
-    else {
+    let Some(influence) = rules.super_weapon_metadata(&super_weapon.id) else {
         return;
     };
+    let (designators, inhibitors) = (influence.designators(), influence.inhibitors());
     // `SW_Designators.Contains(pTechnoType)`: TechnoType identity is category
     // plus name, the same test the launch scan uses.
     let matches = |types: &[crate::rules::superweapon_type::TechnoTypeReference],
@@ -350,12 +351,12 @@ fn push_designator_rings(
             continue;
         };
         let owner = entity.owner();
-        let designator = owner == player && matches(&influence.designators, ty);
+        let designator = owner == player && matches(designators, ty);
         let inhibitor = owner != player
             && !sim
                 .house_alliances()
                 .is_allied(sim.interner(), player, owner)
-            && matches(&influence.inhibitors, ty);
+            && matches(inhibitors, ty);
         if !designator && !inhibitor {
             continue;
         }

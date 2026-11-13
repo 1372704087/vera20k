@@ -65,6 +65,7 @@ fn build_nuke(
         Some((16, 16)),
         false,
         true,
+        false,
         &mut RangePulse::default(),
         pulse,
         &colors,

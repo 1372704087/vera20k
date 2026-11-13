@@ -127,6 +127,8 @@ pub mod select_box_type;
 #[cfg(feature = "phobos")]
 pub mod invulnerability_rules;
 #[cfg(feature = "phobos")]
+pub mod phobos_shadow;
+#[cfg(feature = "phobos")]
 pub mod phobos_adjacent;
 #[cfg(feature = "phobos")]
 pub mod phobos_airburst;

@@ -2039,6 +2039,7 @@ fn emit_unit_shadow_sprite(
         depth,
         voxel_adjust,
         draw_state,
+        1.0,
         pieces,
     );
 }
@@ -2075,6 +2076,12 @@ fn draw_voxel_shadow(
 
 /// Shared Techno706BD0 stencil emission. Aircraft4148A0 supplies no composed
 /// body mask, so its immutable atlas entry also serves pitched/rolled bodies.
+///
+/// `scale` is Phobos' `shadowMatrix.Scale(currentScale)`
+/// (`Ext/TechnoType/Hooks.MatrixOp.cpp:687,700,708`), applied to the drawn
+/// quad about the anchor: the atlas keeps one stencil per (type, facing, slope)
+/// and native's per-frame re-raster through the scaled matrix becomes a
+/// resample of that stencil (see `rules::phobos_shadow`).
 fn emit_shadow_stencil(
     entry: UnitSpriteEntry,
     source: UnitTextureSource,
@@ -2082,13 +2089,17 @@ fn emit_shadow_stencil(
     depth: f32,
     voxel_adjust: f32,
     draw_state: DrawState,
+    scale: f32,
     pieces: &mut Vec<ObjectPieceInstance>,
 ) {
     let mut shadow_state: DrawState = draw_state;
     shadow_state.fx_flags |= FX_SHADOW;
     let sprite = SpriteInstance {
-        position: [anchor[0] + entry.offset_x, anchor[1] + entry.offset_y],
-        size: entry.pixel_size,
+        position: [
+            anchor[0] + entry.offset_x * scale,
+            anchor[1] + entry.offset_y * scale,
+        ],
+        size: [entry.pixel_size[0] * scale, entry.pixel_size[1] * scale],
         uv_origin: entry.uv_origin,
         uv_size: entry.uv_size,
         depth,
@@ -2265,6 +2276,12 @@ fn emit_lifted_unit_shadow(
         entity.position.z(),
     );
     let z_adjust = super::foot_depth::unit_z_adjust(state, entity, true, None);
+    let scale = state
+        .rules()
+        .and_then(|rules| view.interner().object_type(entity.type_ref(), rules))
+        .map_or(1.0, |object| {
+            unit_shadow_scale(state, entity, object, pose.height_leptons)
+        });
     emit_shadow_stencil(
         entry,
         source,
@@ -2272,6 +2289,7 @@ fn emit_lifted_unit_shadow(
         depth,
         z_adjust as f32,
         draw_state,
+        scale,
         pieces,
     );
 }
@@ -2377,6 +2395,7 @@ fn emit_aircraft_shadow_sprite(
         0,
     );
     let z_adjust = super::foot_depth::unit_z_adjust(state, entity, false, Some(pose.world_z));
+    let scale = aircraft_shadow_scale(state, entity, pose.height_leptons);
     emit_shadow_stencil(
         entry,
         UnitTextureSource::Stable(entry.page),
@@ -2384,8 +2403,60 @@ fn emit_aircraft_shadow_sprite(
         depth,
         z_adjust as f32,
         draw_state,
+        scale,
         pieces,
     );
+}
+
+/// Phobos' aircraft height scale (`Ext/TechnoType/Hooks.MatrixOp.cpp:958-973`):
+/// the live height over the type's `GetFlightLevel()`, or the base scale for a
+/// `ConsideredAircraft` type when the switch is off.
+fn aircraft_shadow_scale(
+    state: &AppState,
+    entity: &crate::sim::game_entity::GameEntity,
+    height_leptons: i32,
+) -> f32 {
+    let Some(runtime) = state.match_state.sim_runtime.as_ref() else {
+        return 1.0;
+    };
+    let view = runtime.view();
+    let rules = &runtime.resources.rules;
+    let Some(object) = view.interner().object_type(entity.type_ref(), rules) else {
+        return 1.0;
+    };
+    crate::rules::phobos_shadow::aircraft_size_scale(
+        &rules.phobos_globals,
+        height_leptons,
+        object.flight_level(rules.general.flight_level),
+        object.phobos_shadow_size_characteristic_height,
+        object.considered_aircraft,
+    ) as f32
+}
+
+/// Phobos' unit height scale (`Ext/TechnoType/Hooks.MatrixOp.cpp:677-709`).
+fn unit_shadow_scale(
+    state: &AppState,
+    entity: &crate::sim::game_entity::GameEntity,
+    object: &crate::rules::object_type::ObjectType,
+    height_leptons: i32,
+) -> f32 {
+    let Some(rules) = state.rules() else {
+        return 1.0;
+    };
+    crate::rules::phobos_shadow::unit_size_scale(
+        &rules.phobos_globals,
+        height_leptons,
+        entity.locomotor.as_ref().and_then(|locomotor| {
+            matches!(
+                locomotor.active_kind(),
+                crate::rules::locomotor_type::LocomotorKind::Jumpjet
+            )
+            .then_some(object.jumpjet_params.height)
+        }),
+        object.phobos_shadow_size_characteristic_height,
+        rules.general.display_cruise_height,
+        object.considered_aircraft,
+    ) as f32
 }
 
 fn push_unit_sprite(
@@ -2807,6 +2878,93 @@ fn emit_turret_unit_sprites(
             pieces,
         );
     }
+    // `Hooks.MatrixOp.cpp:803-870`: a second `DrawVoxelShadow` for the turret
+    // voxel's section zero, on the same surface, at the turret's own facing.
+    // A posed hull draws all its parts through the pose key (+0x3FF), which
+    // carries no turret stencil, so the turret shadow follows the unposed arm.
+    if ground_pose.is_none() {
+        emit_turret_shadow_sprite(
+            state,
+            atlas,
+            drawer,
+            entity,
+            type_id,
+            turret_key.clone(),
+            [center_x + tur_ox, center_y + tur_oy],
+            shadow_slope,
+            entity_depth,
+            voxel_adjust,
+            draw_state,
+            no_shadow,
+            band,
+            pieces,
+        );
+    }
+}
+
+/// Phobos' turret half of the shadow: one stencil of `{IMAGE}TUR.VXL`'s
+/// section zero at the turret's facing and slope
+/// (`Ext/TechnoType/Hooks.MatrixOp.cpp:856-871`). The `mtx_turret` rotation
+/// is the turret's own facing, which VERA carries in the key; the
+/// `ApplyTurretOffsetUnit` translation is the art `TurretOffset=` that the
+/// caller already applied to the anchor.
+#[allow(clippy::too_many_arguments)]
+fn emit_turret_shadow_sprite(
+    state: &AppState,
+    atlas: &crate::render::unit_atlas::UnitAtlas,
+    drawer: VoxelDrawer,
+    entity: &crate::sim::game_entity::GameEntity,
+    type_id: &str,
+    mut key: UnitSpriteKey,
+    anchor: [f32; 2],
+    shadow_slope: u8,
+    depth: f32,
+    voxel_adjust: f32,
+    draw_state: DrawState,
+    no_shadow: bool,
+    band: EntityDrawBand,
+    pieces: &mut Vec<ObjectPieceInstance>,
+) {
+    let enabled = state
+        .rules()
+        .and_then(|rules| rules.object(type_id))
+        .is_some_and(|object| {
+            crate::render::unit_atlas::turret_shadow_enabled(state.rules(), object)
+        });
+    // The grounded sunk/sinking gate is the same one `73C1D2` applies to the
+    // body stencil, and `no_shadow` is the unit's own draw suppression.
+    if !enabled || no_shadow || has_lifted_unit_shadow(entity) || !unit_shadow_admitted(entity, no_shadow, band) {
+        return;
+    }
+    key.layer = VxlLayer::ShadowTurret;
+    key.frame = 0;
+    key.slope_type = shadow_slope;
+    key.barrel_pitch = 0;
+    let Some(entry) = atlas.get(&key).copied() else {
+        return;
+    };
+    // `Hooks.MatrixOp.cpp:848` splits the turret stencil's cache record from
+    // the body's; the atlas key already names (type, gun, turret facing, slope).
+    draw_voxel_shadow(
+        state,
+        atlas,
+        drawer,
+        Some(crate::render::voxel_image_cache::VoxelImageKey::new(
+            crate::render::voxel_image_cache::VoxelCache::Shadow,
+            key.clone(),
+        )),
+        &key,
+    );
+    emit_shadow_stencil(
+        entry,
+        UnitTextureSource::Stable(entry.page),
+        anchor,
+        depth,
+        voxel_adjust,
+        draw_state,
+        1.0,
+        pieces,
+    );
 }
 
 /// Frames per facing in `OREGATH.SHP`, the literal `15` of
@@ -3046,6 +3204,59 @@ mod tests {
     use crate::sim::spawn_manager::{SpawnManagerState, SpawnSlot, SpawnSlotState};
     use crate::sim::timer::CdTimer;
     use crate::sim::world::Simulation;
+
+    /// Phobos' `ShadowSizeCharacteristicHeight=` scale shrinks the shadow about
+    /// its own anchor: the quad's size and its offset from the anchor both
+    /// take the factor, while the anchor itself stays where the pose put it
+    /// (`Ext/TechnoType/Hooks.MatrixOp.cpp:687` scaling a translation-free
+    /// shadow matrix).
+    #[cfg(feature = "phobos")]
+    #[test]
+    fn a_scaled_shadow_quad_shrinks_about_its_anchor() {
+        let entry = UnitSpriteEntry {
+            uv_origin: [0.25, 0.5],
+            uv_size: [0.1, 0.1],
+            pixel_size: [40.0, 60.0],
+            offset_x: -20.0,
+            offset_y: -30.0,
+            native_draw_bounds: None,
+            page: 3,
+        };
+        let mut pieces = Vec::new();
+        emit_shadow_stencil(
+            entry,
+            UnitTextureSource::Stable(3),
+            [100.0, 200.0],
+            7.0,
+            0.0,
+            DrawState::default(),
+            0.5,
+            &mut pieces,
+        );
+        let sprite = &pieces[0].instance;
+        assert_eq!(sprite.position, [100.0 - 10.0, 200.0 - 15.0]);
+        assert_eq!(sprite.size, [20.0, 30.0]);
+        assert_eq!(
+            sprite.uv_origin, entry.uv_origin,
+            "the stencil itself is resampled"
+        );
+        assert_eq!(sprite.uv_size, entry.uv_size);
+
+        pieces.clear();
+        emit_shadow_stencil(
+            entry,
+            UnitTextureSource::Stable(3),
+            [100.0, 200.0],
+            7.0,
+            0.0,
+            DrawState::default(),
+            1.0,
+            &mut pieces,
+        );
+        let sprite = &pieces[0].instance;
+        assert_eq!(sprite.position, [80.0, 170.0]);
+        assert_eq!(sprite.size, [40.0, 60.0]);
+    }
 
     /// OREGATH's row rounds the body facing to eight directions, `0x1000` on
     /// either side of each (`0x0073D1E7..0x0073D1FD`); the frame within the

@@ -6025,6 +6025,25 @@ impl RuleSet {
                 object.set_voxel_shadow_index(shadow_index);
             }
         }
+        #[cfg(feature = "phobos")]
+        for (category, name, indices) in processed.phobos_shadow_index_states() {
+            if let Some(object) = rules
+                .object_list
+                .iter_mut()
+                .find(|object| object.category == category && object.id == name)
+            {
+                object.set_phobos_shadow_indices(indices.to_vec());
+            }
+        }
+        for (category, name, turret_shadow) in processed.phobos_turret_shadow_states() {
+            if let Some(object) = rules
+                .object_list
+                .iter_mut()
+                .find(|object| object.category == category && object.id == name)
+            {
+                object.phobos_turret_shadow = turret_shadow;
+            }
+        }
         for (name, pips) in processed.infantry_pip_states() {
             if let Some(object) = rules
                 .object_list

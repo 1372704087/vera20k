@@ -772,6 +772,11 @@ pub struct ObjectType {
     /// TechnoType+7FC, read from the current Image section of fixed ARTMD.
     /// The ordered processor owns its retained default (constructor0).
     voxel_shadow_index: i32,
+    /// Phobos `ShadowIndices=` (`Ext/TechnoType/Body.cpp:1325`, ART): the HVA
+    /// sections whose stencils compose into this type's shadow in place of
+    /// the single `ShadowIndex`. Empty keeps the single-section path.
+    #[cfg(feature = "phobos")]
+    phobos_shadow_indices: Vec<i32>,
     /// `PitchSpeed=` (`TechnoType+0x3A8`): constructor `0.25`; each
     /// `TechnoTypeClass::ReadINI @ 0x00712170` pass uses this current double
     /// as `ReadDouble`'s default (`0x007123DA..0x007123E8`). Normal Fly
@@ -1192,6 +1197,23 @@ pub struct ObjectType {
     /// (`Ext/Building/Hooks.Unload.cpp:73`). Building types only.
     #[cfg(feature = "phobos")]
     pub phobos_deploy_fire_delay: Option<i32>,
+    /// Phobos `ShadowSizeCharacteristicHeight=` (`Ext/TechnoType/Body.cpp:912`,
+    /// rules layer, `Nullable<int>`, empty at construction `Body.h:567`): the
+    /// height at which a drawing techno's shadow reaches the base scale. Unset
+    /// falls back to the drawing locomotion's height — the Jumpjet's own
+    /// `Height=` (`Ext/TechnoType/Hooks.MatrixOp.cpp:682`) or
+    /// `[AudioVisual] CruiseHeight=` (`:695`), and an aircraft's
+    /// `GetFlightLevel()` (`:961`).
+    #[cfg(feature = "phobos")]
+    pub phobos_shadow_size_characteristic_height: Option<i32>,
+    /// Phobos `TurretShadow=` (`Ext/TechnoType/Body.cpp:1323`, ART layer,
+    /// `Nullable<bool>`, empty at construction `Body.h:57`/`:495`): a drawing
+    /// unit adds the turret voxel's own shadow stencil; unset falls back to
+    /// `[AudioVisual] DrawTurretShadow=` (`Ext/Rules/Body.cpp:173`, default no).
+    /// Under `UseTurretShadow=`-less units this is the only switch
+    /// (`Ext/TechnoType/Hooks.MatrixOp.cpp:803`).
+    #[cfg(feature = "phobos")]
+    pub phobos_turret_shadow: Option<bool>,
     /// Phobos `NoAlphaImageOnBuildup=` (`Ext/BuildingType/Body.cpp:234`,
     /// `Nullable<bool>`): skip the buildup image's alpha blend; unset takes
     /// `[AudioVisual]`. Building types only.
@@ -4730,6 +4752,18 @@ impl ObjectType {
         self.voxel_shadow_index = index;
     }
 
+    /// Phobos `ShadowIndices=`'s HVA sections (`Ext/TechnoType/Body.cpp:1325`);
+    /// empty leaves the type's single `ShadowIndex` alone.
+    #[cfg(feature = "phobos")]
+    pub fn phobos_shadow_indices(&self) -> &[i32] {
+        &self.phobos_shadow_indices
+    }
+
+    #[cfg(feature = "phobos")]
+    pub(crate) fn set_phobos_shadow_indices(&mut self, indices: Vec<i32>) {
+        self.phobos_shadow_indices = indices;
+    }
+
     /// Type+C95 also selects Fly's flat shadow-matrix arm (4CFB4B).
     pub const fn is_dropship(&self) -> bool {
         self.is_dropship
@@ -6245,6 +6279,13 @@ impl ObjectType {
                 .then(|| section.read_phobos_nullable_int("ParadropEndDelay", None))
                 .flatten(),
             #[cfg(feature = "phobos")]
+            phobos_shadow_size_characteristic_height: section
+                .read_phobos_nullable_int("ShadowSizeCharacteristicHeight", None),
+            // The ART layer owns `TurretShadow=` (`Ext/TechnoType/Body.cpp:1323`);
+            // `native_processing` publishes it after each fixed-ART pass.
+            #[cfg(feature = "phobos")]
+            phobos_turret_shadow: None,
+            #[cfg(feature = "phobos")]
             phobos_spawn_height: (category == ObjectCategory::Aircraft)
                 .then(|| section.read_phobos_nullable_int("SpawnHeight", None))
                 .flatten(),
@@ -6604,6 +6645,8 @@ impl ObjectType {
             #[cfg(feature = "phobos")]
             airstrike_line_color: section.read_phobos_nullable_color("AirstrikeLineColor", None),
             voxel_shadow_index: 0,
+            #[cfg(feature = "phobos")]
+            phobos_shadow_indices: Vec::new(),
             pitch_speed: section.read_double_bits(
                 "PitchSpeed",
                 NativeF64Bits::from_bits(0x3fd0_0000_0000_0000),

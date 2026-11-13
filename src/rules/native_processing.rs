@@ -1968,6 +1968,52 @@ impl ProcessedRulesLayers {
             })
     }
 
+    /// Phobos `ShadowIndices=` after every reached fixed-ART pass.
+    #[cfg(feature = "phobos")]
+    pub(crate) fn phobos_shadow_index_states(
+        &self,
+    ) -> impl Iterator<Item = (ObjectCategory, &str, &[i32])> {
+        self.native_type_construction_trace
+            .registry_state()
+            .families
+            .iter()
+            .filter_map(|(family, members)| {
+                family.object_category().map(|category| (category, members))
+            })
+            .flat_map(|(category, members)| {
+                members.iter().map(move |member| {
+                    (
+                        category,
+                        member.native_stored_id.as_str(),
+                        member.phobos_shadow_indices.as_slice(),
+                    )
+                })
+            })
+    }
+
+    /// Phobos `TurretShadow=` after every reached fixed-ART pass.
+    #[cfg(feature = "phobos")]
+    pub(crate) fn phobos_turret_shadow_states(
+        &self,
+    ) -> impl Iterator<Item = (ObjectCategory, &str, Option<bool>)> {
+        self.native_type_construction_trace
+            .registry_state()
+            .families
+            .iter()
+            .filter_map(|(family, members)| {
+                family.object_category().map(|category| (category, members))
+            })
+            .flat_map(|(category, members)| {
+                members.iter().map(move |member| {
+                    (
+                        category,
+                        member.native_stored_id.as_str(),
+                        member.phobos_turret_shadow,
+                    )
+                })
+            })
+    }
+
     /// Each SuperWeaponType's `WeaponType=` (+9C) and `AuxBuilding=` (+C8)
     /// after every reached pass.
     pub(crate) fn super_weapon_reference_states(
@@ -5278,6 +5324,21 @@ struct ProcessedType {
     /// current value as default across Image changes and later Rules passes.
     #[serde(default)]
     voxel_shadow_index: i32,
+    /// Phobos `ShadowIndices=` (`Ext/TechnoType/Body.cpp:1325`): the ART
+    /// section re-reads it on every pass, so a missing key leaves this pass's
+    /// list empty. `ShadowIndices.Frame` is read there too, but the hooked
+    /// `0x707280` loop (`Hooks.MatrixOp.cpp:795-799`) never consumes the
+    /// mapped frame, so it stays unmodelled.
+    #[serde(default)]
+    #[cfg(feature = "phobos")]
+    phobos_shadow_indices: Vec<i32>,
+    /// Phobos `TurretShadow=` (`Ext/TechnoType/Body.cpp:1323`, ART, `Nullable<bool>`):
+    /// whether a drawing unit adds the turret's own shadow stencil
+    /// (`Ext/TechnoType/Hooks.MatrixOp.cpp:803,870`); unset takes
+    /// `[AudioVisual] DrawTurretShadow=`.
+    #[serde(default)]
+    #[cfg(feature = "phobos")]
+    phobos_turret_shadow: Option<bool>,
     /// TechnoType ctor711082 initializes+634 to255; ReadInt714570 uses
     /// its current value, including a prior TAction106 write, as the default.
     /// Native controls: trigger_object_tech_level.json scalar_layers/lifecycle.
@@ -6064,6 +6125,10 @@ impl ProcessedType {
             overlay_explodes: false,
             overlay_cell_anim: None,
             voxel_shadow_index: 0,
+            #[cfg(feature = "phobos")]
+            phobos_shadow_indices: Vec::new(),
+            #[cfg(feature = "phobos")]
+            phobos_turret_shadow: None,
             tech_level: crate::rules::object_type::DEFAULT_TECH_LEVEL,
             projectile_art: ProjectileArtState::new(),
             techno_references: TechnoTypeReferences::new(),
@@ -8775,6 +8840,31 @@ impl RulesPassProcessor {
                 member.voxel_shadow_index = fixed_art
                     .section_or_empty(&image)
                     .read_int("ShadowIndex", member.voxel_shadow_index);
+                // Phobos reads the plural key right after the singular one
+                // (`Ext/TechnoType/Body.cpp:1325`), keyed by section so a
+                // repeat collapses and later entries win.
+                #[cfg(feature = "phobos")]
+                {
+                    let mut indices = Vec::new();
+                    if let Some(list) = fixed_art
+                        .section_or_empty(&image)
+                        .read_int_list("ShadowIndices")
+                    {
+                        for index in list {
+                            if !indices.contains(&index) {
+                                indices.push(index);
+                            }
+                        }
+                    }
+                    member.phobos_shadow_indices = indices;
+                    // `Ext/TechnoType/Body.cpp:1323`: the ART `TurretShadow=`
+                    // beside `TurretOffset=`, `Nullable<bool>` empty at
+                    // construction (`Body.h:57`/`:495`); its consumer falls
+                    // back to `[AudioVisual] DrawTurretShadow=`.
+                    member.phobos_turret_shadow = fixed_art
+                        .section_or_empty(&image)
+                        .read_phobos_nullable_bool("TurretShadow", member.phobos_turret_shadow);
+                }
                 // TechnoRead715B10..716005 reads the WeaponStruct coordinates
                 // after the retained Image selects this pass's fixed ART.
                 let slots = &mut member.weapon_slots;

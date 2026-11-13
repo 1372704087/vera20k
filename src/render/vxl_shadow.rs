@@ -122,6 +122,21 @@ pub(crate) fn prepare_matrix(
     shadow_index: i32,
     considered_aircraft: bool,
 ) -> Option<StencilRaster> {
+    prepare_matrix_at(vxl, matrix, shadow_index, considered_aircraft, None)
+}
+
+/// [`prepare_matrix`] with the projected bounds center supplied instead of
+/// derived from this section's own bounds alone. Phobos `ShadowIndices=` hands
+/// every extra section the same `matrix` and `bnd` as the primary
+/// (`Ext/TechnoType/Hooks.MatrixOp.cpp:793-800`), so their stencils share the
+/// primary's center.
+fn prepare_matrix_at(
+    vxl: &VxlFile,
+    matrix: super::Mat4,
+    shadow_index: i32,
+    considered_aircraft: bool,
+    center_override: Option<[f32; 2]>,
+) -> Option<StencilRaster> {
     let limb_index = usize::try_from(shadow_index).ok()?;
     let limb = vxl.limbs.get(limb_index)?;
     let nx = usize::from(limb.size_x);
@@ -130,7 +145,10 @@ pub(crate) fn prepare_matrix(
         return None;
     }
     let (corners, lo, hi) = projected_quad(matrix, limb.bounds, considered_aircraft)?;
-    let center = center_of_bounds(lo, hi)?;
+    let center = match center_override {
+        Some(center) => center,
+        None => center_of_bounds(lo, hi)?,
+    };
     let mut rect = [0i32; 6];
     let mut origin = [0u16; 2];
     let mut step_x = [0u16; 2];
@@ -249,6 +267,77 @@ pub(crate) fn render_matrix(
         vxl,
         &prepare_matrix(vxl, matrix, shadow_index, considered_aircraft)?,
     )
+}
+
+/// Phobos `ShadowIndices=`'s extra sections as one stencil
+/// (`Ext/TechnoType/Hooks.MatrixOp.cpp:793-800`): each listed section is
+/// rasterized through the same `matrix` around the primary section's
+/// projected center, and their two-byte columns compose in one 256-square,
+/// exactly the way the loop's repeated `DrawVoxelShadow` calls accumulate on
+/// the one surface. The crop is the union the composed pixels occupy, and its
+/// placement answers the same screen offset the single-section path does.
+pub(crate) fn render_indices(
+    vxl: &VxlFile,
+    hva: Option<&HvaFile>,
+    params: &VxlRenderParams,
+    primary_index: i32,
+    indices: &[i32],
+    considered_aircraft: bool,
+) -> Option<VxlSprite> {
+    let matrix = draw_matrix(vxl, hva, params, primary_index)?;
+    let center = center(vxl, hva, params, primary_index, considered_aircraft)?;
+    let mut visibility = vec![0u8; 65536];
+    let mut any = false;
+    for &index in indices {
+        let Some(raster) = prepare_matrix_at(vxl, matrix, index, considered_aircraft, Some(center))
+        else {
+            continue;
+        };
+        let limb = vxl.limbs.get(raster.limb)?;
+        for column in stencil_columns(limb)? {
+            let address = usize::from(stencil_address(&raster, column));
+            visibility[address] = 1;
+            if address + 1 < visibility.len() {
+                // The second byte is adjacent, not independently wrapped X.
+                visibility[address + 1] = 1;
+            }
+            any = true;
+        }
+    }
+    if !any {
+        return None;
+    }
+    let (mut x0, mut y0, mut x1, mut y1) = (256i32, 256i32, -1i32, -1i32);
+    for y in 0..256usize {
+        for x in 0..256usize {
+            if visibility[y * 256 + x] != 0 {
+                x0 = x0.min(x as i32);
+                y0 = y0.min(y as i32);
+                x1 = x1.max(x as i32);
+                y1 = y1.max(y as i32);
+            }
+        }
+    }
+    if x1 < x0 || y1 < y0 {
+        return None;
+    }
+    let (w, h) = ((x1 - x0 + 1) as usize, (y1 - y0 + 1) as usize);
+    let mut pixels = Vec::with_capacity(w * h);
+    for row in y0 as usize..=y1 as usize {
+        let p = row * 256 + x0 as usize;
+        pixels.extend_from_slice(&visibility[p..p + w]);
+    }
+    // The 256-square's column 128 is the placement anchor: a pixel at square
+    // `x` sits at `center + (x - 128)` on the tactical surface.
+    let anchor = [ftol(load(center[0])?)?, ftol(load(center[1])?)?];
+    Some(VxlSprite {
+        palette_indices: pixels,
+        depth: Vec::new(),
+        width: w as u32,
+        height: h as u32,
+        offset_x: (anchor[0] - 128 + x0) as f32,
+        offset_y: (anchor[1] - 128 + y0) as f32,
+    })
 }
 
 /// [`render_matrix`] as an image for the GPU raster.

@@ -45,6 +45,50 @@ fn check(sprite: &VxlSprite, case: &Value, label: &str) {
     assert_eq!(errors, 0, "{label} complete cropped stencil");
 }
 
+/// Phobos `ShadowIndices=`'s loop (`Ext/TechnoType/Hooks.MatrixOp.cpp:793-800`)
+/// draws one stencil per listed section; a list naming only the type's own
+/// `ShadowIndex` must answer exactly that single-section stencil, and an
+/// index the voxel has no section for draws nothing.
+#[test]
+fn shadow_indices_compose_around_the_primary_sections_center() {
+    let fixture: Value = serde_json::from_str(crate::test_fixture::text(
+        "tools/voxel_oracle/shadow_fixtures.json",
+    ))
+    .unwrap();
+    let vxl = VxlFile::from_bytes(&bytes(fixture["vxl"].as_str().unwrap())).unwrap();
+    let hva = HvaFile::from_bytes(&bytes(fixture["hva"].as_str().unwrap())).unwrap();
+    assert_eq!(vxl.limbs.len(), 1, "the oracle fixture has one section");
+    for step in [0u8, 7, 15] {
+        let params = VxlRenderParams {
+            facing: step * 8,
+            ..Default::default()
+        };
+        let single = render(&vxl, Some(&hva), &params, 0, false).unwrap();
+        let listed = render_indices(&vxl, Some(&hva), &params, 0, &[0], false).unwrap();
+        // Coverage is what the surrounding surface sees: every stencil pixel
+        // at the same tactical position, whatever crop the two paths picked.
+        let coverage = |sprite: &VxlSprite| {
+            let mut set = std::collections::BTreeSet::new();
+            for y in 0..sprite.height as i32 {
+                for x in 0..sprite.width as i32 {
+                    if sprite.palette_indices[(y * sprite.width as i32 + x) as usize] != 0 {
+                        set.insert((sprite.offset_x as i32 + x, sprite.offset_y as i32 + y));
+                    }
+                }
+            }
+            set
+        };
+        assert_eq!(coverage(&listed), coverage(&single), "step {step}");
+        // A section the voxel does not have contributes no stencil.
+        assert_eq!(
+            coverage(&render_indices(&vxl, Some(&hva), &params, 0, &[0, 4], false).unwrap()),
+            coverage(&single),
+            "unreachable section is skipped"
+        );
+        assert!(render_indices(&vxl, Some(&hva), &params, 0, &[4], false).is_none());
+    }
+}
+
 #[test]
 fn native_generated_shadow_geometry_and_body_mask() {
     let fixture: Value = serde_json::from_str(crate::test_fixture::text(

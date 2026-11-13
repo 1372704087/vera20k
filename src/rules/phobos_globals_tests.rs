@@ -739,6 +739,16 @@ fn the_chrono_sphere_pre_delay_defaults_to_sixty() {
     );
 }
 
+/// `[JumpjetControls] RotateOnCrash=` (`Ext/Rules/Body.cpp:1355`,
+/// constructor **true** `Body.h:596`).
+#[test]
+fn the_jumpjet_rotate_on_crash_defaults_true() {
+    assert!(PhobosGlobals::default().jumpjet_rotate_on_crash);
+    assert!(!read("[JumpjetControls]\nRotateOnCrash=no\n").jumpjet_rotate_on_crash);
+    // `[JumpjetControls]` only.
+    assert!(read("[General]\nRotateOnCrash=no\n").jumpjet_rotate_on_crash);
+}
+
 /// `[General] AircraftFiringForceScatter=` (`Ext/Rules/Body.cpp:473`,
 /// constructor **true** `Body.h:888`).
 #[test]

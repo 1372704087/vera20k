@@ -537,26 +537,42 @@ impl Simulation {
             RepresentedConcreteMissionEffects::new(rules, overlay_registry, frame_effects);
         let prepared =
             effects.preflight(self, receiver, ConcreteSetterRequest::Target { requested })?;
+        // `Assign_Target @ 0x006FCDCA..0x006FCDCC` returns before the store
+        // (and Phobos' `0x6FCF3E` hook) when the requested pointer equals the
+        // current target; the hook body therefore belongs to changed stores.
+        let previous = self
+            .substrate
+            .entities
+            .get(receiver)
+            .and_then(|entity| entity.attack_target.target());
         effects.apply_target(self, &prepared, requested);
-        // Phobos `UpdateGattlingRateDownReset` at `TechnoClass_SetTarget_After`
-        // (`0x6FCF3E`): a `RateDown.Reset=yes` gattling restarts its value on
-        // every new, changed or lost target.
         #[cfg(feature = "phobos")]
-        self.apply_rate_down_target_reset(receiver, rules);
-        // Phobos `TechnoClass_SetTarget_After @ 0x6FCF3E`
-        // (`src/Ext/Techno/Hooks.cpp:1175`): a null TarCom resets the
-        // `DelayedFireTimer` (and force-removes an attached no-delay anim).
-        #[cfg(feature = "phobos")]
-        if requested.is_none() {
-            crate::sim::combat::world_fire::reset_phobos_delayed_fire_timer(self, rules, receiver);
-        }
-        // Phobos `TechnoClass_SetTarget_After @ 0x6FCF3E`
-        // (`Ext/Techno/Hooks.cpp:1176-1184`): a turretless Unit with an active
-        // firing sequence clears it for a new target unless
-        // `FireUp.ResetInRetarget=no` and the target is already in range.
-        #[cfg(feature = "phobos")]
-        if let Some(target) = requested {
-            reset_fire_up_in_retarget(self, receiver, &target, rules, overlay_registry);
+        if requested != previous {
+            // Phobos `UpdateGattlingRateDownReset` at `TechnoClass_SetTarget_After`
+            // (`0x6FCF3E`): a `RateDown.Reset=yes` gattling restarts its value on
+            // every changed or lost stored target.
+            self.apply_rate_down_target_reset(receiver, rules);
+            let stored = self
+                .substrate
+                .entities
+                .get(receiver)
+                .and_then(|entity| entity.attack_target.target());
+            match stored {
+                // Phobos `TechnoClass_SetTarget_After` (`Hooks.cpp:1176-1184`):
+                // a turretless Unit with an active firing sequence clears it
+                // unless `FireUp.ResetInRetarget=no` and the stored target is
+                // already in range.
+                Some(target) => {
+                    reset_fire_up_in_retarget(self, receiver, &target, rules, overlay_registry);
+                }
+                // `Hooks.cpp:1175`: a stored null resets the `DelayedFireTimer`
+                // (and force-removes an attached no-delay anim).
+                None => {
+                    crate::sim::combat::world_fire::reset_phobos_delayed_fire_timer(
+                        self, rules, receiver,
+                    );
+                }
+            }
         }
         Ok(())
     }

@@ -111,3 +111,34 @@ fn a_turreted_unit_keeps_its_sequence() {
     set_target(&mut sim, &rules, unit, near);
     assert_eq!(counter(&sim, unit), 9);
 }
+
+/// `Assign_Target`'s same-target early-out (`0x6FCDCA..0x6FCDCC`) returns
+/// before the store and the `0x6FCF3E` hook body: re-issuing the current
+/// target keeps an active sequence.
+#[test]
+fn a_repeated_same_target_assignment_keeps_the_sequence() {
+    let (mut sim, rules, unit, near, _) = scene("", false);
+    set_counter(&mut sim, unit, 9);
+    set_target(&mut sim, &rules, unit, near);
+    assert_eq!(counter(&sim, unit), -1, "the first changed store resets");
+    set_counter(&mut sim, unit, 9);
+    set_target(&mut sim, &rules, unit, near);
+    assert_eq!(
+        counter(&sim, unit),
+        9,
+        "the same-target assignment is a no-op"
+    );
+}
+
+/// A stored null takes the hook's `ResetDelayedFireTimer` arm; the firing
+/// sequence arm only runs for a stored non-null target.
+#[test]
+fn a_null_store_leaves_the_sequence_alone() {
+    let (mut sim, rules, unit, near, _) = scene("", false);
+    set_counter(&mut sim, unit, 9);
+    set_target(&mut sim, &rules, unit, near);
+    set_counter(&mut sim, unit, 9);
+    sim.assign_target_represented(unit, None, &rules, None, FrameEffects::default())
+        .expect("the null setter runs");
+    assert_eq!(counter(&sim, unit), 9);
+}

@@ -47,3 +47,10 @@ The key arm and the range arm were each mutated red and restored.
   weapon for the admitted target.
 - The art key is read from the ARTMD layer only, as native does; a unit with
   no art entry keeps the constructor's true.
+- The bare `assign_target_stored` representations (for example the Ares
+  Temporal bunker assignment in `src/sim/temporal.rs`) call the same native
+  setter without this hook, as they already do for the gattling reset. That is
+  a pre-existing gap of those representations, not of this arm.
+- A store that writes the value already held (a bunker redirect back to the
+  current target) would reach the native hook but is skipped here because the
+  arm keys on the stored value differing from the previous one.

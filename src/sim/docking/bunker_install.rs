@@ -80,6 +80,13 @@ impl BunkerRuntime {
 
     /// Install a fixture's state.
     #[cfg(any(test, feature = "test-support"))]
+    /// Native `TankBunkerState > Idle && < Bunkered` (`0x44C976`): the
+    /// install/eject steps that take the custom state-update delay.
+    #[cfg(feature = "phobos")]
+    pub(crate) fn is_transitioning(&self) -> bool {
+        !matches!(self.state, BunkerState::Idle | BunkerState::Occupied)
+    }
+
     pub(crate) fn set_state_for_test(&mut self, state: BunkerState) {
         self.state = state;
     }

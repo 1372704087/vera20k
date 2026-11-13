@@ -57,6 +57,11 @@ fn zero_f64() -> NativeF64Bits {
     NativeF64Bits::POSITIVE_ZERO
 }
 
+/// The Phobos `[General] BunkerStateUpdateDelay=` constructor value.
+fn fifteen() -> i32 {
+    15
+}
+
 /// `section.read_phobos_double` kept as raw bits so `PhobosGlobals` stays
 /// `Eq + Hash`; the parser and its failed-read fallback are unchanged.
 fn read_double_bits(section: &IniSection, key: &str, current: NativeF64Bits) -> NativeF64Bits {
@@ -212,6 +217,11 @@ pub struct PhobosGlobals {
     /// `[AudioVisual] EBoltZAdjust=`, default 0 (`Ext/Rules/Body.cpp:278`).
     #[serde(default)]
     pub ebolt_z_adjust: i32,
+    /// `[General] BunkerStateUpdateDelay=`, default 15
+    /// (`Ext/Rules/Body.h:1012`): the fallback for a BuildingType's
+    /// `BunkerStateUpdateDelay=` (`0x44C976`, `Ext/Building/Hooks.cpp:1479`).
+    #[serde(default = "fifteen")]
+    pub bunker_state_update_delay: i32,
     /// `[AudioVisual] DrainMoneyDisplay.OnTarget=`, default `no`
     /// (`Ext/Rules/Body.h:731`): the drained object's own label.
     pub drain_money_display_on_target: bool,
@@ -853,6 +863,7 @@ impl Default for PhobosGlobals {
             shrapnel_affects_ground: false,
             laser_z_adjust: 0,
             ebolt_z_adjust: 0,
+            bunker_state_update_delay: 15,
             shrapnel_affects_buildings: false,
             auto_death_technos_exist_allow_limboed: false,
             auto_death_technos_dont_exist_allow_limboed: false,
@@ -1121,6 +1132,8 @@ impl PhobosGlobals {
             "BuildingGuardRetryDelay",
             globals.building_guard_retry_delay,
         );
+        globals.bunker_state_update_delay =
+            general.read_int("BunkerStateUpdateDelay", globals.bunker_state_update_delay);
         // `Ext/Rules/Body.cpp:521`: `Valueable<Mission>`; a named mission
         // replaces the constructor's `Hunt`, any other text keeps it
         // (`Utilities/TemplateDef.h:510-528`).

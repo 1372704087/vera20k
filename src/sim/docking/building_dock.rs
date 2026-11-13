@@ -1526,7 +1526,27 @@ pub(crate) fn mission_repair(
         }
         // 0x0044C836 -> 0x0044C970: a type in none of the five families.
         let plain = !(object.unit_reload || object.hospital || object.armory());
-        return plain.then_some(PLAIN_REPAIR_DELAY_FRAMES);
+        if !plain {
+            return None;
+        }
+        // Phobos `BuildingClass_Mission_Repair_TankBunker` (`0x44C976`,
+        // `Ext/Building/Hooks.cpp:1475-1483`): a Bunker type whose state is
+        // between Idle and Bunkered returns the type's
+        // `BunkerStateUpdateDelay=` else `[General]`, default 15.
+        #[cfg(feature = "phobos")]
+        if object.bunker
+            && building
+                .bunker_runtime
+                .as_ref()
+                .is_some_and(crate::sim::docking::bunker_install::BunkerRuntime::is_transitioning)
+        {
+            return Some(
+                object
+                    .phobos_bunker_state_update_delay
+                    .unwrap_or(rules.phobos_globals.bunker_state_update_delay),
+            );
+        }
+        return Some(PLAIN_REPAIR_DELAY_FRAMES);
     }
     let status = building.mission.handler_state();
     let current = building
@@ -2271,6 +2291,8 @@ mod tests {
              [AircraftTypes]\n\
              [BuildingTypes]\n\
              0=GADEPT\n\
+             1=BUNKER\n\
+             2=BUNKER7\n\
              [MTNK]\n\
              Name=Grizzly\n\
              Cost=700\n\
@@ -2293,6 +2315,15 @@ mod tests {
              Name=Depot\n\
              UnitRepair=yes\n\
              NumberImpassableRows=1\n\
+             Strength=1000\n\
+             [BUNKER]\n\
+             Name=Bunker\n\
+             Bunker=yes\n\
+             Strength=1000\n\
+             [BUNKER7]\n\
+             Name=Bunker7\n\
+             Bunker=yes\n\
+             BunkerStateUpdateDelay=7\n\
              Strength=1000\n",
         ));
         RuleSet::from_ini_with_fixed_art_for_test(
@@ -2437,6 +2468,60 @@ mod tests {
         assert_eq!(house.economy().credits(), 9_998);
         assert_eq!(house.economy().spent_credits(), 2);
         assert_eq!(sim.scenario_rng.state(), rng);
+    }
+
+    /// Phobos `BuildingClass_Mission_Repair_TankBunker` (`0x44C976`,
+    /// `Ext/Building/Hooks.cpp:1475-1483`): a bunker mid-install returns the
+    /// type's `BunkerStateUpdateDelay=` else `[General]`, default 15; a settled
+    /// or idle state keeps the stock return.
+    #[cfg(feature = "phobos")]
+    #[test]
+    fn bunker_state_update_delay_replaces_the_plain_repair_return() {
+        use crate::sim::docking::bunker_install::{BunkerRuntime, BunkerState};
+        fn delay(type_name: &str, state: BunkerState) -> Option<i32> {
+            let rules = depot_rules();
+            let mut sim = Simulation::new();
+            crate::sim::arena_fixture::flat_ground(&mut sim, &rules);
+            spawn_entity(
+                &mut sim,
+                9,
+                type_name,
+                EntityCategory::Structure,
+                20,
+                20,
+                1000,
+            );
+            spawn_entity(&mut sim, 8, "MTNK", EntityCategory::Unit, 25, 25, 300);
+            {
+                let building = sim.substrate.entities.get_mut(9).unwrap();
+                building.bunker.occupant = Some(8);
+                let mut runtime = BunkerRuntime::idle();
+                runtime.set_state_for_test(state);
+                building.bunker_runtime = Some(runtime);
+            }
+            mission_repair(
+                &mut sim,
+                &rules,
+                9,
+                None,
+                crate::sim::world::FrameEffects::default(),
+            )
+        }
+        assert_eq!(
+            delay("BUNKER", BunkerState::ClearWait),
+            Some(15),
+            "the [General] default"
+        );
+        assert_eq!(
+            delay("BUNKER7", BunkerState::ClearWait),
+            Some(7),
+            "the type key replaces the return"
+        );
+        assert_eq!(
+            delay("BUNKER7", BunkerState::Idle),
+            Some(15),
+            "not a transitioning state"
+        );
     }
 
     /// Unit+0x500 survives an admitted visit and only its native clear writers

@@ -2749,6 +2749,13 @@ pub struct ObjectType {
     /// `Ext/Techno/Hooks.Misc.cpp:915-929`).
     #[cfg(feature = "phobos")]
     pub phobos_bunkerable_anyway: bool,
+    /// Phobos `BuildingTypeExt::BunkerStateUpdateDelay`
+    /// (`Ext/BuildingType/Body.cpp:253`, `Nullable<int>`, unset inherits
+    /// `[General] BunkerStateUpdateDelay`, default 15): the Mission_Repair
+    /// revisit delay while a tank bunker is mid-install (`0x44C976`,
+    /// `Ext/Building/Hooks.cpp:1475-1483`).
+    #[cfg(feature = "phobos")]
+    pub phobos_bunker_state_update_delay: Option<i32>,
 
     /// The native base weapon array (`TechnoTypeClass+0x898`, stride `0x1C`,
     /// `WEAPON_SLOT_COUNT` slots). Always that long; empty slots are `None`.
@@ -6935,6 +6942,9 @@ impl ObjectType {
             bunkerable: section.read_bool("Bunkerable", category == ObjectCategory::Vehicle),
             #[cfg(feature = "phobos")]
             phobos_bunkerable_anyway: section.read_bool("BunkerableAnyway", false),
+            #[cfg(feature = "phobos")]
+            phobos_bunker_state_update_delay: section
+                .read_phobos_nullable_int("BunkerStateUpdateDelay", None),
             // Constructor values: the ordered Rules processor owns the
             // per-pass weapon block and RuleSet publishes its arrays.
             weapon_list: vec![None; WEAPON_SLOT_COUNT],

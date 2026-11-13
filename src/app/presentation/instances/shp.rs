@@ -1894,6 +1894,7 @@ fn emit_building_anims(
             ),
             detail_level,
             draw_runtime,
+            false,
         ) else {
             continue;
         };

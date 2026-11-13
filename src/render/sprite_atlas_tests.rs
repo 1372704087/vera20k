@@ -1723,6 +1723,8 @@ fn gsi_13_08_warpout_keeps_all_frames_and_drives_the_progressive_alpha_ladder() 
                 current_frame: frame,
                 end_frame: warpout.loaded_end(i32::from(frame_count)),
                 explicit_translucency: warpout.translucency,
+                cloaked_translucency: None,
+                owner_cloaked: false,
                 instance_ramp: 0,
             },
         );

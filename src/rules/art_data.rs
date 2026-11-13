@@ -638,6 +638,15 @@ pub struct AnimTypeRuntimeConfig {
     pub phobos_tiled_align_to_center: bool,
     /// Raw art.ini `Translucency=` value; zero when omitted.
     pub translucency: i32,
+    /// Phobos `Translucency.Cloaked=` (`Ext/AnimType/Body.cpp:114`,
+    /// `Animatable<TranslucencyLevel>`; plain value at
+    /// `Ext/AnimType/Body.h:69`): while the anim's Techno owner is Cloaking or
+    /// Cloaked this level replaces `Translucency` in
+    /// `AnimClass_DrawIt_Translucency` (`0x423183`,
+    /// `Ext/Anim/Hooks.cpp:573-615`). Unset (or an unparsed value) keeps the
+    /// plain key.
+    #[cfg(feature = "phobos")]
+    pub phobos_translucency_cloaked: Option<i32>,
     /// Raw art.ini `TranslucencyDetailLevel=` value; zero when omitted.
     pub translucency_detail_level: i32,
     pub translucent: bool,
@@ -1138,6 +1147,9 @@ fn parse_anim_runtime_config(section: &IniSection) -> AnimTypeRuntimeConfig {
         #[cfg(feature = "phobos")]
         phobos_tiled_align_to_center: section.read_bool("Tiled.AlignToCenter", false),
         translucency: section.read_int("Translucency", 0),
+        #[cfg(feature = "phobos")]
+        phobos_translucency_cloaked: section
+            .read_phobos_nullable_int("Translucency.Cloaked", None),
         translucency_detail_level: section.read_int("TranslucencyDetailLevel", 0),
         translucent: section.read_bool("Translucent", false),
         alt_palette: section.read_bool("AltPalette", false),

@@ -228,6 +228,11 @@ pub struct AnimTranslucencyInput {
     /// (`0x004230AC`); see `AnimTypeRuntimeConfig::loaded_end`.
     pub end_frame: i32,
     pub explicit_translucency: i32,
+    /// Phobos `Translucency.Cloaked=`'s level, applied instead of
+    /// `explicit_translucency` while `owner_cloaked` is set.
+    pub cloaked_translucency: Option<i32>,
+    /// The anim's entity owner is Cloaking or Cloaked (the Phobos gate).
+    pub owner_cloaked: bool,
     pub instance_ramp: i32,
 }
 
@@ -273,10 +278,22 @@ pub fn anim_translucency_selection(input: AnimTranslucencyInput) -> AnimTransluc
         };
         return AnimTranslucencyResult { draw: true, flags };
     }
-    if input.explicit_translucency > 0 {
+    if input.explicit_translucency > 0
+        || (input.owner_cloaked && input.cloaked_translucency.is_some_and(|level| level > 0))
+    {
+        // Phobos `0x423183`: a cloaked Techno owner's anim uses
+        // `Translucency.Cloaked` over `Translucency`; a zero level keeps the
+        // stock ramp ladder below.
+        let level = if input.owner_cloaked {
+            input
+                .cloaked_translucency
+                .unwrap_or(input.explicit_translucency)
+        } else {
+            input.explicit_translucency
+        };
         return AnimTranslucencyResult {
             draw: input.instance_ramp < 15,
-            flags: flags | translucency_flag(input.explicit_translucency),
+            flags: flags | translucency_flag(level),
         };
     }
     // `0x004231C1..0x004231EE`: a ramp of 1-5 draws at 25%, 6-15 at 50%,
@@ -1528,6 +1545,19 @@ impl Simulation {
         !self
             .fog()
             .has_sensor_for_house(viewer, owner.position.rx(), owner.position.ry())
+    }
+
+    /// The anim's entity owner is Cloaking (1) or Cloaked (2): the
+    /// `Translucency.Cloaked` gate in `AnimClass_DrawIt_Translucency`
+    /// (`0x423183`, `Ext/Anim/Hooks.cpp:573-615`).
+    #[cfg(feature = "phobos")]
+    pub fn anim_owner_is_cloaked(&self, id: u64) -> bool {
+        let Some(owner_id) = self.anim(id).and_then(AnimObject::owner_entity) else {
+            return false;
+        };
+        self.entities().get(owner_id).is_some_and(|owner| {
+            matches!(owner.cloak.as_ref().map_or(0, |cloak| cloak.state()), 1 | 2)
+        })
     }
 
     pub fn anims(&self) -> impl Iterator<Item = (&AnimId, &AnimObject)> {
@@ -5667,6 +5697,8 @@ mod long_tail_contract_tests {
             current_frame: 0,
             end_frame: 10,
             explicit_translucency,
+            cloaked_translucency: None,
+            owner_cloaked: false,
             instance_ramp,
         };
         for (double_thick, explicit, ramp, expected) in [
@@ -5702,6 +5734,8 @@ mod long_tail_contract_tests {
                 current_frame: 0,
                 end_frame: 10,
                 explicit_translucency: 0,
+                cloaked_translucency: None,
+                owner_cloaked: false,
                 instance_ramp,
             });
             assert_eq!(
@@ -5735,6 +5769,8 @@ mod long_tail_contract_tests {
                     current_frame: 0,
                     end_frame: 10,
                     explicit_translucency,
+                    cloaked_translucency: None,
+                    owner_cloaked: false,
                     instance_ramp: 0,
                 }),
                 AnimTranslucencyResult { draw: true, flags },
@@ -5764,6 +5800,121 @@ mod tests {
     use crate::rules::ini_parser::IniFile;
     use crate::sim::combat::Health;
     use crate::sim::game_entity::GameEntity;
+
+    /// Phobos `Translucency.Cloaked=` (`Ext/AnimType/Body.cpp:114`,
+    /// `AnimClass_DrawIt_Translucency` hook `0x423183`,
+    /// `Ext/Anim/Hooks.cpp:573-615`): while the anim's Techno owner is
+    /// Cloaking or Cloaked the alternate level replaces `Translucency`; an
+    /// animation without the key keeps the plain level.
+    #[test]
+    #[cfg(feature = "phobos")]
+    fn translucency_cloaked_overrides_on_a_cloaked_owner_only() {
+        use crate::sim::world::Simulation;
+
+        const ANIM: &str = "CLOAKTINT";
+        const PLAIN: &str = "PLAINTINT";
+        let ini = crate::sim::arena_fixture::clear_ground_ini(
+            "[General]\nCloakingStages=6\n\
+             [VehicleTypes]\n0=VICTIM\n\
+             [VICTIM]\nStrength=1000\nArmor=heavy\nSpeed=4\nCloakable=yes\nCloakingSpeed=3\n",
+        );
+        let mut rules = RuleSet::from_ini(&ini).expect("arena rules");
+        let mut art = ArtRegistry::from_ini(&IniFile::from_str(&format!(
+            "[{ANIM}]\nTranslucency=50\nTranslucency.Cloaked=25\n\
+             [{PLAIN}]\nTranslucency=50\n"
+        )));
+        art.bind_anim_frame_count_for_test(ANIM, 8);
+        art.bind_anim_frame_count_for_test(PLAIN, 8);
+        rules.replace_art_registry_for_test(art);
+        let mut sim = crate::sim::arena_fixture::rival_arena(&rules, 17);
+        sim.intern_rule_type_ids(&rules);
+        let owner = sim
+            .spawn_object("VICTIM", "Russians", 10, 10, 0, &rules)
+            .expect("owner");
+        let attach = |sim: &mut Simulation, name: &str| {
+            let ty = sim.intern(name);
+            let anim = sim
+                .spawn_anim_at_world(
+                    &rules,
+                    AnimClassSpawnDescriptor::new(
+                        ty,
+                        16,
+                        16,
+                        crate::util::fixed_math::SIM_ZERO,
+                        crate::util::fixed_math::SIM_ZERO,
+                        0,
+                    ),
+                    AnimWorldCoord {
+                        x: 10 * 256,
+                        y: 10 * 256,
+                        z: 0,
+                    },
+                )
+                .expect("the art section spawns the anim");
+            assert!(sim.set_anim_owner_object(anim, Some(owner), &rules));
+            anim
+        };
+        let tinted = attach(&mut sim, ANIM);
+        let plain = attach(&mut sim, PLAIN);
+        assert_eq!(
+            rules
+                .art()
+                .anim_runtime_config(ANIM)
+                .unwrap()
+                .phobos_translucency_cloaked,
+            Some(25)
+        );
+        assert_eq!(
+            rules
+                .art()
+                .anim_runtime_config(PLAIN)
+                .unwrap()
+                .phobos_translucency_cloaked,
+            None
+        );
+        let select = |sim: &Simulation, anim: u64| {
+            let config = rules
+                .art()
+                .anim_runtime_config(sim.interner().resolve(sim.anim(anim).unwrap().type_id()))
+                .unwrap();
+            crate::sim::anim_class::anim_translucency_selection(
+                crate::sim::anim_class::AnimTranslucencyInput {
+                    base_flags: 0,
+                    forced_translucent: false,
+                    double_thick: false,
+                    translucency_detail_level: config.translucency_detail_level,
+                    game_detail_level: 2,
+                    translucent_ramp: config.translucent,
+                    current_frame: 0,
+                    end_frame: config.loaded_end(8),
+                    explicit_translucency: config.translucency,
+                    cloaked_translucency: config.phobos_translucency_cloaked,
+                    owner_cloaked: sim.anim_owner_is_cloaked(anim),
+                    instance_ramp: 0,
+                },
+            )
+            .flags
+        };
+        assert_eq!(select(&sim, tinted), 4, "50% from Translucency");
+        assert_eq!(select(&sim, plain), 4);
+        let cloak = |sim: &mut Simulation, state: i32| {
+            sim.substrate
+                .entities
+                .get_mut(owner)
+                .unwrap()
+                .cloak
+                .as_mut()
+                .expect("Cloakable=yes carries the cloak runtime")
+                .set_state_for_test(state);
+        };
+        cloak(&mut sim, 1);
+        assert_eq!(select(&sim, tinted), 2, "Cloaking uses the cloaked 25%");
+        assert_eq!(select(&sim, plain), 4, "no key keeps Translucency");
+        cloak(&mut sim, 2);
+        assert_eq!(select(&sim, tinted), 2, "Cloaked uses the cloaked 25%");
+        cloak(&mut sim, 0);
+        assert_eq!(select(&sim, tinted), 4, "uncloaked returns to Translucency");
+    }
 
     /// Phobos `Layer.UseObjectLayer=` (`Ext/AnimType/Body.cpp:92`,
     /// `AnimClass_InWhichLayer` hook `0x424CB0`,

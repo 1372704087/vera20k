@@ -612,6 +612,10 @@ pub(crate) fn build_display_effect_instances(
             ),
             input.detail_level as i32,
             anim.draw_runtime(),
+            #[cfg(feature = "phobos")]
+            sim.anim_owner_is_cloaked(stable_id),
+            #[cfg(not(feature = "phobos"))]
+            false,
         ) else {
             continue;
         };
@@ -754,6 +758,7 @@ pub(super) fn anim_instance_alpha_with_flags(
         shp_frame_count,
         game_detail_level,
         draw_runtime,
+        false,
     )
     .map(anim_translucency_source_alpha)
 }
@@ -766,6 +771,7 @@ pub(super) fn anim_instance_flags(
     shp_frame_count: i32,
     game_detail_level: i32,
     draw_runtime: crate::sim::anim_class::AnimDrawRuntime,
+    owner_cloaked: bool,
 ) -> Option<u32> {
     let result = crate::sim::anim_class::anim_translucency_selection(
         crate::sim::anim_class::AnimTranslucencyInput {
@@ -779,6 +785,11 @@ pub(super) fn anim_instance_flags(
             current_frame,
             end_frame: config.map_or(shp_frame_count, |value| value.loaded_end(shp_frame_count)),
             explicit_translucency: config.map_or(0, |value| value.translucency),
+            #[cfg(feature = "phobos")]
+            cloaked_translucency: config.and_then(|value| value.phobos_translucency_cloaked),
+            #[cfg(not(feature = "phobos"))]
+            cloaked_translucency: None,
+            owner_cloaked,
             instance_ramp: i32::from(draw_runtime.translucency_ramp),
         },
     );

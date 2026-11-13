@@ -287,6 +287,12 @@ pub struct WarheadType {
     /// Psychedelic (berserk) effect. `WarheadTypeClass+0x16D` (ReadINI
     /// `0x0075D8FB`, key string `0x00847D30`). Not a detonation-chain arm.
     pub psychedelic: bool,
+    /// Phobos `Psychedelic.StackingMode=` (`Ext/WarheadType/Body.cpp:446`,
+    /// `Nullable<StackingMode>` unset at `Body.h:267,569`): how a hit
+    /// combines its damage with an existing berserk time; unset takes
+    /// `[CombatDamage] Psychedelic.StackingMode`.
+    #[cfg(feature = "phobos")]
+    pub phobos_psychedelic_stacking_mode: Option<crate::rules::phobos_stacking_mode::StackingMode>,
     /// Crazy ivan bomb attach. `WarheadTypeClass+0x157` (ReadINI
     /// `0x0075D823`, key string `0x0081BD60`), tested by the detonation chain
     /// at `BulletClass::DetonateAtCoord @ 0x00469343`.
@@ -996,6 +1002,12 @@ impl WarheadType {
             ),
             parasite: section.read_bool("Parasite", false),
             psychedelic: section.read_bool("Psychedelic", false),
+            #[cfg(feature = "phobos")]
+            phobos_psychedelic_stacking_mode:
+                crate::rules::phobos_stacking_mode::StackingMode::read_nullable(
+                    section,
+                    "Psychedelic.StackingMode",
+                ),
             ivan_bomb: section.read_bool("IvanBomb", false),
             mind_control: section.read_bool("MindControl", false),
             poison: section.read_bool("Poison", false),

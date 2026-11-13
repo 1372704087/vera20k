@@ -282,6 +282,8 @@ pub mod phobos_spawns_crate;
 #[cfg(feature = "phobos")]
 pub mod phobos_spy_effect;
 #[cfg(feature = "phobos")]
+pub mod phobos_stacking_mode;
+#[cfg(feature = "phobos")]
 pub mod phobos_strafing;
 #[cfg(feature = "phobos")]
 pub mod phobos_sw_chaining;

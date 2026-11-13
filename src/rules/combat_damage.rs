@@ -129,6 +129,12 @@ pub struct CombatDamageDefaults {
     /// `Damage.ApplyFirepowerMult=` key.
     #[cfg(feature = "phobos")]
     pub anim_damage_apply_firepower_mult: bool,
+    /// Phobos `[CombatDamage] Psychedelic.StackingMode=`
+    /// (`Ext/Rules/Body.cpp:551`, `Valueable<StackingMode>` with constructor
+    /// `Override` at `Ext/Rules/Body.h:462,967`): how a Psychedelic hit
+    /// combines its damage with an existing berserk time.
+    #[cfg(feature = "phobos")]
+    pub phobos_psychedelic_stacking_mode: crate::rules::phobos_stacking_mode::StackingMode,
     /// Phobos `[CombatDamage] FallingDownDamage=` (`Ext/Rules/Body.cpp:227`,
     /// constructor `1.0`, `Ext/Rules/Body.h:671`): the landing-damage ratio
     /// fallback of the TechnoType `FallingDownDamage=` key.
@@ -231,6 +237,12 @@ impl CombatDamageDefaults {
             anim_damage_apply_firepower_mult: section
                 .read_bool("AnimDamage.ApplyFirepowerMult", false),
             #[cfg(feature = "phobos")]
+            phobos_psychedelic_stacking_mode:
+                crate::rules::phobos_stacking_mode::StackingMode::read_valueable(
+                    section,
+                    "Psychedelic.StackingMode",
+                ),
+            #[cfg(feature = "phobos")]
             falling_down_damage: section.read_double("FallingDownDamage", 1.0),
             #[cfg(feature = "phobos")]
             falling_down_damage_allow_emp: section.read_bool("FallingDownDamage.AllowEMP", true),
@@ -279,6 +291,9 @@ impl Default for CombatDamageDefaults {
             anim_damage_dealt_by_invoker: false,
             #[cfg(feature = "phobos")]
             anim_damage_apply_firepower_mult: false,
+            #[cfg(feature = "phobos")]
+            phobos_psychedelic_stacking_mode:
+                crate::rules::phobos_stacking_mode::StackingMode::Override,
             #[cfg(feature = "phobos")]
             falling_down_damage: 1.0,
             #[cfg(feature = "phobos")]

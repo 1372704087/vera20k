@@ -4244,6 +4244,222 @@ mod tests {
         assert_eq!(target.mission.queued(), MissionId::NONE);
     }
 
+    /// Phobos `TechnoClass_ReceiveDamage_Psychedelic` (`0x701D6B`,
+    /// `Ext/WarheadType/Hooks.cpp:678-696`): the hit's damage combines with
+    /// the existing `BerzerkDurationLeft` through the warhead's
+    /// `Psychedelic.StackingMode`, else `[CombatDamage]`'s. A non-positive
+    /// result jumps to `StopBerzerk` (`0x701DBA`), which skips the flag write,
+    /// team removal, target clear and Hunt.
+    #[cfg(feature = "phobos")]
+    #[test]
+    fn psychedelic_stacking_combines_the_time_and_stops_a_non_positive_one() {
+        let ini = IniFile::from_str(
+            "[CombatDamage]\nPsychedelic.StackingMode=add\n\
+             [VehicleTypes]\n0=CAOS\n1=TARGET\n\
+             [Warheads]\n0=PsychGas\n1=PsychGasSub\n\
+             [CAOS]\nStrength=100\n\
+             [TARGET]\nStrength=1000\nArmor=heavy\nImmuneToPsionics=no\n\
+             [PsychGas]\nCellSpread=0\nPercentAtMax=1\nPsychedelic=yes\n\
+             Verses=100%,100%,100%,100%,100%,100%,100%,100%,100%,100%,100%\n\
+             [PsychGasSub]\nCellSpread=0\nPercentAtMax=1\nPsychedelic=yes\n\
+             Psychedelic.StackingMode=subtract\n\
+             Verses=100%,100%,100%,100%,100%,100%,100%,100%,100%,100%,100%\n",
+        );
+        let rules = RuleSet::from_ini(&ini).expect("Psychedelic stacking fixture");
+        let gas = rules.warhead("PsychGas").unwrap().clone();
+        let sub = rules.warhead("PsychGasSub").unwrap().clone();
+        assert_eq!(
+            rules.combat_damage.phobos_psychedelic_stacking_mode,
+            crate::rules::phobos_stacking_mode::StackingMode::Add
+        );
+        assert_eq!(
+            sub.phobos_psychedelic_stacking_mode,
+            Some(crate::rules::phobos_stacking_mode::StackingMode::Subtract)
+        );
+
+        let mut interner = test_interner();
+        let yuri = interner.intern("YuriHouse");
+        let soviet = interner.intern("SovietHouse");
+        let caos = interner.intern("CAOS");
+        let target_type = interner.intern("TARGET");
+        let gas_ref = interner.intern("PsychGas");
+        let sub_ref = interner.intern("PsychGasSub");
+        let mut entities = EntityStore::new();
+        let mut source = GameEntity::test_default(1, "CAOS", "YuriHouse", 1, 1);
+        source.set_owner_for_test(yuri);
+        source.set_type_ref_for_test(caos);
+        entities.insert(source);
+        for (id, rx, ry) in [(2, 5, 5), (3, 6, 6)] {
+            let mut target = GameEntity::test_default(id, "TARGET", "SovietHouse", rx, ry);
+            target.set_owner_for_test(soviet);
+            target.set_type_ref_for_test(target_type);
+            target.health.set_for_test(1000);
+            entities.insert(target);
+        }
+
+        let mut occupancy = OccupancyGrid::new();
+        prepend_ground(&mut occupancy, 5, 5, 2);
+        prepend_ground(&mut occupancy, 6, 6, 3);
+        let mut terrain = crate::map::resolved_terrain::test_grid(12, 12, test_terrain_cell);
+        let mut commit = ReceiverCommit::new();
+        let mut hit = |entities: &mut EntityStore,
+                       occupancy: &mut OccupancyGrid,
+                       terrain: &mut crate::map::resolved_terrain::ResolvedTerrainGrid,
+                       cell: (u16, u16),
+                       damage: i32,
+                       warhead: &WarheadType,
+                       warhead_ref: crate::sim::intern::InternedId,
+                       commit: &mut ReceiverCommit| {
+            let aoe = apply_aoe_damage(
+                entities,
+                cell.0,
+                cell.1,
+                damage,
+                warhead,
+                &rules,
+                &mut interner,
+                (1, Some(yuri), warhead_ref),
+                native_lists(occupancy, terrain, None),
+            );
+            commit.run(
+                &aoe.hits,
+                entities,
+                occupancy,
+                &rules,
+                &mut interner,
+                terrain,
+            );
+            aoe.hits.iter().map(|hit| hit.target_id).collect::<Vec<_>>()
+        };
+
+        // The global `add` mode combines the second hit with the first time.
+        assert_eq!(
+            hit(
+                &mut entities,
+                &mut occupancy,
+                &mut terrain,
+                (5, 5),
+                100,
+                &gas,
+                gas_ref,
+                &mut commit,
+            ),
+            vec![2]
+        );
+        let target = entities.get(2).unwrap();
+        assert!(target.berserk.is_active());
+        assert_eq!(target.berserk.timer(), 100);
+        assert_eq!(
+            target.mission.queued(),
+            MissionId::from_known(MissionType::Hunt)
+        );
+        {
+            let target = entities.get_mut(2).unwrap();
+            target
+                .attack_target
+                .set_for_test(Some(TargetKind::Entity(1)));
+            target.mission.apply_test_fixture(MissionTestFixture {
+                current: MissionId::from_known(MissionType::Guard),
+                suspended: MissionId::NONE,
+                queued: MissionId::NONE,
+                movement_bypass_latch: 0,
+                handler_state: 0,
+                mission_start_frame: 0,
+                ai_counter: 0,
+                dispatch_timer: MissionDispatchTimer::at_frame(0),
+            });
+        }
+        hit(
+            &mut entities,
+            &mut occupancy,
+            &mut terrain,
+            (5, 5),
+            100,
+            &gas,
+            gas_ref,
+            &mut commit,
+        );
+        let target = entities.get(2).unwrap();
+        assert!(target.berserk.is_active());
+        assert_eq!(target.berserk.timer(), 200, "add: 100 + 100");
+        assert_eq!(
+            target.attack_target.target(),
+            Some(TargetKind::Entity(1)),
+            "an already-berserk hit does not clear the target"
+        );
+        assert_eq!(target.mission.queued(), MissionId::NONE);
+
+        // The warhead's `subtract` overrides the global. A fresh target gets
+        // 0 - 300: the flag stays clear, and the target/Hunt block is skipped.
+        {
+            let fresh = entities.get_mut(3).unwrap();
+            fresh
+                .attack_target
+                .set_for_test(Some(TargetKind::Entity(1)));
+            fresh.mission.apply_test_fixture(MissionTestFixture {
+                current: MissionId::from_known(MissionType::Guard),
+                suspended: MissionId::NONE,
+                queued: MissionId::NONE,
+                movement_bypass_latch: 0,
+                handler_state: 0,
+                mission_start_frame: 0,
+                ai_counter: 0,
+                dispatch_timer: MissionDispatchTimer::at_frame(0),
+            });
+        }
+        assert_eq!(
+            hit(
+                &mut entities,
+                &mut occupancy,
+                &mut terrain,
+                (6, 6),
+                300,
+                &sub,
+                sub_ref,
+                &mut commit,
+            ),
+            vec![3]
+        );
+        let fresh = entities.get(3).unwrap();
+        assert!(
+            !fresh.berserk.is_active(),
+            "StopBerzerk leaves the flag clear"
+        );
+        assert_eq!(fresh.berserk.timer(), -300, "0 - 300 is written");
+        assert_eq!(
+            fresh.attack_target.target(),
+            Some(TargetKind::Entity(1)),
+            "StopBerzerk skips the target clear"
+        );
+        assert_eq!(fresh.mission.queued(), MissionId::NONE, "and Hunt");
+
+        // On an already-berserk target a non-positive result keeps the flag
+        // set; the next AI update tick clears the expired time.
+        assert_eq!(
+            hit(
+                &mut entities,
+                &mut occupancy,
+                &mut terrain,
+                (5, 5),
+                300,
+                &sub,
+                sub_ref,
+                &mut commit,
+            ),
+            vec![2]
+        );
+        let target = entities.get_mut(2).unwrap();
+        assert!(
+            target.berserk.is_active(),
+            "the flag write is skipped, not cleared"
+        );
+        assert_eq!(target.berserk.timer(), -100, "200 - 300");
+        assert_eq!(target.attack_target.target(), Some(TargetKind::Entity(1)));
+        assert_eq!(target.mission.queued(), MissionId::NONE);
+        assert!(target.berserk.count_down());
+        assert_eq!(target.berserk, Default::default());
+    }
+
     #[test]
     fn gsi_04_07_damage_prone_raw_scaling_precedes_area_receiver_pipeline() {
         let ini = IniFile::from_str(

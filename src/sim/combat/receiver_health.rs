@@ -183,6 +183,60 @@ impl super::object_health::ObjectHealthHost for ReceiverHealthHost<'_, '_, '_> {
     }
 }
 
+/// Phobos' `TechnoClass_ReceiveDamage_Psychedelic` (`0x701D6B`,
+/// `Ext/WarheadType/Hooks.cpp:678-696`) replaces the stock time write with
+/// `EnumFunctions::CalcValueWithStackingMode`: the warhead's nullable
+/// `Psychedelic.StackingMode`, else `[CombatDamage] Psychedelic.StackingMode`,
+/// combines the incoming damage with the target's current
+/// `BerzerkDurationLeft`.
+#[cfg(feature = "phobos")]
+pub(super) fn psychedelic_berserk_time(
+    world: &Simulation,
+    rules: &RuleSet,
+    event: &EntityDamageEvent,
+    value: i32,
+) -> i32 {
+    let mode = rules
+        .warhead(world.interner.resolve(event.warhead_ref))
+        .and_then(|warhead| warhead.phobos_psychedelic_stacking_mode)
+        .unwrap_or(rules.combat_damage.phobos_psychedelic_stacking_mode);
+    let current = world
+        .substrate
+        .entities
+        .get(event.target_id)
+        .map_or(0, |target| target.berserk.timer());
+    mode.combine(current, value)
+}
+
+/// Whether the hit enters the stock berserk block at `0x701D71`: the object
+/// is not already berserk and, under Phobos, the combined time is positive
+/// (`StopBerzerk` at `0x701DBA` skips the block otherwise). Native uses this
+/// same answer for team removal, target clear and Hunt.
+pub(super) fn psychedelic_starts_berserk(
+    world: &Simulation,
+    rules: &RuleSet,
+    event: &EntityDamageEvent,
+    value: i32,
+) -> bool {
+    if world
+        .substrate
+        .entities
+        .get(event.target_id)
+        .is_none_or(|target| target.berserk.is_active())
+    {
+        return false;
+    }
+    #[cfg(feature = "phobos")]
+    {
+        psychedelic_berserk_time(world, rules, event, value) > 0
+    }
+    #[cfg(not(feature = "phobos"))]
+    {
+        let _ = (rules, event, value);
+        true
+    }
+}
+
 pub(super) fn commit_receiver_health(
     event: &EntityDamageEvent,
     world: &mut Simulation,
@@ -220,8 +274,17 @@ pub(super) fn commit_receiver_health(
     if let Some(value) = receive_outcome.psychedelic_value {
         //701D71..701DBA returns before Object and Techno's own tail.
         //The caller owns team removal before, then target-clear/Hunt after.
+        //Phobos' 0x701D6B hook replaces the stock time write; a non-positive
+        //combined time jumps to StopBerzerk (0x701DBA), before the flag write.
+        #[cfg(feature = "phobos")]
+        let time = psychedelic_berserk_time(world, rules, event, value);
+        #[cfg(not(feature = "phobos"))]
+        let time = value;
         let target = world.substrate.entities.get_mut(target_id)?;
-        target.berserk.start(value);
+        #[cfg(feature = "phobos")]
+        target.berserk.psychedelic_stack(time);
+        #[cfg(not(feature = "phobos"))]
+        target.berserk.start(time);
         return Some(ReceiverHealthCommit {
             building_entry_frame,
             state: damage::DamageState::Damaged,
@@ -464,7 +527,6 @@ impl BerserkState {
 
     /// The time left. The Psychedelic arm and the countdown use the field;
     /// tests read it through this.
-    #[cfg(any(test, feature = "test-support"))]
     pub(crate) const fn timer(self) -> i32 {
         self.timer
     }
@@ -493,6 +555,19 @@ impl BerserkState {
     pub fn start(&mut self, time: i32) -> bool {
         self.timer = time;
         !std::mem::replace(&mut self.active, true)
+    }
+
+    /// The Phobos `0x701D6B` hook's write: the combined time always lands in
+    /// `+0x29C`, then a non-positive result jumps to `StopBerzerk`
+    /// (`0x701DBA`) before `0x701D7D`'s flag write, so an object that was not
+    /// berserk stays that way, while an already-berserk object keeps its flag
+    /// (and its next `AI_Update` tick clears the non-positive time).
+    #[cfg(feature = "phobos")]
+    pub fn psychedelic_stack(&mut self, time: i32) {
+        self.timer = time;
+        if time > 0 {
+            self.active = true;
+        }
     }
 
     /// `TechnoClass::AI_Update`'s countdown (`0x006F9F0D..0x006F9F31`): a

@@ -1841,17 +1841,15 @@ pub(crate) fn commit_entities(
         // `0x00701D71..0x00701DB4`: a Psychedelic hit that turns its target
         // berserk takes it out of its team, with its idle order
         // (`0x006EA870`), clears its target (`vt+0x3C8(0)`) and queues Hunt
-        // (`vt+0x1E8(0xF, 0)`). The removal runs here, before the receiver's
-        // timer and flag writes, which it does not read; the other two follow
-        // them, as natively.
+        // (`vt+0x1E8(0xF, 0)`). Phobos' `StopBerzerk` (`0x701DBA`) skips this
+        // whole block when the combined time is not positive. The removal
+        // runs here, before the receiver's timer and flag writes, which it
+        // does not read; the other two follow them, as natively.
         let starts_berserk = receiver_outcome
             .and_then(|resolved| resolved.outcome.psychedelic_value)
-            .is_some()
-            && world
-                .substrate
-                .entities
-                .get(target_id)
-                .is_some_and(|target| !target.berserk.is_active());
+            .is_some_and(|value| {
+                receiver_health::psychedelic_starts_berserk(world, rules, event, value)
+            });
         if starts_berserk {
             world.leave_team(target_id, false, rules, run.effects());
         }

@@ -117,7 +117,7 @@ struct EdgeRecorder {
 
 impl RetreatHost for EdgeRecorder {
     fn retreat_edge(&mut self, mode: PhobosEdgeType, owner_edge: Edge) -> Edge {
-        crate::sim::world::edge_cell::pick_retreat_edge(mode, owner_edge, &mut self.rng)
+        crate::sim::world::edge_cell::edge_for_mode(mode, owner_edge, &mut self.rng)
     }
 
     fn edge_cell(&mut self, edge: Edge) -> Option<(u16, u16)> {

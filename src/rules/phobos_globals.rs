@@ -166,6 +166,7 @@ pub struct PhobosGlobals {
     /// constructor `Ext/Rules/Body.h:937`): game frames an overflying paradrop
     /// plane waits after its last passenger, the fallback for an AircraftType's
     /// own `ParadropEndDelay` (`Ext/Aircraft/Hooks.cpp:1278`).
+    #[serde(default = "default_paradrop_end_delay")]
     pub paradrop_end_delay: i32,
     /// `[General] Explodes.KillPassengers=`, default **`yes`**
     /// (`Ext/Rules/Body.cpp:470`, constructor `Ext/Rules/Body.h:885`): the
@@ -1018,6 +1019,11 @@ pub struct PhobosGlobals {
     /// (`Ext/Aircraft/Body.cpp:88`).
     #[serde(default)]
     pub aircraft_spawn_from_edge: crate::rules::phobos_aircraft_edge::PhobosEdgeType,
+    /// `[General] AircraftRetreatToEdge=`, default `owner`
+    /// (`Ext/Rules/Body.cpp:194`, constructor `Ext/Rules/Body.h:637`): the
+    /// fallback for an AircraftType's own `RetreatToEdge=` (`Ext/Aircraft/Body.cpp:89`).
+    #[serde(default)]
+    pub aircraft_retreat_to_edge: crate::rules::phobos_aircraft_edge::PhobosEdgeType,
 }
 
 /// `RadarJamHouses=`'s constructor value (`Ext/Rules/Body.h:657`).
@@ -1078,6 +1084,11 @@ fn display_income_delay_default() -> i32 {
 
 /// `[General] ParadropDelay=`'s constructor value (`Ext/Rules/Body.h:936`).
 fn default_paradrop_delay() -> i32 {
+    5
+}
+
+/// `[General] ParadropEndDelay=`'s constructor value (`Ext/Rules/Body.h:937`).
+fn default_paradrop_end_delay() -> i32 {
     5
 }
 
@@ -1265,6 +1276,7 @@ impl Default for PhobosGlobals {
             no_alpha_image_on_buildup: false,
             paradrop_delay: default_paradrop_delay(),
             aircraft_spawn_from_edge: crate::rules::phobos_aircraft_edge::PhobosEdgeType::Owner,
+            aircraft_retreat_to_edge: crate::rules::phobos_aircraft_edge::PhobosEdgeType::Owner,
         }
     }
 }
@@ -1612,12 +1624,24 @@ impl PhobosGlobals {
         // `Ext/Rules/Body.cpp:522`: the `[General]` fallback an AircraftType's
         // `ParadropDelay=` overrides (`Ext/Aircraft/Hooks.cpp:1274`).
         globals.paradrop_delay = general.read_ares_int("ParadropDelay", globals.paradrop_delay);
+        globals.paradrop_end_delay =
+            general.read_ares_int("ParadropEndDelay", globals.paradrop_end_delay);
         // `Ext/Rules/Body.cpp:193`: the `[General]` fallback an AircraftType's
         // `SpawnFromEdge=` overrides (`Ext/Aircraft/Body.cpp:88`).
         globals.aircraft_spawn_from_edge = general.read_string_with(
             "AircraftSpawnFromEdge",
             32,
             globals.aircraft_spawn_from_edge,
+            |current, value| {
+                crate::rules::phobos_aircraft_edge::PhobosEdgeType::parse(value).unwrap_or(current)
+            },
+        );
+        // `Ext/Rules/Body.cpp:194`: the `[General]` fallback an AircraftType's
+        // `RetreatToEdge=` overrides (`Ext/Aircraft/Body.cpp:89`, `0x415A7A`).
+        globals.aircraft_retreat_to_edge = general.read_string_with(
+            "AircraftRetreatToEdge",
+            32,
+            globals.aircraft_retreat_to_edge,
             |current, value| {
                 crate::rules::phobos_aircraft_edge::PhobosEdgeType::parse(value).unwrap_or(current)
             },

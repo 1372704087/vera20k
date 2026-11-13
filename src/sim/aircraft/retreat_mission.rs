@@ -48,7 +48,7 @@ enum RetreatNavCom {
 /// What a visit does beyond its own reads.
 trait RetreatHost {
     /// Phobos `PickEdgeCellForPlane`'s edge arm (`Ext/Aircraft/Body.cpp:88..123`,
-    /// [`super::super::world::edge_cell::pick_retreat_edge`]): the house's
+    /// [`super::super::world::edge_cell::edge_for_mode`]): the house's
     /// edge unless `RetreatToEdge` overrides it; `Random` spends one draw.
     fn retreat_edge(&mut self, mode: PhobosEdgeType, owner_edge: Edge) -> Edge;
     /// PickCellOnEdge's cell on `edge`.
@@ -142,11 +142,7 @@ struct WorldRetreat<'a> {
 
 impl RetreatHost for WorldRetreat<'_> {
     fn retreat_edge(&mut self, mode: PhobosEdgeType, owner_edge: Edge) -> Edge {
-        crate::sim::world::edge_cell::pick_retreat_edge(
-            mode,
-            owner_edge,
-            &mut self.sim.scenario_rng,
-        )
+        crate::sim::world::edge_cell::edge_for_mode(mode, owner_edge, &mut self.sim.scenario_rng)
     }
 
     fn edge_cell(&mut self, edge: Edge) -> Option<(u16, u16)> {
@@ -162,3 +158,19 @@ impl RetreatHost for WorldRetreat<'_> {
         );
     }
 }
+
+/// `Ext/Aircraft/Body.cpp:89`: the plane's `RetreatToEdge=` else
+/// `[General] AircraftRetreatToEdge=` (constructor `Owner`).
+#[cfg(feature = "phobos")]
+fn retreat_edge_mode(
+    rules: &RuleSet,
+    plane: Option<&crate::rules::object_type::ObjectType>,
+) -> crate::rules::phobos_aircraft_edge::PhobosEdgeType {
+    plane
+        .and_then(|plane| plane.phobos_retreat_to_edge)
+        .unwrap_or(rules.phobos_globals.aircraft_retreat_to_edge)
+}
+
+#[cfg(all(test, feature = "phobos"))]
+#[path = "retreat_edge_mode_tests.rs"]
+mod retreat_edge_mode_tests;

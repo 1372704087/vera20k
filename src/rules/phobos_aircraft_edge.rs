@@ -1,7 +1,10 @@
 //! Phobos `SpawnFromEdge=` (`Ext/AircraftType/Body.cpp:24`, declared
 //! `Ext/AircraftType/Body.h:15` as `Nullable<EdgeType>`) and the `[General]
 //! AircraftSpawnFromEdge=` fallback (`Ext/Rules/Body.cpp:193`,
-//! `Ext/Rules/Body.h:99`, constructed `Owner` at `Body.h:636`).
+//! `Ext/Rules/Body.h:99`, constructed `Owner` at `Body.h:636`), plus their
+//! `Mission_Retreat` siblings `RetreatToEdge=` (`Body.cpp:25`) and `[General]
+//! AircraftRetreatToEdge=` (`Ext/Rules/Body.cpp:194`, `Body.h:100`, `Owner` at
+//! `Body.h:637`).
 //!
 //! `AircraftExt::PickEdgeCellForPlane` (`Ext/Aircraft/Body.cpp:85-126`) reads
 //! the pair for every aircraft edge pick: `Owner` keeps the edge the caller
@@ -17,39 +20,20 @@
 
 use crate::rules::ini_parser::IniSection;
 
-/// Phobos `EdgeType` (`Utilities/Enum.h:446-451`: `Owner=0`, `Closest=1`,
-/// `Random=2`).
-#[derive(
-    Debug, Clone, Copy, Default, PartialEq, Eq, Hash, serde::Serialize, serde::Deserialize,
-)]
-pub enum PhobosEdgeType {
-    #[default]
-    Owner,
-    Closest,
-    Random,
-}
-
-impl PhobosEdgeType {
-    /// `EnumParser<EdgeType>`'s name table; an unknown spelling keeps the
-    /// previous value.
-    pub fn parse(raw: &str) -> Option<Self> {
-        let name = raw.trim();
-        if name.eq_ignore_ascii_case("owner") {
-            Some(Self::Owner)
-        } else if name.eq_ignore_ascii_case("closest") {
-            Some(Self::Closest)
-        } else if name.eq_ignore_ascii_case("random") {
-            Some(Self::Random)
-        } else {
-            None
-        }
-    }
-}
+pub use crate::rules::ini_value::PhobosEdgeType;
 
 /// An AircraftType's own `SpawnFromEdge=`, unset when the key is absent or
 /// rejected, so the `[General]` value applies.
 pub fn read_spawn_from_edge(section: &IniSection) -> Option<PhobosEdgeType> {
     section.read_phobos_nullable_with("SpawnFromEdge", None, PhobosEdgeType::parse)
+}
+
+/// An AircraftType's own `RetreatToEdge=` (`Ext/AircraftType/Body.cpp:25`,
+/// `Nullable<EdgeType>` `Body.h:16`, constructed unset `Body.h:40`): the edge
+/// `Mission_Retreat` picks on (`0x415A7A`, `Ext/Aircraft/Body.cpp:89`), unset
+/// falling back to `[General] AircraftRetreatToEdge`.
+pub fn read_retreat_to_edge(section: &IniSection) -> Option<PhobosEdgeType> {
+    section.read_phobos_nullable_with("RetreatToEdge", None, PhobosEdgeType::parse)
 }
 
 #[cfg(test)]

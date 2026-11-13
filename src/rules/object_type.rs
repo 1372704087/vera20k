@@ -1163,6 +1163,13 @@ pub struct ObjectType {
     /// `[General] ParadropDelay` (5). Aircraft types only.
     #[cfg(feature = "phobos")]
     pub phobos_paradrop_delay: Option<i32>,
+    /// Phobos `ParadropEndDelay=` (`Ext/AircraftType/Body.cpp:38`,
+    /// `Nullable<int>` `Body.h:29`, constructed unset `Body.h:53`): the
+    /// ParadropOverfly return once the plane holds no passengers; unset takes
+    /// `[General] ParadropEndDelay` (5), negative keeps it flying
+    /// (`Ext/Aircraft/Hooks.cpp:1278-1281`). Aircraft types only.
+    #[cfg(feature = "phobos")]
+    pub phobos_paradrop_end_delay: Option<i32>,
     /// Phobos `SpawnHeight=` (`Ext/AircraftType/Body.cpp:27`,
     /// `Nullable<int>`): a spawning aircraft's Unlimbo height; unset keeps its
     /// `FlightLevel` (`Ext/Aircraft/Body.cpp:77`). Aircraft types only.
@@ -1174,6 +1181,13 @@ pub struct ObjectType {
     /// (`Ext/Aircraft/Body.cpp:88`). Aircraft types only.
     #[cfg(feature = "phobos")]
     pub phobos_spawn_from_edge: Option<crate::rules::phobos_aircraft_edge::PhobosEdgeType>,
+    /// Phobos `RetreatToEdge=` (`Ext/AircraftType/Body.cpp:25`,
+    /// `Nullable<EdgeType>` `Body.h:16`, constructed unset `Body.h:40`): the
+    /// edge mode `Mission_Retreat` picks on (`Ext/Aircraft/Body.cpp:89`,
+    /// `0x415A7A`); unset takes `[General] AircraftRetreatToEdge`. Aircraft
+    /// types only.
+    #[cfg(feature = "phobos")]
+    pub phobos_retreat_to_edge: Option<crate::rules::phobos_aircraft_edge::PhobosEdgeType>,
     /// Phobos `Explodes.KillPassengers` (`Ext/TechnoType/Body.cpp:968`) and
     /// `Explodes.DuringBuildup` (`Ext/BuildingType/Body.cpp:222`), consumed by
     /// the `TechnoClass::ReceiveDamage` death arm.
@@ -1522,15 +1536,6 @@ pub struct ObjectType {
     /// section reaches the Phobos reader.
     #[cfg(feature = "phobos")]
     phobos_voice_pickup: Option<String>,
-    /// Phobos `AircraftTypeExt::RetreatToEdge` (`Ext/AircraftType/Body.cpp:25`,
-    /// `Nullable<EdgeType>`, constructor `Body.h:40` leaves it unset): the
-    /// edge a retreating aircraft heads for; unset takes
-    /// `[General] AircraftRetreatToEdge` (`Ext/Rules/Body.cpp:194`, default
-    /// `Owner`). Consumer: `AircraftExt::PickEdgeCellForPlane`
-    /// (`Ext/Aircraft/Body.cpp:85-126`) behind the Mission_Retreat hook
-    /// `0x415A7A`. Only an AircraftType section reaches the Phobos reader.
-    #[cfg(feature = "phobos")]
-    phobos_retreat_to_edge: Option<crate::rules::ini_value::PhobosEdgeType>,
     /// Phobos `AircraftTypeExt::SpawnDistanceFromTarget`
     /// (`Ext/AircraftType/Body.cpp:26`, `Nullable<Leptons>`, constructor
     /// `Body.h:41` leaves it unset): the reinforcement aircraft spawns that
@@ -1552,17 +1557,6 @@ pub struct ObjectType {
     /// AircraftType section reaches the Phobos reader.
     #[cfg(feature = "phobos")]
     phobos_firing_force_scatter: Option<bool>,
-    /// Phobos `AircraftTypeExt::ParadropEndDelay`
-    /// (`Ext/AircraftType/Body.cpp:38`, `Nullable<int>`, constructor
-    /// `Body.h:29` leaves it unset): the game frames an overflying paradrop
-    /// plane waits after its last passenger leaves; unset takes
-    /// `[General] ParadropEndDelay` (`Ext/Rules/Body.cpp:523`, default 5), and
-    /// a negative value answers `INT32_MAX` so the plane flies straight off
-    /// the map. Consumer: the `0x415A00` timer in
-    /// `aircraft::paradrop_mission::overfly` (`Ext/Aircraft/Hooks.cpp:1268-1285`).
-    /// Only an AircraftType section reaches the Phobos reader.
-    #[cfg(feature = "phobos")]
-    phobos_paradrop_end_delay: Option<i32>,
     /// Phobos `TechnoTypeExt::MaxGuardRange` (`Ext/TechnoType/Body.cpp:975`,
     /// `Valueable<Leptons>`, constructor `Body.h:647` = `Leptons(4096)`): the
     /// hard cap `TechnoClass::GetGuardRange @ 0x00707E60` applies after it
@@ -6032,6 +6026,10 @@ impl ObjectType {
                 .then(|| section.read_phobos_nullable_int("ParadropDelay", None))
                 .flatten(),
             #[cfg(feature = "phobos")]
+            phobos_paradrop_end_delay: (category == ObjectCategory::Aircraft)
+                .then(|| section.read_phobos_nullable_int("ParadropEndDelay", None))
+                .flatten(),
+            #[cfg(feature = "phobos")]
             phobos_spawn_height: (category == ObjectCategory::Aircraft)
                 .then(|| section.read_phobos_nullable_int("SpawnHeight", None))
                 .flatten(),
@@ -6039,6 +6037,12 @@ impl ObjectType {
             phobos_spawn_from_edge: (category == ObjectCategory::Aircraft)
                 .then(|| {
                     crate::rules::phobos_aircraft_edge::read_spawn_from_edge(section)
+                })
+                .flatten(),
+            #[cfg(feature = "phobos")]
+            phobos_retreat_to_edge: (category == ObjectCategory::Aircraft)
+                .then(|| {
+                    crate::rules::phobos_aircraft_edge::read_retreat_to_edge(section)
                 })
                 .flatten(),
             #[cfg(feature = "phobos")]
@@ -6576,22 +6580,12 @@ impl ObjectType {
             #[cfg(feature = "phobos")]
             phobos_voice_pickup: None,
             #[cfg(feature = "phobos")]
-            phobos_retreat_to_edge: (category == ObjectCategory::Aircraft)
-                .then(|| section.read_phobos_nullable_edge_type("RetreatToEdge", None))
-                .flatten(),
-            #[cfg(feature = "phobos")]
             phobos_spawn_distance_from_target: (category == ObjectCategory::Aircraft)
                 .then(|| section.read_phobos_nullable_leptons("SpawnDistanceFromTarget", None))
                 .flatten(),
             #[cfg(feature = "phobos")]
             phobos_firing_force_scatter: (category == ObjectCategory::Aircraft)
                 .then(|| section.read_phobos_nullable_bool("FiringForceScatter", None))
-                .flatten(),
-            // `AircraftTypeExt::LoadFromINIFile` (`Ext/AircraftType/Body.cpp:38`)
-            // reads the key in the AircraftType pass only.
-            #[cfg(feature = "phobos")]
-            phobos_paradrop_end_delay: (category == ObjectCategory::Aircraft)
-                .then(|| section.read_phobos_nullable_int("ParadropEndDelay", None))
                 .flatten(),
             // `TechnoTypeExt::LoadFromINIFile` (`Ext/TechnoType/Body.cpp:975`),
             // a `read<Leptons>` (cells x 256) for every family.
@@ -8000,7 +7994,7 @@ mod tests {
         );
 
         let aircraft = IniFile::from_str(
-            "[AIR]\nStrength=100\nLandingAnim=LAND\nParadropDelay=8\nSpawnHeight=200\n",
+            "[AIR]\nStrength=100\nLandingAnim=LAND\nParadropDelay=8\nParadropEndDelay=12\nSpawnHeight=200\n",
         );
         let object = ObjectType::from_ini_section(
             "AIR",
@@ -8009,6 +8003,7 @@ mod tests {
         );
         assert_eq!(object.phobos_landing_anim.as_deref(), Some("LAND"));
         assert_eq!(object.phobos_paradrop_delay, Some(8));
+        assert_eq!(object.phobos_paradrop_end_delay, Some(12));
         assert_eq!(object.phobos_spawn_height, Some(200));
 
         let unset = IniFile::from_str("[UNT]\nStrength=100\n");
@@ -8026,6 +8021,7 @@ mod tests {
         assert_eq!(object.phobos_crush_overlay_extra_forward_tilt, 0.02);
         assert_eq!(object.phobos_landing_anim, None);
         assert_eq!(object.phobos_paradrop_delay, None);
+        assert_eq!(object.phobos_paradrop_end_delay, None);
         assert_eq!(object.phobos_spawn_height, None);
     }
 

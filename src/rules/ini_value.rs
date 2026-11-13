@@ -2117,11 +2117,31 @@ impl PartialDoublePair {
 /// retreat edge choice. Only the `phobos` readers produce a non-`Owner`
 /// value, but the type exists in every build so the aircraft edge arm needs
 /// no feature gate.
-#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+#[derive(
+    Debug, Clone, Copy, Default, PartialEq, Eq, Hash, serde::Serialize, serde::Deserialize,
+)]
 pub enum PhobosEdgeType {
+    #[default]
     Owner,
     Closest,
     Random,
+}
+
+impl PhobosEdgeType {
+    /// `EnumParser<EdgeType>`'s name table; an unknown spelling keeps the
+    /// previous value.
+    pub fn parse(raw: &str) -> Option<Self> {
+        let name = raw.trim();
+        if name.eq_ignore_ascii_case("owner") {
+            Some(Self::Owner)
+        } else if name.eq_ignore_ascii_case("closest") {
+            Some(Self::Closest)
+        } else if name.eq_ignore_ascii_case("random") {
+            Some(Self::Random)
+        } else {
+            None
+        }
+    }
 }
 
 /// Phobos `read<EdgeType>` (`Utilities/TemplateDef.h:1379..1402`): the three

@@ -62,33 +62,28 @@ impl Edge {
     }
 }
 
-/// Phobos `AircraftExt::PickEdgeCellForPlane`'s edge-selection arm
-/// (`Ext/Aircraft/Body.cpp:88..123`) as `AircraftClass::Mission_Retreat`
-/// reaches it (`isOnRetreat`, hook `0x415A7A`): the type's `RetreatToEdge`,
-/// else `[General] AircraftRetreatToEdge`.
-///
-/// - `Owner`: the house's edge (`Edge::authored_or_waypoint`), no draw.
-/// - `Random`: `spawnEdge = RandomRanged(Edge::North, Edge::West)`, one
-///   Scenario draw; the reference cell stays the empty cell, so the stock
-///   edge scan is the one that runs.
-/// - `Closest`: native also sets `spawnEdge = Edge::None` and a reference
-///   cell jittered by two `RandomRanged(-5, 5)` draws, which reaches
-///   `MapClass::PickCellOnEdge`'s non-empty-reference arm. VERA has only the
-///   empty-cell arm ([`find_paradrop_edge_cell`]), so this falls back to the
-///   house's edge without spending the jitter draws (residual: a
-///   `RetreatToEdge=closest` section retreats on its owner edge; retail
-///   leaves the key unset, so stock play is unaffected).
-pub(crate) fn pick_retreat_edge(
-    mode: PhobosEdgeType,
-    owner_edge: Edge,
+/// `AircraftExt::PickEdgeCellForPlane` (`Ext/Aircraft/Body.cpp:85-126`), the
+/// Phobos override of the four `PickCellOnEdge` callers (`SendSpyPlanes`
+/// `0x65EB2D`, `SendAirstrike` `0x65E881`, `SendParadrop` `0x65E6DB` and
+/// `AircraftClass::Mission_Retreat` `0x415A7A`, `Ext/House/Hooks.cpp:352-454`):
+/// the type's `SpawnFromEdge=`/`RetreatToEdge=` else its `[General]` mode.
+/// `Owner` keeps the edge the caller passed; `Random` spends one
+/// `Scenario RandomRanged(North, West)` draw (`:114-116`); `Closest` picks on
+/// `Edge::None` around the destination cell scattered by two
+/// `RandomRanged(-5, 5)` draws (`:95-109`), which [`Edge`]'s four values cannot
+/// express (RESIDUAL: such a type keeps its `Owner` pick).
+pub(crate) fn edge_for_mode(
+    mode: crate::rules::phobos_aircraft_edge::PhobosEdgeType,
+    owned: Edge,
     scenario_rng: &mut SimRng,
 ) -> Edge {
+    use crate::rules::phobos_aircraft_edge::PhobosEdgeType;
     match mode {
-        PhobosEdgeType::Owner | PhobosEdgeType::Closest => owner_edge,
         PhobosEdgeType::Random => {
-            let drawn = scenario_rng.next_range_i32_inclusive(0, 3) as u8;
-            Edge::from_index(drawn).unwrap_or(owner_edge)
+            let index = scenario_rng.next_range_i32_inclusive(0, 3).max(0);
+            Edge::from_index(u8::try_from(index).unwrap_or(0)).unwrap_or(owned)
         }
+        PhobosEdgeType::Owner | PhobosEdgeType::Closest => owned,
     }
 }
 

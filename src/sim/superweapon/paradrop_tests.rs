@@ -4,8 +4,6 @@
 //! `paradrop_missions`, `drop_payload`, `spawn_parachuted`; `--check`
 //! regenerates them), and drops on retail rules through production frames.
 
-#[cfg(feature = "phobos")]
-use super::spawn_edge;
 use super::{ParaDropKind, board_passengers, launch, retarget, send_planes};
 use crate::map::entities::EntityCategory;
 use crate::map::playfield::PlayfieldBounds;
@@ -29,6 +27,8 @@ use crate::sim::superweapon::spy_plane_tests::{
 };
 use crate::sim::timer::CdTimer;
 use crate::sim::world::edge_cell::Edge;
+#[cfg(feature = "phobos")]
+use crate::sim::world::edge_cell::edge_for_mode;
 use crate::sim::world::{PlacementEvidence, RevealOutcome, SimSoundEvent, Simulation};
 use crate::util::fixed_math::SimFixed;
 use crate::util::lepton;
@@ -1551,7 +1551,7 @@ fn phobos_spawn_from_edge_modes_keep_the_house_edge_or_spend_one_random_draw() {
     let mut owner_rng = SimRng::new(7);
     let owner_before = owner_rng.state();
     assert_eq!(
-        spawn_edge(PhobosEdgeType::Owner, Edge::East, &mut owner_rng),
+        edge_for_mode(PhobosEdgeType::Owner, Edge::East, &mut owner_rng),
         Edge::East
     );
     assert_eq!(owner_rng.state(), owner_before, "Owner spends no draw");
@@ -1562,13 +1562,13 @@ fn phobos_spawn_from_edge_modes_keep_the_house_edge_or_spend_one_random_draw() {
         reference.next_range_i32_inclusive(0, 3);
         reference.state()
     };
-    let edge = spawn_edge(PhobosEdgeType::Random, Edge::North, &mut random_rng);
+    let edge = edge_for_mode(PhobosEdgeType::Random, Edge::North, &mut random_rng);
     assert_eq!(random_rng.state(), expected, "one RandomRanged(0, 3) draw");
 
     // Same stream, same edge: the mode reads only that draw.
     let mut replay = SimRng::new(7);
     assert_eq!(
-        spawn_edge(PhobosEdgeType::Random, Edge::North, &mut replay),
+        edge_for_mode(PhobosEdgeType::Random, Edge::North, &mut replay),
         edge
     );
 }

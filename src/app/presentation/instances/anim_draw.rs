@@ -25,6 +25,40 @@ use crate::render::tactical_draw_plan::RenderZPolicy;
 use crate::render::terrain_draw::TerrainPiece;
 use crate::rules::art_data::AnimTypeRuntimeConfig;
 
+/// Phobos `DeployingAnim.UseUnitDrawer` (`Ext/Unit/Hooks.SimpleDeployer.cpp:89-93`):
+/// when `anim` is the owner Unit's retained deploy animation, its light
+/// follows that Unit's drawer arm: flash/curtain intensity plus the shield and
+/// AttachEffect colour word. The `IsBuildingAnim` half is the instance
+/// `use_cell_drawer` flag written at construction.
+#[cfg(feature = "phobos")]
+pub(crate) fn deploy_unit_drawer_light(
+    anim: &crate::sim::anim_class::AnimObject,
+    stable_id: u64,
+    sim: &crate::sim::world::Simulation,
+    rules: &crate::rules::ruleset::RuleSet,
+    tint: [f32; 3],
+    light: PaletteLight,
+) -> Option<([f32; 3], PaletteLight)> {
+    if !anim.use_cell_drawer() {
+        return None;
+    }
+    let owner = anim.owner_entity()?;
+    let entity = sim.entities().get(owner)?;
+    if entity.deploy_anim() != Some(stable_id) {
+        return None;
+    }
+    let word = crate::app::presentation::lighting::shp_colour_word(entity, sim, rules, || false);
+    let (tint, light) = crate::app::presentation::lighting::techno_effect_light(
+        entity,
+        tint,
+        light,
+        sim,
+        Some(rules),
+        crate::app::presentation::lighting::TechnoDraw::Shape,
+    );
+    Some((tint, light.with_colour_word(light.colour_word() | word)))
+}
+
 pub(super) struct AnimDrawInput<'a> {
     pub key: &'a ShpSpriteKey,
     /// A zero-size body frame has no atlas entry but can have a visible shadow.

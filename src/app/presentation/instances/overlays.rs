@@ -590,6 +590,18 @@ pub(crate) fn build_display_effect_instances(
         } else {
             input.lighting.anim_tint_at((rx, ry), config)
         };
+        // Phobos `DeployingAnim.UseUnitDrawer`: the Anim's LightConvert is the
+        // owner Unit's drawer, so its flash/curtain/shield tint follows.
+        #[cfg(feature = "phobos")]
+        let (tint, palette_light) = super::anim_draw::deploy_unit_drawer_light(
+            anim,
+            stable_id,
+            sim,
+            input.rules,
+            tint,
+            palette_light,
+        )
+        .unwrap_or((tint, palette_light));
         let Some(flags) = anim_instance_flags(
             config,
             anim.draw_flags(),

@@ -502,10 +502,9 @@ impl Simulation {
         let type_name = self.interner.intern(name);
         // Phobos `DeployingAnim.UseUnitDrawer` (`Ext/UnitType/Body.cpp:61`,
         // `Hooks.SimpleDeployer.cpp:89-93`): `IsBuildingAnim=true`, the
-        // cell-light/tint path. RESIDUAL: native also points the Anim's
-        // LightConvert at the Unit's drawer; VERA's anim remap is the frozen
-        // owner house, so a dynamic unit tint (Iron Curtain, shield) does not
-        // follow the Unit.
+        // cell-light/tint path. The Anim draw also follows the owner Unit's
+        // flash/curtain/shield drawer arm; RESIDUAL: the Unit's body-only
+        // extra light (bridge/ExtraUnitLight) is not folded into the Anim.
         #[cfg(feature = "phobos")]
         let use_unit_drawer = self
             .interner

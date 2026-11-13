@@ -185,6 +185,7 @@ Thumbs.db
 !/docs/phobos-interceptor.md
 !/docs/phobos-factory-plant.md
 !/docs/phobos-combat-alert.md
+!/docs/phobos-select-box.md
 <<<<<<< HEAD
 !/docs/phobos-empulse.md
 !/docs/phobos-overpower.md
@@ -245,6 +246,7 @@ Thumbs.db
 !/docs/phobos-ammo-pips.md
 =======
 !/docs/phobos-deploy-gates.md
+!/docs/phobos-select-box.md
 >>>>>>> feature/phobos-deploy-gates
 !/docs/ares-promotion-sounds.md
 !/docs/npatch.md

@@ -60,6 +60,14 @@ pub struct SelectionOverlay {
     /// Phobos custom insignia SHPs keyed by their normalized file name.
     #[cfg(feature = "phobos")]
     insignia_shapes: std::collections::HashMap<String, CenteredShapeStrip>,
+    /// One optional `[SelectBoxTypes]` `Shape=` per catalog entry, in catalog
+    /// order (`Ext/Techno/Body.Visuals.cpp:394-407`).
+    #[cfg(feature = "phobos")]
+    select_box_shapes: Vec<Option<CenteredShapeStrip>>,
+    /// One optional `[SelectBoxTypes]` `GroundShape=` per catalog entry
+    /// (`Ext/Techno/Body.Visuals.cpp:371-380`).
+    #[cfg(feature = "phobos")]
+    select_box_ground_shapes: Vec<Option<CenteredShapeStrip>>,
     /// Ares `IvanBomb.Image` SHPs keyed by their file name, MOUSEPAL like
     /// the BOMBCURS.SHP they replace; a name that did not load is absent.
     #[cfg(feature = "ares")]
@@ -456,6 +464,10 @@ impl SelectionOverlay {
             digital_shapes: Vec::new(),
             #[cfg(feature = "phobos")]
             insignia_shapes: std::collections::HashMap::new(),
+            #[cfg(feature = "phobos")]
+            select_box_shapes: Vec::new(),
+            #[cfg(feature = "phobos")]
+            select_box_ground_shapes: Vec::new(),
             #[cfg(feature = "ares")]
             ares_bomb_images: std::collections::HashMap::new(),
         }
@@ -552,6 +564,62 @@ impl SelectionOverlay {
     #[cfg(feature = "phobos")]
     pub(crate) fn digital_shape(&self, index: usize) -> Option<&CenteredShapeStrip> {
         self.digital_shapes.get(index)?.as_ref()
+    }
+
+    /// Load every `[SelectBoxTypes]` entry's `Shape=`/`Palette=` and
+    /// `GroundShape=`/`GroundPalette=` once per match, matching
+    /// `SelectBoxTypeClass`'s retained `SHPStruct*` pointers.
+    #[cfg(feature = "phobos")]
+    pub(crate) fn load_select_box_shapes(
+        &mut self,
+        device: &wgpu::Device,
+        queue: &wgpu::Queue,
+        batch: &BatchRenderer,
+        assets: &AssetManager,
+        types: &[crate::rules::select_box_type::SelectBoxType],
+    ) {
+        let load = |entry: &crate::rules::select_box_type::SelectBoxType,
+                    shape: Option<&str>,
+                    palette: &str|
+         -> Option<CenteredShapeStrip> {
+            let shape = shape?;
+            let strip = CenteredShapeStrip::from_assets_on_device(
+                device, queue, batch, assets, shape, palette,
+            );
+            if strip.is_none() {
+                log::warn!(
+                    "Phobos SelectBox {}: cannot load {shape} / {palette}",
+                    entry.name
+                );
+            }
+            strip
+        };
+        self.select_box_shapes = types
+            .iter()
+            .map(|entry| load(entry, entry.shape.as_deref(), entry.palette_name()))
+            .collect();
+        self.select_box_ground_shapes = types
+            .iter()
+            .map(|entry| {
+                load(
+                    entry,
+                    entry.ground_shape.as_deref(),
+                    entry.ground_palette_name(),
+                )
+            })
+            .collect();
+    }
+
+    /// One `[SelectBoxTypes]` entry's box SHP, when loaded.
+    #[cfg(feature = "phobos")]
+    pub(crate) fn select_box_shape(&self, index: usize) -> Option<&CenteredShapeStrip> {
+        self.select_box_shapes.get(index)?.as_ref()
+    }
+
+    /// One `[SelectBoxTypes]` entry's ground SHP, when loaded.
+    #[cfg(feature = "phobos")]
+    pub(crate) fn select_box_ground_shape(&self, index: usize) -> Option<&CenteredShapeStrip> {
+        self.select_box_ground_shapes.get(index)?.as_ref()
     }
 
     /// Load every TechnoType/`[InsigniaTypes]` insignia SHP once per match.

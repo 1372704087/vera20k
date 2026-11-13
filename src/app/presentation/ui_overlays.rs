@@ -1059,6 +1059,13 @@ pub(crate) struct TechnoExtras {
     pub digital_text: Vec<StatusTextOverlayInstances>,
     /// Phobos DigitalDisplay custom-SHP glyphs: catalog index + sprite.
     pub digital_shapes: Vec<(u32, SpriteInstance)>,
+    /// Phobos `TechnoExt::DrawSelectBox` after-body box: `[SelectBoxTypes]`
+    /// catalog index plus the sprite drawn with that entry's SHP.
+    #[cfg(feature = "phobos")]
+    pub select_box: Option<(u32, SpriteInstance)>,
+    /// Phobos `TechnoExt::DrawSelectBox` ground shape, same encoding.
+    #[cfg(feature = "phobos")]
+    pub select_box_ground: Option<(u32, SpriteInstance)>,
     ///709A90's group tail follows this parent's pip scale, not a global sweep.
     pub group: StatusTextOverlayInstances,
     ///6F5E8D..5EDE: after health/pips/group, plain600 at the caller point.
@@ -1107,6 +1114,16 @@ impl TechnoExtras {
             }
         }
         for (_, instance) in &mut self.digital_shapes {
+            instance.position[0] += offset[0];
+            instance.position[1] += offset[1];
+        }
+        #[cfg(feature = "phobos")]
+        if let Some((_, instance)) = &mut self.select_box {
+            instance.position[0] += offset[0];
+            instance.position[1] += offset[1];
+        }
+        #[cfg(feature = "phobos")]
+        if let Some((_, instance)) = &mut self.select_box_ground {
             instance.position[0] += offset[0];
             instance.position[1] += offset[1];
         }

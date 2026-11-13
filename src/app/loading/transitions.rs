@@ -408,6 +408,13 @@ pub(crate) fn install_world_presentation(
             assets,
             rules,
         );
+        overlay.load_select_box_shapes(
+            &state.renderer.gpu.device,
+            &state.renderer.gpu.queue,
+            &state.renderer.batch_renderer,
+            assets,
+            rules.select_box_types().types(),
+        );
     }
     // Ares `IvanBomb.Image` SHPs, retained once per match like the
     // WeaponTypeExt's SHPStruct pointers.

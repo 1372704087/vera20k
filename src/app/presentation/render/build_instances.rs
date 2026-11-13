@@ -433,6 +433,32 @@ pub(super) fn build_world_instances(
                     status.digital_text = digital.texts;
                     status.digital_shapes = digital.shapes;
                 }
+                // Phobos `TechnoExt::DrawSelectBox` (`Ext/Techno/Body.Visuals.cpp:333-409`):
+                // the after-body box sprite rides this Extras pass, like the
+                // DigitalDisplay custom shapes.
+                #[cfg(feature = "phobos")]
+                if state.match_state.match_presentation.enable_select_box
+                    && let Some(rules) = state.rules()
+                {
+                    let select_box = crate::app::presentation::select_box::select_box_sprites(
+                        sim,
+                        entity,
+                        rules,
+                        overlay,
+                        local_owner.as_deref(),
+                        crate::app::presentation::ui_overlays::StatusViewport {
+                            camera: [
+                                state.match_state.input.camera_x,
+                                state.match_state.input.camera_y,
+                            ],
+                            size: [sw, sh],
+                            zoom: state.match_state.input.zoom_level,
+                            ignore_visibility: state.match_state.sandbox_full_visibility,
+                        },
+                    );
+                    status.select_box = select_box.above;
+                    status.select_box_ground = select_box.ground;
+                }
                 if !entity.sinking.is_active() && !entity.passenger_role.is_inside_transport() {
                     if let (Some(frame), Some(shape)) = (
                         state

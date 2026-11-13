@@ -17,8 +17,9 @@ AnimationLength=                    ; integer, unset = Frames / (2*(HasDamagedFr
 ```
 
 `HasCrumblingFrames`, `CrumblingSound`, `DestroySound`, `HasDamagedFrames` and
-`AnimationLength` were already read; this chain adds the `DestroyAnim` list and
-the whole consumer lifecycle.
+`AnimationLength` were already read; this page covers the `DestroyAnim` list
+(`ValueableVector`, one registered entry picked per removal) and the consumer
+lifecycle.
 
 ## Behavior
 
@@ -72,11 +73,18 @@ unchanged.
 ## Tests
 
 `sim::terrain_spawn::tests::phobos_crumbling_tree_keeps_alive_then_destroys_and_removes`
-drives the production receiver and AI: survival with Logic and
-`CrumblingSound`, removal at `Frames/2` with `DestroySound` and one random
-`DestroyAnim`.
+drives the AI: survival with Logic and `CrumblingSound`, then removal on the
+visit whose Stage step reaches `Frames/2 - 1` with `DestroySound` and one
+random `DestroyAnim`.
+`a_lethal_area_hit_routes_crumbling_and_plain_trees_through_the_receiver`
+drives the production area receiver: a crumbling tree stays live and leaves
+the transaction's finalizing set, a plain tree finalizes in the call, and
+(under Ares) an on-fire tree skips Start_To_Crumble.
 `app::presentation::instances::terrain_render_tests::phobos_terrain_draw_frame_follows_type_keys_and_crumbling`
 pins both draw folds and the unchanged stock selector.
+
+The receiver-path test, the on-fire skip and the step-before-fold order were
+each mutated red and restored.
 
 ## Residuals
 
@@ -91,6 +99,13 @@ pins both draw folds and the unchanged stock selector.
   `TerrainTypeExt::Remove` are presentation bookkeeping; VERA redraws every
   frame and retires through the common non-entity owner, so no separate dirty
   area is registered.
+- The draw's damaged test reads the stock `[General] ConditionYellow=`; the
+  Phobos `[AudioVisual] ConditionYellow.Terrain=` override
+  (`Ext/Rules/Body.cpp`, used at `0x71C1FE`) is not read yet.
+- The anim asset catalog binds every authored `DestroyAnim` token; a token
+  that resolves to no AnimType is dropped at the random pick (the native
+  `ValueableVector` parser drops it earlier), so the draw range and RNG
+  stream match but an unresolved name can produce a load warning.
 - An animated crumbling type with no `AnimationLength` derives
   `Frames/(2*(HasDamagedFrames+1))`, which makes `currentStage + 1 == Frames/2`
   unreachable at value 0; native never removes it either. Author

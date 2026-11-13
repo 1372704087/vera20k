@@ -1197,9 +1197,11 @@ impl TerrainObjectStore {
         // Take_Damage71B920's ordinary lethal arm (71BAEF..71BB22) sets
         // IsCrumbling and restarts Stage at rate2/value0, the body of the
         // unreferenced `TerrainClass::Start_To_Crumble @ 0x0071C8E0`, then
-        // UnInits in the same call (71BB2C..71BB73). No crumble frame or
-        // AI71C730 crumble test runs, so no IsCrumbling is retained. Its
-        // IsOnFire arm is dormant: only the uncalled Catch_Fire71C5B0 sets it.
+        // UnInits in the same call (71BB2C..71BB73). Stock retains no
+        // IsCrumbling; the Phobos gate in `commit_terrain` keeps a
+        // `HasCrumblingFrames` object for its crumbling AI instead. The
+        // on-fire arm (`71BADC`) skips Start_To_Crumble and is resolved there
+        // as well.
         terrain.health = 0;
         finalizing_terrain.insert(stable_id);
         TerrainAreaReceiveResult::Lethal(TerrainLethalDamage {

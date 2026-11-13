@@ -1398,6 +1398,17 @@ pub(crate) fn commit_terrain(
     // other type plays `PlayDestroyEffects` before the stock UnInit.
     #[cfg(feature = "phobos")]
     {
+        // `0x71BADC..0x71BAED`: an on-fire object clears its owned anim loops
+        // and skips Start_To_Crumble, so `0x71BB2C` still sees IsCrumbling
+        // clear and destroys it in this call.
+        #[cfg(feature = "ares")]
+        let on_fire = world
+            .terrain_objects
+            .objects()
+            .get(&lethal.stable_id)
+            .is_some_and(|terrain| terrain.on_fire());
+        #[cfg(not(feature = "ares"))]
+        let on_fire = false;
         let crumbles = {
             let type_name = world
                 .terrain_objects
@@ -1408,7 +1419,10 @@ pub(crate) fn commit_terrain(
                 .and_then(|name| rules.terrain_object_type_case_insensitive(&name))
                 .is_some_and(|terrain_type| terrain_type.has_crumbling_frames)
         };
-        if crumbles {
+        if crumbles && !on_fire {
+            // The stock same-call UnInit never runs, so this transaction must
+            // not keep the id for the later finalizer either.
+            run.finalizing_terrain.remove(&lethal.stable_id);
             world.terrain_start_crumble(lethal.stable_id, rules);
             return (effects, under_attack_events);
         }

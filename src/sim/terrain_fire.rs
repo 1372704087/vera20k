@@ -80,8 +80,9 @@ impl Simulation {
     /// `TerrainClass::Finish_Fire_Death @ 0x0071C6B0`, the tree's vt+0x17C
     /// that SetOwnerObject (`0x00424BB0`) calls when its last fire anim
     /// leaves: IsOnFire clears. Its tail (`0x0071C6CD..0x0071C72B`) starts the
-    /// crumble of a tree left at zero Health, which VERA never holds: a
-    /// lethal hit UnInits the tree in the same Take_Damage call.
+    /// crumble of a tree left at zero Health; VERA ports only the lethal-arm
+    /// crumble (`commit_terrain`), so the fire-out start stays a recorded
+    /// residual (docs/phobos-crumbling-frames.md).
     pub(crate) fn terrain_finish_fire_death(&mut self, terrain_id: u64) {
         if self
             .terrain_objects

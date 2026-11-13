@@ -264,6 +264,16 @@ fn tick_terrain_crumble(
         sim.terrain_objects.set_crumbling(stable_id, false);
         return Ok(false);
     }
+    // `0x71C7C2..0x71C807` runs the stock Stage step before `0x71C80A` tests
+    // IsCrumbling, and the `0x71C812` hook compares the stepped value; a
+    // visit whose timer did not step returns at `0x71C840` without reaching
+    // the hook.
+    if !sim
+        .terrain_objects
+        .advance_crumble(stable_id, sim.session.binary_frame())
+    {
+        return Ok(true);
+    }
     let frames = i32::from(rules.terrain_display_frame_count(&name).unwrap_or(0));
     let damaged = i32::from(terrain_type.has_damaged_frames);
     let animation_length = terrain_type
@@ -282,10 +292,7 @@ fn tick_terrain_crumble(
     if current_stage + 1 == frames / 2 {
         sim.terrain_play_destroy_effects(stable_id, rules);
         sim.terrain_crumble_finish(stable_id, rules, overlay_registry, effects);
-        return Ok(true);
     }
-    sim.terrain_objects
-        .advance_crumble(stable_id, sim.session.binary_frame());
     Ok(true)
 }
 
@@ -2709,7 +2716,7 @@ mod tests {
             "CrumblingSound plays once at the crumble start"
         );
 
-        let mut removed = false;
+        let mut removed_at = None;
         for frame in 0..12 {
             sim.session.set_binary_frame_for_test(frame);
             tick_terrain_object_ai(&mut sim, id, &rules, None, FrameEffects::default())
@@ -2720,11 +2727,13 @@ mod tests {
                 .get(&id)
                 .is_some_and(|terrain| !terrain.is_live())
             {
-                removed = true;
+                removed_at = Some(frame);
                 break;
             }
         }
-        assert!(removed, "the crumble sequence removes the tree");
+        // The stock Stage step runs before the 0x71C812 fold, so the value
+        // reaches 3 at frame 6 and removes on that same visit.
+        assert_eq!(removed_at, Some(6), "the crumble sequence removes the tree");
         assert!(
             sim.sound_events.iter().any(|event| matches!(
                 event,
@@ -2732,6 +2741,135 @@ mod tests {
             )),
             "PlayDestroyEffects plays DestroySound once"
         );
+    }
+
+    /// The production area receiver (`commit_terrain`) routes a lethal hit:
+    /// a `HasCrumblingFrames` tree stays live and crumbling (and leaves the
+    /// transaction's finalizing set, which `ReceiverRun::finish` expects
+    /// empty), while a plain tree finalizes in the same call. Under Ares an
+    /// on-fire tree skips Start_To_Crumble (`0x71BADC`).
+    #[cfg(feature = "phobos")]
+    #[test]
+    fn a_lethal_area_hit_routes_crumbling_and_plain_trees_through_the_receiver() {
+        let ini = IniFile::from_str(
+            "[InfantryTypes]
+[VehicleTypes]
+[AircraftTypes]
+[BuildingTypes]
+             [TerrainTypes]
+0=TREE
+1=PLAIN
+             [Warheads]
+0=WH
+             [TREE]
+Strength=100
+IsAnimated=no
+SpawnsTiberium=no
+             [PLAIN]
+Strength=100
+IsAnimated=no
+SpawnsTiberium=no
+             [WH]
+Wood=yes
+Verses=100%,100%,100%,100%,100%,100%,100%,100%,100%,100%,100%
+",
+        );
+        let mut rules = RuleSet::from_ini(&ini).expect("receiver rules");
+        let mut crumbling = rules
+            .terrain_object_type_case_insensitive("TREE")
+            .expect("tree type")
+            .clone();
+        crumbling.has_crumbling_frames = true;
+        crumbling.crumbling_sound = Some("TreeCrumble".to_string());
+        crumbling.destroy_sound = Some("TreeDestroy".to_string());
+        crumbling.animation_length = Some(4);
+        rules.install_map_terrain_type(crumbling);
+        rules.set_terrain_spawner_frame_count_for_test("TREE", 8);
+
+        let mut sim = crate::sim::world::Simulation::new();
+        sim.install_resolved_terrain_for_new_map(resolved_grid(8, 8));
+        construct_terrain_objects(
+            &mut sim,
+            &[
+                crate::map::overlay::TerrainObject {
+                    rx: 4,
+                    ry: 4,
+                    name: "TREE".to_string(),
+                },
+                crate::map::overlay::TerrainObject {
+                    rx: 6,
+                    ry: 4,
+                    name: "PLAIN".to_string(),
+                },
+            ],
+            &rules,
+            false,
+        );
+        let tree = sim.terrain_objects.id_at((4, 4)).expect("tree");
+        let plain = sim.terrain_objects.id_at((6, 4)).expect("plain");
+        sim.resolve_type_handles(&rules);
+        let warhead = rules.warhead("WH").expect("warhead").clone();
+        let warhead_ref = sim.interner.intern("WH");
+        let live = |sim: &crate::sim::world::Simulation, id: u64| {
+            sim.terrain_objects
+                .objects()
+                .get(&id)
+                .is_some_and(TerrainObjectState::is_live)
+        };
+        for (id, rx) in [(tree, 4), (plain, 6)] {
+            crate::sim::combat::world_receiver::apply_area_damage(
+                &mut sim,
+                &rules,
+                None,
+                crate::sim::projectile::ProjectileCoord::new(
+                    i32::from(rx) * 256 + 128,
+                    4 * 256 + 128,
+                    0,
+                ),
+                1000,
+                &warhead,
+                false,
+                (crate::sim::combat::RAD_NO_ATTACKER, None, warhead_ref),
+                FrameEffects::default(),
+            );
+            if id == tree {
+                assert!(live(&sim, tree), "the crumbling tree survives the hit");
+                assert!(sim.terrain_objects.is_crumbling(tree));
+            } else {
+                assert!(!live(&sim, plain), "the plain tree finalizes in the call");
+            }
+        }
+
+        #[cfg(feature = "ares")]
+        {
+            construct_terrain_objects(
+                &mut sim,
+                &[crate::map::overlay::TerrainObject {
+                    rx: 2,
+                    ry: 4,
+                    name: "TREE".to_string(),
+                }],
+                &rules,
+                false,
+            );
+            let burning = sim.terrain_objects.id_at((2, 4)).expect("burning tree");
+            assert!(sim.terrain_objects.set_on_fire(burning, true));
+            crate::sim::combat::world_receiver::apply_area_damage(
+                &mut sim,
+                &rules,
+                None,
+                crate::sim::projectile::ProjectileCoord::new(2 * 256 + 128, 4 * 256 + 128, 0),
+                1000,
+                &warhead,
+                false,
+                (crate::sim::combat::RAD_NO_ATTACKER, None, warhead_ref),
+                FrameEffects::default(),
+            );
+            assert!(
+                !live(&sim, burning) && !sim.terrain_objects.is_crumbling(burning),
+                "0x71BADC skips Start_To_Crumble for an on-fire tree"
+            );
+        }
     }
 
     /// `HasDamagedFrames=` above zero health clears the damaged-redraw latch

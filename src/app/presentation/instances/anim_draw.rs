@@ -257,6 +257,12 @@ fn bounce_ground_shadow(
     entry: Option<&ShpSpriteEntry>,
     body: SpriteInstance,
 ) -> Option<ObjectPieceInstance> {
+    // Phobos `ExtraShadow=false` skips this pass (hook `0x423365`,
+    // `Ext/Anim/Hooks.cpp:463-480`), which the 4233EE target reaches after the
+    // HasExtras test; the body and its `Shadow=` pass stay.
+    if input.config.is_some_and(|config| !config.extra_shadow) {
+        return None;
+    }
     let (drop, entry) = (input.bounce_drop_px?, entry?);
     let y_draw_offset = input.config.map_or(0, |config| config.y_draw_offset);
     let row = input.point[1] + drop as f32;

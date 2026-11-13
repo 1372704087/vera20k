@@ -313,6 +313,24 @@ fn has_bounce_draws_the_body_frame_as_a_z_read_ground_shadow_before_the_body() {
 }
 
 #[test]
+fn extra_shadow_false_drops_the_has_bounce_ground_shadow() {
+    // Phobos `ExtraShadow` (`Ext/AnimType/Body.h:62,114`, hook `0x423365`,
+    // `Ext/Anim/Hooks.cpp:463-480`) skips only the 4233EE ground pass: the body
+    // and its `Shadow=` half stay.
+    let (atlas, key, config) = fixture("Bouncer=yes\nExtraShadow=no\nShadow=yes\n");
+    let mut draw = input(&atlas, &key, &config);
+    draw.flags = 0x600;
+    draw.bounce_drop_px = Some(37);
+    let pieces = anim_draw_pieces(&atlas, draw);
+    assert_eq!(pieces.len(), 2, "the ground shadow is gone");
+    assert_eq!(pieces[0].target, ObjectTexture::ShpPage(1));
+    assert_eq!(
+        pieces[1].target,
+        ObjectTexture::SpriteAtlasEdit(2, TerrainPiece::Shadow)
+    );
+}
+
+#[test]
 fn the_ground_shadow_needs_a_drawn_body_frame() {
     // A zero-sized body frame has no entry: the same frame draws no shadow,
     // while the later Shadow= pass keeps its own frame.

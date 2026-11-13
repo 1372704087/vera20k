@@ -694,6 +694,63 @@ fn an_empty_fighter_lets_go_heads_for_its_edge_and_idles() {
     );
 }
 
+/// Phobos `Strafing=` (`Ext/WeaponType/Body.cpp:107`): the explicit classifier
+/// wins over the projectile inference in
+/// `AircraftClass_IFlyControl_IsStrafe` (`Ext/Aircraft/Hooks.cpp:102`), and an
+/// unset key infers `ROT<=1 && !Inviso && no Trajectory=`.
+#[cfg(feature = "phobos")]
+#[test]
+fn the_strafing_classifier_overrides_the_projectile_inference() {
+    use crate::rules::ini_parser::IniFile;
+    use crate::rules::ruleset::RuleSet;
+    let rules = RuleSet::from_ini_with_fixed_art_for_test(
+        &IniFile::from_str(
+            "[AircraftTypes]\n\
+             0=YESBIG\n1=NOFAST\n2=INFERRED\n3=TRAJECTORIED\n\
+             [YESBIG]\nPrimary=SLOWBOMB\n\
+             [NOFAST]\nPrimary=FASTBOLT\n\
+             [INFERRED]\nPrimary=SLOWBOLT\n\
+             [TRAJECTORIED]\nPrimary=DRIFTBOLT\n\
+             [WeaponTypes]\n\
+             0=SLOWBOMB\n1=FASTBOLT\n2=SLOWBOLT\n3=DRIFTBOLT\n\
+             [SLOWBOMB]\nProjectile=BIGSHELL\nStrafing=yes\n\
+             [FASTBOLT]\nProjectile=LASER\nStrafing=no\n\
+             [SLOWBOLT]\nProjectile=BULLET\n\
+             [DRIFTBOLT]\nProjectile=DRIFTER\n\
+             [Projectiles]\n0=BIGSHELL\n1=LASER\n2=BULLET\n3=DRIFTER\n\
+             [BIGSHELL]\nROT=8\n\
+             [LASER]\nROT=0\n\
+             [BULLET]\nROT=1\n\
+             [DRIFTER]\nROT=1\nTrajectory=Straight\n",
+        ),
+        &IniFile::empty(),
+    )
+    .unwrap();
+    // A ROT 8 shell does not strafe by inference; the key says it does.
+    assert!(crate::sim::combat::combat_weapon::aircraft_strafes(
+        &rules,
+        rules.object("YESBIG").unwrap(),
+        0
+    ));
+    // A ROT 0 bolt would infers as strafing; the key says it does not.
+    assert!(!crate::sim::combat::combat_weapon::aircraft_strafes(
+        &rules,
+        rules.object("NOFAST").unwrap(),
+        0
+    ));
+    assert!(crate::sim::combat::combat_weapon::aircraft_strafes(
+        &rules,
+        rules.object("INFERRED").unwrap(),
+        0
+    ));
+    // `Trajectory=` excludes the projectile from the inference (`:102`).
+    assert!(!crate::sim::combat::combat_weapon::aircraft_strafes(
+        &rules,
+        rules.object("TRAJECTORIED").unwrap(),
+        0
+    ));
+}
+
 /// The retail inputs the loop reads, through the production reader:
 /// `CurleyShuffle=yes`; the Hornet and the Osprey strafe (weapon 0's
 /// projectile has ROT 1 and no Inviso) and wait 76 and 59 frames after their

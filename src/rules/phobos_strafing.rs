@@ -44,12 +44,20 @@ pub struct PhobosStrafingRules {
     /// `Strafing.EndDelay=`, `Nullable<int>`: the frames after the last shot;
     /// unset derives `(Range + 4 * LeptonsPerCell) / Speed`.
     pub end_delay: Option<i32>,
+    /// `Strafing=`, `Nullable<bool>` (`Ext/WeaponType/Body.cpp:107`, declared
+    /// `Body.h:39`, constructed empty `Body.h:134`): an explicit answer to
+    /// "does this weapon strafe". Unset infers from the projectile
+    /// (`Ext/Aircraft/Hooks.cpp:102`: `ROT<=1 && !Inviso && no Trajectory=`;
+    /// `Ext/Foot/Body.cpp:840` repeats it as `ROT<2`).
+    pub strafing: Option<bool>,
 }
 
 impl PhobosStrafingRules {
-    /// `WeaponTypeExt::LoadFromINIFile`'s five reads (`Body.cpp:108-112`).
+    /// `WeaponTypeExt::LoadFromINIFile`'s six reads (`Body.cpp:107-112`),
+    /// classifier first.
     pub fn from_section(section: &IniSection) -> Self {
         Self {
+            strafing: section.read_phobos_nullable_bool("Strafing", None),
             shots: section.read_phobos_nullable_int("Strafing.Shots", None),
             simulate_burst: section.read_phobos_nullable_bool("Strafing.SimulateBurst", None),
             use_ammo_per_shot: section.read_phobos_nullable_bool("Strafing.UseAmmoPerShot", None),
@@ -60,7 +68,8 @@ impl PhobosStrafingRules {
 
     /// Whether every key is unset: stock rules keep the previous hash stream.
     pub const fn is_default(&self) -> bool {
-        self.shots.is_none()
+        self.strafing.is_none()
+            && self.shots.is_none()
             && self.simulate_burst.is_none()
             && self.use_ammo_per_shot.is_none()
             && self.target_cell.is_none()

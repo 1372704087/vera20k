@@ -508,10 +508,31 @@ pub fn is_armed(
 /// Aircraft auxiliary+18/41B7F0: the primary projectile selects the attack
 /// approach and release branches. All callers use the live weapon tier.
 pub(crate) fn aircraft_strafes(rules: &RuleSet, obj: &ObjectType, veterancy: u16) -> bool {
-    primary_for_tier(obj, veterancy)
-        .and_then(|name| rules.weapon(name))
-        .and_then(|weapon| rules.weapon_projectile(weapon))
-        .is_some_and(|projectile| projectile.rot <= 1 && !projectile.inviso)
+    let Some(weapon) = primary_for_tier(obj, veterancy).and_then(|name| rules.weapon(name)) else {
+        return false;
+    };
+    // Phobos `AircraftClass_IFlyControl_IsStrafe` (`Ext/Aircraft/Hooks.cpp:88-106`,
+    // vtable jump `0x7E2268`) answers with the weapon's `Strafing=` when it is
+    // set, and otherwise infers it from the projectile: `ROT<=1`, not
+    // `Inviso=`, and no `Trajectory=` (`:102`; `Ext/Foot/Body.cpp:840` spells
+    // the same test as `ROT<2`). The trajectory term needs Phobos' bullet
+    // extension.
+    #[cfg(feature = "phobos")]
+    if let Some(explicit) = weapon.phobos_strafing().strafing {
+        return explicit;
+    }
+    rules.weapon_projectile(weapon).is_some_and(|projectile| {
+        projectile.rot <= 1 && !projectile.inviso && {
+            #[cfg(feature = "phobos")]
+            {
+                projectile.phobos_trajectory.flag.is_none()
+            }
+            #[cfg(not(feature = "phobos"))]
+            {
+                true
+            }
+        }
+    })
 }
 
 /// `TechnoClass::GetWeaponRange @ 0x007012C0` (vt+0x168, no class

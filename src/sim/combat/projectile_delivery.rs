@@ -73,6 +73,53 @@ pub(super) fn bullet_type<'r>(
         .unwrap_or_else(|| missing_projectile_fallback())
 }
 
+/// Phobos `VerticalInitialFacing.Get(Voxel || Vertical)`
+/// (`Misc/Hooks.BugFixes.cpp:2435`, hook `0x6FED2F`
+/// `TechnoClass_FireAt_VerticalInitialFacing`): whether the shot takes
+/// FireAt's target-Z initial pitch arm (0x4000/0x8000) instead of the
+/// distance branch. The vanilla gate was `ObjectType+0x236` (Voxel) alone;
+/// the resolved flag replaces it, so a `Vertical=` shot gains the arm.
+#[cfg(feature = "phobos")]
+pub(crate) fn vertical_initial_facing(
+    projectile: Option<&crate::rules::projectile_type::ProjectileType>,
+) -> bool {
+    projectile
+        .and_then(|kind| kind.phobos_vertical_initial_facing)
+        .unwrap_or_else(|| projectile.is_some_and(|kind| kind.voxel || kind.vertical))
+}
+
+#[cfg(all(test, feature = "phobos"))]
+mod vertical_initial_facing_tests {
+    use super::vertical_initial_facing;
+    use crate::rules::ini_parser::IniFile;
+    use crate::rules::projectile_type::ProjectileType;
+
+    fn projectile(ini: &str) -> ProjectileType {
+        let ini = IniFile::from_str(ini);
+        ProjectileType::from_ini_section("T", ini.section("T").expect("section"), None)
+    }
+
+    /// The absent key falls back to `Voxel || Vertical`; an explicit value
+    /// wins over both (`Ext/BulletType/Body.cpp:37`, constructor empty).
+    #[test]
+    fn vertical_initial_facing_resolves_the_fallback_and_override() {
+        assert!(!vertical_initial_facing(None));
+        assert!(!vertical_initial_facing(Some(&projectile("[T]\n"))));
+        let mut voxel = projectile("[T]\n");
+        voxel.voxel = true;
+        assert!(vertical_initial_facing(Some(&voxel)));
+        assert!(vertical_initial_facing(Some(&projectile(
+            "[T]\nVertical=yes\n"
+        ))));
+        let mut overridden = projectile("[T]\nVerticalInitialFacing=no\n");
+        overridden.voxel = true;
+        assert!(!vertical_initial_facing(Some(&overridden)));
+        assert!(vertical_initial_facing(Some(&projectile(
+            "[T]\nVerticalInitialFacing=yes\n"
+        ))));
+    }
+}
+
 /// The BulletType facts a weapon's shot is fired with, and its flight arm.
 ///
 /// gamemd-derived: `BulletClass::AI @ 0x004666E0` has exactly two branches,

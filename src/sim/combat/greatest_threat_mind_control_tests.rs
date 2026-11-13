@@ -1,5 +1,5 @@
 //! Phobos `TechnoClass_CanAutoTargetObject_AttackMindControlledDelay`
-//! (`0x6F88BF`, `Ext/Techno/Hooks.Misc.cpp:630-640`): a candidate inside its
+//! (`0x6F88BF`, `Ext/Techno/Hooks.Misc.cpp:631-641`): a candidate inside its
 //! `MindControl.ThreatDelay` shield is not auto-targeted by a house allied
 //! with its original owner; the boundary frame, a berserk scanner and a
 //! controller without a manager admit it again.

@@ -277,7 +277,7 @@ pub struct PhobosGlobals {
     /// `Ext/Rules/Body.cpp:380`, `Body.h:285,802`): the fallback for a
     /// warhead's `MindControl.ThreatDelay=`; frames a fresh capture keeps its
     /// new pawn shielded from its former allies' retaliation and
-    /// auto-targeting (`Ext/Techno/Hooks.Misc.cpp:595-640`).
+    /// auto-targeting (`Ext/Techno/Hooks.Misc.cpp:606-641`).
     #[serde(default)]
     pub mind_control_threat_delay: i32,
     /// `[JumpjetControls] RotateOnCrash=` (`Valueable<bool>`, default **true**;

@@ -867,7 +867,7 @@ pub struct GameEntity {
     pub mind_control: crate::sim::capture_manager::MindControlLink,
     /// Phobos `TechnoExt::BeControlledThreatFrame` (`Ext/Techno/Body.h:54`):
     /// the first frame its former allies may retaliate against or auto-target
-    /// this freshly mind-controlled object (`Ext/Techno/Hooks.Misc.cpp:595-640`).
+    /// this freshly mind-controlled object (`Ext/Techno/Hooks.Misc.cpp:606-641`).
     /// A `MindControl.ThreatDelay=` capture sets it, `FreeUnit` clears it.
     #[cfg(feature = "phobos")]
     #[serde(default)]

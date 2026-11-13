@@ -2964,7 +2964,7 @@ fn evaluate_candidate(
         },
     )?;
     // Phobos `TechnoClass_CanAutoTargetObject_AttackMindControlledDelay`
-    // (`0x6F88BF`, `Ext/Techno/Hooks.Misc.cpp:630-640`): refuse a candidate
+    // (`0x6F88BF`, `Ext/Techno/Hooks.Misc.cpp:631-641`): refuse a candidate
     // shielded by its fresh capture. The hook sits after the score is
     // computed and before ThreatAvoidance_Modifier, returning 0
     // (`0x6F894F`) instead of a score.

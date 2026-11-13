@@ -420,7 +420,7 @@ pub(crate) fn should_retaliate(
         }
     }
     // Phobos `TechnoClass_AllowedToRetaliate_AttackMindControlledDelay`
-    // (`0x7089E8`, `Ext/Techno/Hooks.Misc.cpp:620-628`): a freshly
+    // (`0x7089E8`, `Ext/Techno/Hooks.Misc.cpp:621-629`): a freshly
     // mind-controlled source is shielded from the retaliation of houses
     // allied with its original owner.
     #[cfg(feature = "phobos")]

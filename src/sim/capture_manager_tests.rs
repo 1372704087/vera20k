@@ -2952,7 +2952,7 @@ fn warhead_mind_control_anim_overrides_the_global_ring() {
 /// `MindControl_ThreatDelay.Get([General] MindControl.ThreatDelay)`;
 /// `CaptureManagerExt::CaptureUnit` arms `BeControlledThreatFrame` for a
 /// positive value and `FreeUnit` clears it
-/// (`Ext/CaptureManager/Body.cpp:141,200-201`).
+/// (`Ext/CaptureManager/Body.cpp:142,200-201`).
 #[cfg(feature = "phobos")]
 #[test]
 fn mind_control_threat_delay_arms_the_shield_and_free_unit_clears_it() {
@@ -3016,11 +3016,10 @@ fn mind_control_threat_delay_arms_the_shield_and_free_unit_clears_it() {
     let (_, tank) = detonate(&mut third, &zero_key);
     assert_eq!(frame(&third, tank), 0, "an explicit 0 disables the shield");
 
-    let plain = rules();
     let mut fourth = sim(7);
-    let tower = spawn(&mut fourth, &plain, "YAPSYT", "YuriCountry", 10, 10);
-    let tank = spawn(&mut fourth, &plain, "HTNK", "Americans", 11, 10);
-    assert!(fourth.capture_unit(tower, tank, &plain, None, FrameEffects::default()));
+    let tower = spawn(&mut fourth, &general_key, "YAPSYT", "YuriCountry", 10, 10);
+    let tank = spawn(&mut fourth, &general_key, "HTNK", "Americans", 11, 10);
+    assert!(fourth.capture_unit(tower, tank, &general_key, None, FrameEffects::default()));
     assert_eq!(
         frame(&fourth, tank),
         0,

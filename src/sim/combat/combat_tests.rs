@@ -3351,7 +3351,7 @@ fn an_iron_curtained_source_gates_human_retaliation_by_weapon_and_global() {
 }
 
 /// Phobos `TechnoClass_AllowedToRetaliate_AttackMindControlledDelay`
-/// (`0x7089E8`, `Ext/Techno/Hooks.Misc.cpp:595-628`): a freshly
+/// (`0x7089E8`, `Ext/Techno/Hooks.Misc.cpp:606-629`): a freshly
 /// mind-controlled source is shielded from the retaliation of houses allied
 /// with its original owner until `BeControlledThreatFrame` passes. The
 /// boundary frame, a berserk retaliator, a controller without a manager and
@@ -3361,13 +3361,13 @@ fn an_iron_curtained_source_gates_human_retaliation_by_weapon_and_global() {
 fn a_freshly_mind_controlled_source_is_shielded_from_its_former_allies_retaliation() {
     use crate::sim::capture_manager::{CaptureManagerState, MindControlLink};
     const CONTROLLER: u64 = 3;
-    let build = || {
+    let build = |human: bool| {
         let (mut sim, rules) = retaliation_gate_world(
             "VICTIM",
             EntityCategory::Unit,
             "SOURCE",
             EntityCategory::Unit,
-            false,
+            human,
         );
         let original_owner = sim.substrate.entities.get(GATE_VICTIM).unwrap().owner();
         let mut controller = GameEntity::test_default(CONTROLLER, "SOURCE", "Test", 16, 5);
@@ -3391,7 +3391,7 @@ fn a_freshly_mind_controlled_source_is_shielded_from_its_former_allies_retaliati
         combat_targeting::should_retaliate(sim, rules, GATE_VICTIM, GATE_SOURCE, None)
     };
 
-    let (mut sim, rules) = build();
+    let (mut sim, rules) = build(false);
     assert!(
         retaliates(&sim, &rules),
         "frame 0 with an unarmed shield retaliates"
@@ -3420,8 +3420,46 @@ fn a_freshly_mind_controlled_source_is_shielded_from_its_former_allies_retaliati
         .set_active_for_test(true);
     assert!(retaliates(&sim, &rules));
 
+    // The gate runs on the human path too, ahead of the PlayerReturnFire
+    // mission arm.
+    let (mut sim, rules) = build(true);
+    sim.substrate
+        .entities
+        .get_mut(GATE_SOURCE)
+        .unwrap()
+        .phobos_be_controlled_threat_frame = 5;
+    assert!(
+        !retaliates(&sim, &rules),
+        "a human retaliator is shielded too"
+    );
+    sim.session.set_binary_frame_for_test(5);
+    assert!(retaliates(&sim, &rules));
+
+    // A distinct original owner allied with the retaliator arms the shield
+    // even though the controlled object's current owner is not allied.
+    let (mut sim, rules) = build(false);
+    let origin = sim.interner.intern("Origin");
+    sim.houses
+        .register(HouseState::new(origin, 2, None, false, 0, 10));
+    sim.substrate
+        .entities
+        .get_mut(CONTROLLER)
+        .unwrap()
+        .capture_manager = Some(CaptureManagerState::with_nodes_for_test(&[(
+        GATE_SOURCE,
+        origin,
+    )]));
+    sim.house_alliances_mut_for_test()
+        .insert("VICTIM".to_string(), ["ORIGIN".to_string()].into());
+    sim.substrate
+        .entities
+        .get_mut(GATE_SOURCE)
+        .unwrap()
+        .phobos_be_controlled_threat_frame = 5;
+    assert!(!retaliates(&sim, &rules));
+
     // `!pManager` ignores the shield.
-    let (mut sim, rules) = build();
+    let (mut sim, rules) = build(false);
     sim.substrate
         .entities
         .get_mut(GATE_SOURCE)
@@ -3436,7 +3474,7 @@ fn a_freshly_mind_controlled_source_is_shielded_from_its_former_allies_retaliati
 
     // A retaliator allied with neither the original owner nor the
     // controller ignores the shield.
-    let (mut sim, rules) = build();
+    let (mut sim, rules) = build(false);
     let source_owner = sim.substrate.entities.get(GATE_SOURCE).unwrap().owner();
     sim.substrate
         .entities

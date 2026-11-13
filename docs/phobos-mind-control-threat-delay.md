@@ -27,17 +27,19 @@ Readers: the general key at `Ext/Rules/Body.cpp:380` (constructor
   sets `TechnoExt::BeControlledThreatFrame = CurrentFrame + threatDelay` only
   for a positive delay; zero leaves the field alone.
 - `CaptureManagerExt::FreeUnit` (hook `0x471FF0`,
-  `Ext/CaptureManager/Hooks.cpp:15`; `Ext/CaptureManager/Body.cpp:141`)
+  `Ext/CaptureManager/Hooks.cpp:15`; `Ext/CaptureManager/Body.cpp:142`)
   clears the field before the original owner returns.
-- `CanAttackMindControlled` (`Ext/Techno/Hooks.Misc.cpp:595-618`) admits the
+- `CanAttackMindControlled` (`Ext/Techno/Hooks.Misc.cpp:606-620`) admits the
   attack when the object is not mind-controlled, the asker is berserk, the
   controller has no capture manager, or the asker's house is not allied with
   the manager's `GetOriginalOwner` of the pawn. Otherwise only
   `BeControlledThreatFrame <= CurrentFrame` admits it.
 - The retaliation hook `TechnoClass_AllowedToRetaliate_AttackMindControlledDelay`
-  (`0x7089E8`) jumps to `CannotRetaliate` (`0x708B17`, returns false).
+  (`0x7089E8`, `Hooks.Misc.cpp:621-629`) jumps to `CannotRetaliate`
+  (`0x708B17`, returns false).
 - The auto-target hook `TechnoClass_CanAutoTargetObject_AttackMindControlledDelay`
-  (`0x6F88BF`) jumps to `CannotSelect` (`0x6F894F`, returns no score) after
+  (`0x6F88BF`, `Hooks.Misc.cpp:631-641`) jumps to `CannotSelect`
+  (`0x6F894F`, returns no score) after
   `Evaluate_Candidate` has computed the score and before
   `ThreatAvoidance_Modifier`.
 
@@ -50,10 +52,11 @@ and serializes with the entity (Phobos serializes it in `TechnoExt`,
 `Ext/Techno/Body.cpp:1178`). `mind_control_detonation` resolves the key pair
 and arms the field after a successful capture;
 `Simulation::free_unit_with_sound` clears it. `Simulation::can_attack_mind_controlled`
-is the shared gate, called from `combat_targeting::should_retaliate` (before
-the `PlayerReturnFire` mission arm, where the hook replaces the second
-`IsHuman` call) and from `greatest_threat::evaluate_candidate` (after the
-score, before `threat_avoidance`).
+is the shared gate, called from `combat_targeting::should_retaliate` (between
+the human C4/artillery arm and the `PlayerReturnFire` arm, where the hook
+replaces the repeated `IsHuman` test on the common path) and from
+`greatest_threat::evaluate_candidate` (after the score, before
+`threat_avoidance`).
 
 ## Tests
 
@@ -84,3 +87,8 @@ mutated red and restored.
   states.
 - The general key is read from `[General]` in the single Phobos-globals
   pass; it is not a warhead fallback for `MindControl.Anim`.
+- The frame is written after `capture_unit_with_ring` returns, where Phobos
+  arms it before `SetOwningHouse`/`DecideUnitFate`. No reader of the field
+  runs inside that window, so the same-tick state is indistinguishable;
+  a native capture whose owner change fails after arming would keep the
+  shield, which VERA does not reproduce.

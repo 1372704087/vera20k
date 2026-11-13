@@ -822,7 +822,7 @@ impl Simulation {
         )
     }
 
-    /// Phobos `CanAttackMindControlled` (`Ext/Techno/Hooks.Misc.cpp:595-618`,
+    /// Phobos `CanAttackMindControlled` (`Ext/Techno/Hooks.Misc.cpp:606-620`,
     /// hooks `0x7089E8` and `0x6F88BF`): whether `retaliator` may attack the
     /// mind-controlled `controlled` now. A fresh pawn is shielded from houses
     /// allied with its original owner (its own included) until
@@ -1512,7 +1512,7 @@ impl Simulation {
     }
 
     /// [`Self::free_unit`] with Phobos's `silent` argument
-    /// (`CaptureManagerExt::FreeUnit`, `Ext/CaptureManager/Body.cpp:141`):
+    /// (`CaptureManagerExt::FreeUnit`, `Ext/CaptureManager/Body.cpp:142`):
     /// `play_sound = false` skips the `MindClearedSound` the type or
     /// `[AudioVisual] MindClearedSound` names, which is the only thing the
     /// flag changes here.
@@ -1564,7 +1564,7 @@ impl Simulation {
                     self.sound_events.emit(event);
                 }
             }
-            // `CaptureManagerExt::FreeUnit` (`Ext/CaptureManager/Body.cpp:141`)
+            // `CaptureManagerExt::FreeUnit` (`Ext/CaptureManager/Body.cpp:142`)
             // clears Phobos's threat shield before the house returns.
             #[cfg(feature = "phobos")]
             if let Some(victim) = self.substrate.entities.get_mut(victim_id) {

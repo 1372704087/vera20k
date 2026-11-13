@@ -2661,6 +2661,14 @@ impl ProcessedRulesLayers {
         )
     }
 
+    pub(crate) fn stock_fire_anims(&self) -> (Option<&str>, Option<&str>) {
+        let state = &self
+            .native_type_construction_trace
+            .registry_state()
+            .select_anim;
+        (state.small_fire.as_deref(), state.large_fire.as_deref())
+    }
+
     pub(crate) fn wind_direction(&self) -> i32 {
         self.native_type_construction_trace
             .registry_state()
@@ -5110,6 +5118,10 @@ struct SelectAnimRulesState {
     weather_con_bolt_explosion: String,
     weapon_nullify_anim: String,
     splash_list: Vec<String>,
+    /// ReadAudioVisual `SmallFire=` / `LargeFire=` animation pointers;
+    /// `None` is the constructor's null.
+    small_fire: Option<String>,
+    large_fire: Option<String>,
 }
 
 #[derive(Debug, Clone, Default, serde::Serialize, serde::Deserialize)]
@@ -10868,8 +10880,18 @@ impl RulesPassProcessor {
         }
         let _ = self.resolve_scalar_from(section, "Smoke", RulesTypeFamily::Animation, 0x80);
         let _ = self.resolve_scalar_from(section, "Smoke", RulesTypeFamily::Animation, 0x80);
-        for key in ["SmallFire", "LargeFire"] {
-            let _ = self.resolve_scalar_from(section, key, RulesTypeFamily::Animation, 0x80);
+        // ReadAudioVisual's SmallFire/LargeFire animation pointers. Phobos's
+        // fire spawn is their consumer (`Ext/Anim/Body.cpp:393`, `:399`,
+        // `:403`); they are stock Keys, so the read is not gated.
+        if let Some(anim) =
+            self.resolve_scalar_from(section, "SmallFire", RulesTypeFamily::Animation, 0x80)
+        {
+            self.select_anim.small_fire = anim;
+        }
+        if let Some(anim) =
+            self.resolve_scalar_from(section, "LargeFire", RulesTypeFamily::Animation, 0x80)
+        {
+            self.select_anim.large_fire = anim;
         }
     }
 

@@ -1,12 +1,18 @@
-//! The Phobos `AnimTypeExt` keys read at `Ext/AnimType/Body.cpp:93-118`:
+//! The Phobos `AnimTypeExt` keys read at `Ext/AnimType/Body.cpp:93-125`:
 //! `AttachedAnimPosition`, `WakeAnim`, `VisibleTo`,
-//! `FireAnimDisallowedLandTypes`, `AttachFireAnimsToParent` and
-//! `TheaterPalette`.
+//! `FireAnimDisallowedLandTypes`, `AttachFireAnimsToParent`,
+//! `TheaterPalette`, `ConstrainFireAnimsToCellSpots`, `SmallFireCount`,
+//! `SmallFireAnims`/`Chances`/`Distances`, `LargeFireCount` and
+//! `LargeFireAnims`/`Chances`/`Distances`.
 //!
-//! VERA has no anim-runtime consumer for them yet (the fire-anim attach path,
-//! the debris wake and the cell-light palette are separate mechanisms); the
-//! reads land on [`crate::rules::art_data::AnimTypeRuntimeConfig`] so those
-//! paths can consume them without a second parse.
+//! The fire-spawn group feeds `AnimExt::SpawnFireAnims`
+//! (`Ext/Anim/Body.cpp:309-405`, hook `0x425060`): its inputs live on
+//! [`crate::rules::art_data::AnimTypeRuntimeConfig`] together with the stock
+//! `[AudioVisual] SmallFire=`/`LargeFire=` fallbacks the Rules reader keeps.
+//! The remaining keys (`AttachedAnimPosition`, `WakeAnim`, `VisibleTo`,
+//! `TheaterPalette`) still have no anim-runtime consumer (the debris wake and
+//! the cell-light palette are separate mechanisms); their reads land on the
+//! same config so those paths need no second parse.
 //!
 //! ## Dependency rules
 //! - Part of rules/ — no dependency on sim/, render/, ui/, etc.
@@ -154,6 +160,79 @@ impl PhobosAnimTypeExt {
     pub fn theater_palette(section: &IniSection) -> Option<bool> {
         section.read_phobos_nullable_bool("TheaterPalette", None)
     }
+
+    /// `ConstrainFireAnimsToCellSpots` (`Valueable<bool>`, constructor
+    /// `true`, `Ext/AnimType/Body.h:122`): snap every spawned fire anim to the
+    /// cell's infantry sublocation (`Ext/Anim/Body.cpp:328`).
+    pub fn constrain_fire_anims_to_cell_spots(section: &IniSection) -> bool {
+        section.read_bool("ConstrainFireAnimsToCellSpots", true)
+    }
+
+    /// `SmallFireCount` (`Nullable<int>`): overrides the
+    /// `1 + Flamer` default of the small-fire loop (`Ext/Anim/Body.cpp:389`).
+    pub fn small_fire_count(section: &IniSection) -> Option<i32> {
+        section.read_phobos_nullable_int("SmallFireCount", None)
+    }
+
+    /// `SmallFireAnims` (`ValueableVector<AnimTypeClass*>`, empty): the small
+    /// fire anims; an empty vector falls back to `[AudioVisual] SmallFire=`
+    /// (`Ext/Anim/Body.cpp:384`).
+    pub fn small_fire_anims(section: &IniSection) -> Vec<String> {
+        crate::rules::native_processing::read_valueable_type_vector(
+            section,
+            "SmallFireAnims",
+            &[],
+            |name| Some(name.to_owned()),
+        )
+    }
+
+    /// `SmallFireChances` (`ValueableVector<double>`, empty).
+    pub fn small_fire_chances(section: &IniSection) -> Vec<f64> {
+        section
+            .read_phobos_double_list("SmallFireChances")
+            .unwrap_or_default()
+    }
+
+    /// `SmallFireDistances` (`ValueableVector<double>`, empty): cell radii,
+    /// each converted with `LeptonsPerCell` at spawn (`Ext/Anim/Body.cpp:369`).
+    pub fn small_fire_distances(section: &IniSection) -> Vec<f64> {
+        section
+            .read_phobos_double_list("SmallFireDistances")
+            .unwrap_or_default()
+    }
+
+    /// `LargeFireCount` (`Valueable<int>`, constructor `1`,
+    /// `Ext/AnimType/Body.h:135`).
+    pub fn large_fire_count(section: &IniSection) -> i32 {
+        section.read_string_with("LargeFireCount", 2048, 1, |current, raw| {
+            crate::rules::ini_value::parse_ares_int(raw).unwrap_or(current)
+        })
+    }
+
+    /// `LargeFireAnims` (`ValueableVector<AnimTypeClass*>`, empty): the
+    /// `Flamer=` type's second loop (`Ext/Anim/Body.cpp:395`).
+    pub fn large_fire_anims(section: &IniSection) -> Vec<String> {
+        crate::rules::native_processing::read_valueable_type_vector(
+            section,
+            "LargeFireAnims",
+            &[],
+            |name| Some(name.to_owned()),
+        )
+    }
+
+    /// `LargeFireChances` (`ValueableVector<double>`, empty).
+    pub fn large_fire_chances(section: &IniSection) -> Vec<f64> {
+        section
+            .read_phobos_double_list("LargeFireChances")
+            .unwrap_or_default()
+    }
+
+    /// `LargeFireDistances` (`ValueableVector<double>`, empty).
+    pub fn large_fire_distances(section: &IniSection) -> Vec<f64> {
+        section
+            .read_phobos_double_list("LargeFireDistances")
+            .unwrap_or_default()
+    }
 }
 
 #[cfg(test)]
@@ -178,6 +257,15 @@ mod tests {
         );
         assert_eq!(PhobosAnimTypeExt::attach_fire_anims_to_parent(empty), None);
         assert_eq!(PhobosAnimTypeExt::theater_palette(empty), None);
+        assert!(PhobosAnimTypeExt::constrain_fire_anims_to_cell_spots(empty));
+        assert_eq!(PhobosAnimTypeExt::small_fire_count(empty), None);
+        assert!(PhobosAnimTypeExt::small_fire_anims(empty).is_empty());
+        assert!(PhobosAnimTypeExt::small_fire_chances(empty).is_empty());
+        assert!(PhobosAnimTypeExt::small_fire_distances(empty).is_empty());
+        assert_eq!(PhobosAnimTypeExt::large_fire_count(empty), 1);
+        assert!(PhobosAnimTypeExt::large_fire_anims(empty).is_empty());
+        assert!(PhobosAnimTypeExt::large_fire_chances(empty).is_empty());
+        assert!(PhobosAnimTypeExt::large_fire_distances(empty).is_empty());
     }
 
     #[test]
@@ -206,6 +294,38 @@ mod tests {
             Some(true)
         );
         assert_eq!(PhobosAnimTypeExt::theater_palette(set), Some(false));
+    }
+
+    /// The fire-spawn keys keep their `Ext/AnimType/Body.h` constructor values
+    /// (`ConstrainFireAnimsToCellSpots` true, `SmallFireCount` unset,
+    /// `LargeFireCount` 1) and read the authored vectors verbatim.
+    #[test]
+    fn the_fire_spawn_keys_read_their_vectors_and_counts() {
+        let ini = IniFile::from_str(
+            "[FIRE]\nConstrainFireAnimsToCellSpots=no\nSmallFireCount=3\n\
+             SmallFireAnims=SMALL1,SMALL2\nSmallFireChances=0.5,0.25\n\
+             SmallFireDistances=0.25,1\nLargeFireCount=4\nLargeFireAnims=LARGE\n\
+             LargeFireChances=0.75\nLargeFireDistances=2\n",
+        );
+        let set = ini.section("FIRE").unwrap();
+        assert!(!PhobosAnimTypeExt::constrain_fire_anims_to_cell_spots(set));
+        assert_eq!(PhobosAnimTypeExt::small_fire_count(set), Some(3));
+        assert_eq!(
+            PhobosAnimTypeExt::small_fire_anims(set),
+            ["SMALL1", "SMALL2"]
+        );
+        assert_eq!(PhobosAnimTypeExt::small_fire_chances(set), [0.5, 0.25]);
+        assert_eq!(PhobosAnimTypeExt::small_fire_distances(set), [0.25, 1.0]);
+        assert_eq!(PhobosAnimTypeExt::large_fire_count(set), 4);
+        assert_eq!(PhobosAnimTypeExt::large_fire_anims(set), ["LARGE"]);
+        assert_eq!(PhobosAnimTypeExt::large_fire_chances(set), [0.75]);
+        assert_eq!(PhobosAnimTypeExt::large_fire_distances(set), [2.0]);
+        // `<default>` clears the nullable count like every Phobos nullable.
+        let cleared = IniFile::from_str("[FIRE]\nSmallFireCount=<default>\n");
+        assert_eq!(
+            PhobosAnimTypeExt::small_fire_count(cleared.section("FIRE").unwrap()),
+            None
+        );
     }
 
     /// `read<LandTypeFlags>` looks the land type up from the whole value, so a

@@ -3778,6 +3778,13 @@ impl Simulation {
         &self.session
     }
 
+    /// The trigger runtime for presentation readers (the banner draw's
+    /// scenario-variable lookups); mutations stay in the trigger owner.
+    #[cfg(feature = "phobos")]
+    pub fn trigger_runtime(&self) -> &TriggerRuntime {
+        &self.trigger_runtime
+    }
+
     pub fn scenario_rng(&self) -> &SimRng {
         &self.scenario_rng
     }

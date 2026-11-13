@@ -23,6 +23,8 @@
 // --- Core types: entity storage, components, commands, RNG, interning ---
 #[cfg(feature = "ares")]
 pub(crate) mod abduction; // Ares Abductor= weapons (conductAbduction 10054A80)
+#[cfg(all(test, feature = "phobos"))]
+mod affects_underground_tests;
 pub(crate) mod ai_base_building;
 pub(crate) mod ai_base_defense;
 pub(crate) mod ai_base_site;
@@ -57,6 +59,8 @@ pub(crate) mod ares_veterancy; // Ares UpdateVeterancy 10046AF0 and academies
 pub mod attach_effect;
 #[cfg(feature = "phobos")]
 pub(crate) mod auto_death;
+#[cfg(feature = "phobos")]
+pub mod banner;
 pub(crate) mod base_plan;
 pub(crate) mod base_plan_generation;
 pub mod bomb;
@@ -73,6 +77,8 @@ pub mod campaign_carry_over; // the record 0x008A38E0 one campaign mission hands
 pub mod capture_manager;
 #[cfg(feature = "debug-tools")]
 pub mod cheats;
+#[cfg(all(test, feature = "phobos"))]
+mod cloak_anim_tests;
 pub mod cloak_disguise;
 pub mod command;
 pub mod command_queue;
@@ -106,10 +112,6 @@ pub(crate) mod locomotor_lift; // the Magnetron's IsLocomotor= lift (ImbueLocomo
 pub mod multiplayer_checksum;
 pub mod native_identity;
 pub(crate) mod object_fall;
-#[cfg(all(test, feature = "phobos"))]
-mod affects_underground_tests;
-#[cfg(all(test, feature = "phobos"))]
-mod cloak_anim_tests;
 #[cfg(feature = "phobos")]
 pub(crate) mod phobos_drop_crate;
 #[cfg(feature = "phobos")]

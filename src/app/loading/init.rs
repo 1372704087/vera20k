@@ -1505,8 +1505,7 @@ pub struct PresentationLoadAssets {
     /// Phobos `uimd.ini [Sidebar] PowerDelta.*` and the `[ToolTips]` power
     /// labels, read from the same file as the other sidebar settings.
     #[cfg(feature = "phobos")]
-    pub sidebar_indicators:
-        crate::rules::phobos_sidebar_indicators::SidebarIndicatorsUi,
+    pub sidebar_indicators: crate::rules::phobos_sidebar_indicators::SidebarIndicatorsUi,
     /// Phobos `uimd.ini [UISettings] ShowBriefingResumeButtonLabel` /
     /// `.StatusLabel`, read from the same UIMD.INI as the sidebar settings.
     #[cfg(feature = "phobos")]
@@ -1519,6 +1518,9 @@ pub struct PresentationLoadAssets {
         Option<crate::app::presentation::outcome_banner::OutcomeBannerArt>,
     /// The local country's `[EndGameScreens]` card for the in-game banner.
     pub(crate) end_game_banner: Option<crate::app::presentation::outcome_banner::EndGameBanner>,
+    /// Phobos `[BannerTypes]` art for this world.
+    #[cfg(feature = "phobos")]
+    pub(crate) banner_art: Option<crate::app::presentation::banners::BannerArtSet>,
     pub(crate) software_cursor: Option<crate::app::presentation::render::SoftwareCursor>,
     /// Overlay ID → type name mapping (from rules.ini [OverlayTypes]).
     pub overlay_names: BTreeMap<u8, String>,

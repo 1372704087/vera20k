@@ -5081,6 +5081,11 @@ pub struct RuleSet {
     /// Phobos `[SelectBoxTypes]` catalog (`New/Type/SelectBoxTypeClass.cpp`).
     #[cfg(feature = "phobos")]
     pub(crate) select_box_types: crate::rules::select_box_type::SelectBoxTypeCatalog,
+    /// Phobos `[BannerTypes]` catalog (`New/Type/BannerTypeClass.cpp`); the
+    /// trigger actions 800-802 create its runtime banners
+    /// (`New/Entity/BannerClass.cpp`).
+    #[cfg(feature = "phobos")]
+    pub(crate) banner_types: crate::rules::banner_type::BannerTypeCatalog,
     /// Phobos `[AudioVisual] DefaultInfantrySelectBox=` /
     /// `DefaultUnitSelectBox=` (`Ext/Rules/Body.cpp:333-334`).
     #[cfg(feature = "phobos")]
@@ -7040,6 +7045,8 @@ impl RuleSet {
         let select_box_globals =
             crate::rules::select_box_type::SelectBoxGlobals::from_ini(ini, &select_box_types);
         #[cfg(feature = "phobos")]
+        let banner_types = crate::rules::banner_type::BannerTypeCatalog::from_ini(ini);
+        #[cfg(feature = "phobos")]
         let (attach_effect_types, attach_effect_globals) = {
             let attach_effect_types = processed.attach_effect_types().cloned().unwrap_or_default();
             log::info!(
@@ -7632,6 +7639,8 @@ impl RuleSet {
             select_box_types,
             #[cfg(feature = "phobos")]
             select_box_globals,
+            #[cfg(feature = "phobos")]
+            banner_types,
             #[cfg(feature = "phobos")]
             attach_effect_types,
             #[cfg(feature = "phobos")]
@@ -8421,6 +8430,12 @@ impl RuleSet {
     #[cfg(feature = "phobos")]
     pub fn select_box_types(&self) -> &crate::rules::select_box_type::SelectBoxTypeCatalog {
         &self.select_box_types
+    }
+
+    /// Phobos `[BannerTypes]` catalog.
+    #[cfg(feature = "phobos")]
+    pub fn banner_types(&self) -> &crate::rules::banner_type::BannerTypeCatalog {
+        &self.banner_types
     }
 
     /// Phobos `[AudioVisual]` select-box defaults.

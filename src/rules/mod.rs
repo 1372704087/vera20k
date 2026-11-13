@@ -119,15 +119,13 @@ pub mod airstrike;
 #[cfg(feature = "phobos")]
 pub mod airstrike_targets;
 pub mod attach_effect;
+#[cfg(feature = "phobos")]
+pub mod banner_type;
 pub mod building_select_bracket;
 pub mod digital_display;
 pub mod insignia_type;
 #[cfg(feature = "phobos")]
-pub mod select_box_type;
-#[cfg(feature = "phobos")]
 pub mod invulnerability_rules;
-#[cfg(feature = "phobos")]
-pub mod phobos_shadow;
 #[cfg(feature = "phobos")]
 pub mod phobos_adjacent;
 #[cfg(feature = "phobos")]
@@ -144,6 +142,8 @@ pub mod phobos_anim_type_ext;
 pub mod phobos_attack_move;
 #[cfg(feature = "phobos")]
 pub mod phobos_auto_death;
+#[cfg(feature = "phobos")]
+pub mod phobos_beam_z_adjust;
 #[cfg(feature = "phobos")]
 pub mod phobos_briefing_ui;
 #[cfg(feature = "phobos")]
@@ -205,8 +205,6 @@ pub mod phobos_hover_drown;
 mod phobos_infantry_deploy_tests;
 #[cfg(feature = "phobos")]
 pub mod phobos_interceptor;
-#[cfg(feature = "phobos")]
-pub mod phobos_beam_z_adjust;
 pub mod phobos_jumpjet_tilt;
 #[cfg(feature = "phobos")]
 pub mod phobos_keep_target;
@@ -270,6 +268,8 @@ pub mod phobos_roof_production_anim;
 pub mod phobos_selection_flash;
 #[cfg(feature = "phobos")]
 pub mod phobos_self_heal;
+#[cfg(feature = "phobos")]
+pub mod phobos_shadow;
 pub mod phobos_shields;
 #[cfg(feature = "phobos")]
 pub mod phobos_sidebar_indicators;
@@ -321,6 +321,8 @@ pub mod phobos_warp_in_weapon;
 pub mod phobos_weapon_extras;
 #[cfg(any(feature = "ares", feature = "phobos"))]
 pub(crate) mod promotable;
+#[cfg(feature = "phobos")]
+pub mod select_box_type;
 pub(crate) mod threat_coefficients;
 #[cfg(feature = "phobos")]
 pub mod type_convert_group;

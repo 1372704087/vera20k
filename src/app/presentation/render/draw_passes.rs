@@ -1047,6 +1047,26 @@ pub(super) fn dispatch_draw_passes(
         );
     }
 
+    // Phobos `TacticalClass_Render_Banner` (`0x6D4B25`, Hooks.UI.cpp:310):
+    // every banner draws after the timer lines, before the outcome banner.
+    // The shapes sample the shared banner atlas; the texts bind the font.
+    if text_in_frame {
+        draw_pooled_ui(
+            &mut pass,
+            &state.renderer.batch_renderer,
+            pool,
+            crate::app::presentation::banners::texture(state),
+            "banner_fill",
+        );
+        draw_pooled_ui(
+            &mut pass,
+            &state.renderer.batch_renderer,
+            pool,
+            Some(state.renderer.bit_font.atlas()),
+            "banner_text",
+        );
+    }
+
     // TacticalDraw6D4B25->6D4E20 is its last battlefield draw: centred
     // GRFXTXT frame, or white text if the shape/converter is unavailable.
     // Keep the tactical clip and draw before sidebar copy/Chrono capture.

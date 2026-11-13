@@ -54,6 +54,14 @@ pub(crate) struct MatchPresentationState {
     /// the same tactical slot as the retail banner. `None` keeps the native
     /// art; the player's Custom End Game Banner switch is read at draw time.
     pub(crate) end_game_banner: Option<crate::app::presentation::outcome_banner::EndGameBanner>,
+    /// Phobos `[BannerTypes]` art: every banner type's PCX/SHP in one atlas,
+    /// built with the world; the draw reads the session's banners.
+    #[cfg(feature = "phobos")]
+    pub(crate) banner_art: Option<crate::app::presentation::banners::BannerArtSet>,
+    /// Phobos `BannerClass::Render`'s blink phase per session banner; the
+    /// banner module reconciles and ticks it per drawn frame.
+    #[cfg(feature = "phobos")]
+    pub(crate) banners: Vec<crate::app::presentation::banners::BannerDisplay>,
     pub(crate) software_cursor: Option<crate::app::presentation::render::SoftwareCursor>,
     pub(crate) terrain_grid: Option<TerrainGrid>,
     /// Overlay entries from map for per-frame instance generation.

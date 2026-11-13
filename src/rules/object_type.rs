@@ -1003,13 +1003,6 @@ pub struct ObjectType {
     /// the Drive/Ship crush slowdown cap (`0x4B1150`, `0x6A0813`).
     #[cfg(feature = "phobos")]
     pub phobos_crush_slowdown_multiplier: Option<crate::util::native_x87::NativeF64Bits>,
-    /// Phobos `BunkerableAnyway=` (`Valueable<bool>`, default **false**;
-    /// `Ext/TechnoType/Body.cpp:1082`, `Body.h:319`, constructed false
-    /// `Body.h:753`): a tank-bunker candidate that keeps only the
-    /// `Bunkerable=` and parasite gates (`Ext/Techno/Hooks.Misc.cpp:913-929`,
-    /// hook `0x70FB73`).
-    #[cfg(feature = "phobos")]
-    pub phobos_bunkerable_anyway: bool,
     /// Phobos `ChronoSpherePreDelay=` (`Nullable<int>`, unset;
     /// `Ext/TechnoType/Body.cpp` read `Ext/TechnoType/Body.h:131`, constructed
     /// unset `Body.h:532`): the warp-out frames state 0 starts with
@@ -2936,6 +2929,13 @@ pub struct ObjectType {
     /// Parsed from `Bunkerable=` in rules.ini. UnitTypeClass entries default
     /// true; other object categories default false.
     pub bunkerable: bool,
+    /// Phobos `TechnoTypeExt::BunkerableAnyway` (`Ext/TechnoType/Body.cpp:1082`,
+    /// `Valueable<bool>`, default false): a `Bunkerable=yes` type may enter a
+    /// tank bunker without a turret, current weapon or non-hover SpeedType
+    /// (`FootClass_IsBunkerableNow_Dehardcode`, `0x70FB73`,
+    /// `Ext/Techno/Hooks.Misc.cpp:915-929`).
+    #[cfg(feature = "phobos")]
+    pub phobos_bunkerable_anyway: bool,
 
     /// The native base weapon array (`TechnoTypeClass+0x898`, stride `0x1C`,
     /// `WEAPON_SLOT_COUNT` slots). Always that long; empty slots are `None`.
@@ -6585,8 +6585,6 @@ impl ObjectType {
                 .read_phobos_nullable_double("CrushSlowdownMultiplier", None)
                 .map(|value| crate::util::native_x87::NativeF64Bits::from_bits(value.to_bits())),
             #[cfg(feature = "phobos")]
-            phobos_bunkerable_anyway: section.read_bool("BunkerableAnyway", false),
-            #[cfg(feature = "phobos")]
             phobos_chrono_sphere_pre_delay: section
                 .read_phobos_nullable_int("ChronoSpherePreDelay", None),
             #[cfg(feature = "phobos")]
@@ -7311,6 +7309,8 @@ impl ObjectType {
             grinding: section.read_bool("Grinding", false),
             hospital,
             bunkerable: section.read_bool("Bunkerable", category == ObjectCategory::Vehicle),
+            #[cfg(feature = "phobos")]
+            phobos_bunkerable_anyway: section.read_bool("BunkerableAnyway", false),
             // Constructor values: the ordered Rules processor owns the
             // per-pass weapon block and RuleSet publishes its arrays.
             weapon_list: vec![None; WEAPON_SLOT_COUNT],

@@ -558,7 +558,7 @@ mod tests {
                 sinking: input["sinking"].as_bool().unwrap_or(false),
                 crush_slowdown: input["crush"].as_bool().unwrap_or(false),
                 crush_slowdown_cap: CRUSH_SLOWDOWN_CAP,
-                skip_crush_slowdown: false,
+                skip_crush_slowdown: input["skip_crush"].as_bool().unwrap_or(false),
             };
             let mut measured = false;
             let step = track_speed_prefix(

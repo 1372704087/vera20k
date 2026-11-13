@@ -745,6 +745,15 @@ fn self_heal_caps_and_gates_default_and_read() {
     assert!(set.gain_self_heal_from_allies);
 }
 
+/// `[General] SkipCrushSlowdown=` (`Ext/Rules/Body.cpp:274`, constructor
+/// **false** `Body.h:716`) and its `[General]`-only placement.
+#[test]
+fn the_skip_crush_slowdown_global_defaults_false_and_reads_general() {
+    assert!(!PhobosGlobals::default().skip_crush_slowdown);
+    assert!(read("[General]\nSkipCrushSlowdown=yes\n").skip_crush_slowdown);
+    assert!(!read("[AudioVisual]\nSkipCrushSlowdown=yes\n").skip_crush_slowdown);
+}
+
 /// `[General] AircraftSpawnFromEdge=` (`Ext/Rules/Body.cpp:193`, constructor
 /// `Owner` `Body.h:636`): the fallback for an AircraftType's own nullable.
 #[test]

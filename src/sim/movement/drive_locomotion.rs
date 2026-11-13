@@ -719,6 +719,9 @@ pub(super) struct TrackSpeedPrefix {
     /// crush arm (`Ext/Unit/Hooks.Crushing.cpp:104-109`, hooks
     /// `0x4B1146`/`0x6A0809`) jumps to origin+0x3C, so the Foot+6B5 block that
     /// caps class+50 never runs. The flag itself is neither read nor cleared.
+    /// Phobos `SkipCrushSlowdown` (`Ext/Unit/Hooks.Crushing.cpp:104-109`,
+    /// hooks `0x4B1146`/`0x6A0809`): a set flag jumps over the whole crush
+    /// arm, so class+50 keeps the pre-arm value instead of the capped one.
     pub skip_crush_slowdown: bool,
 }
 
@@ -995,6 +998,32 @@ mod tests {
         let target = NativeF64Bits::from_bits(0.1f64.to_bits());
         let step = track_speed_prefix(&input, || 0, target, NativeF64Bits::POSITIVE_ZERO);
         assert_eq!(f64::from_bits(step.target.bits()), 0.1);
+    }
+
+    /// Phobos `SkipCrushSlowdown` (`Ext/Unit/Hooks.Crushing.cpp:104-109`,
+    /// `0x4B1146`/`0x6A0809`): the whole crush arm is jumped over, so an active
+    /// crush leaves class+50 at the pre-arm target instead of capping it.
+    #[test]
+    fn phobos_skip_crush_slowdown_keeps_the_uncapped_target() {
+        // No destination braking or sinking, so only the crush arm is in play.
+        let mut input = prefix(true, 100, 0);
+        input.crush_slowdown = true;
+        input.crush_slowdown_cap = NativeF64Bits::from_bits(0.5f64.to_bits());
+        let target = NativeF64Bits::from_bits(0.8f64.to_bits());
+        input.skip_crush_slowdown = true;
+        // Settled speed: the skipped arm leaves class+50 and the setter args alone.
+        let step = track_speed_prefix(&input, || 0, target, target);
+        assert_eq!(f64::from_bits(step.target.bits()), 0.8);
+        assert_eq!(step.set_fraction, None);
+        // Without the flag the same latch caps class+50 at the multiplier; the
+        // skip flag itself does nothing while the crushes latch stays set.
+        input.skip_crush_slowdown = false;
+        let step = track_speed_prefix(&input, || 0, target, target);
+        assert_eq!(f64::from_bits(step.target.bits()), 0.5);
+        assert_eq!(
+            step.set_fraction.map(|f| f64::from_bits(f.bits())),
+            Some(0.5)
+        );
     }
 
     fn prefix(accelerates: bool, raw_type_speed: i32, slowdown_distance: i32) -> TrackSpeedPrefix {

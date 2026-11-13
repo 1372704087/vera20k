@@ -988,6 +988,13 @@ pub struct ObjectType {
     /// hook `0x70FB73`).
     #[cfg(feature = "phobos")]
     pub phobos_bunkerable_anyway: bool,
+    /// Phobos `ChronoSpherePreDelay=` (`Nullable<int>`, unset;
+    /// `Ext/TechnoType/Body.cpp` read `Ext/TechnoType/Body.h:131`, constructed
+    /// unset `Body.h:532`): the warp-out frames state 0 starts with
+    /// (`0x007197DF`/`0x7197E4`, `Ext/TechnoType/Hooks.Teleport.cpp:154-163`);
+    /// unset takes `[General] ChronoSpherePreDelay=`.
+    #[cfg(feature = "phobos")]
+    pub phobos_chrono_sphere_pre_delay: Option<i32>,
     /// Phobos `FactoryPlant.AllowTypes` / `.DisallowTypes` / `.MaxCount`
     /// (`Ext/BuildingType/Body.cpp:224-226`, declarations `Body.h:74-76`,
     /// constructors `:199-201`): the restricted-plant settings.
@@ -6320,6 +6327,9 @@ impl ObjectType {
                 .flatten(),
             #[cfg(feature = "phobos")]
             phobos_bunkerable_anyway: section.read_bool("BunkerableAnyway", false),
+            #[cfg(feature = "phobos")]
+            phobos_chrono_sphere_pre_delay: section
+                .read_phobos_nullable_int("ChronoSpherePreDelay", None),
             // `BuildingTypeExt::LoadFromINI` reads these three only on a
             // BuildingType section; VERA's ObjectType reader is shared.
             #[cfg(feature = "phobos")]

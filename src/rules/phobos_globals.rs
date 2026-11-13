@@ -215,6 +215,12 @@ pub struct PhobosGlobals {
     /// installs (`0x44C976`, `Ext/Building/Hooks.cpp:1474-1485`).
     #[serde(default = "fifteen")]
     pub bunker_state_update_delay: i32,
+    /// `[General] ChronoSpherePreDelay=` (`Valueable<int>`, default **60**;
+    /// `Ext/Rules/Body.cpp:120`, `Body.h:39,579`): the fallback for a
+    /// TechnoType's nullable; the frames state 0 of the Chronosphere warp
+    /// waits (`0x007197DF`, `Ext/TechnoType/Hooks.Teleport.cpp:154-163`).
+    #[serde(default = "sixty")]
+    pub chrono_sphere_pre_delay: i32,
     /// `[General] Sinkable=` (`Nullable<bool>`, unset; `Ext/Rules/Body.cpp:
     /// 484`, `Body.h:394,899`): the fallback for a UnitType's `Sinkable`;
     /// unset keeps the stock type-property gate.
@@ -1043,6 +1049,11 @@ fn fifteen() -> i32 {
     15
 }
 
+/// `ChronoSpherePreDelay=`'s constructor value (`Ext/Rules/Body.h:579`).
+fn sixty() -> i32 {
+    60
+}
+
 /// `CombatAlert.Interval=`'s constructor value (`Ext/Rules/Body.h:787`).
 fn combat_alert_interval_default() -> i32 {
     150
@@ -1117,6 +1128,7 @@ impl Default for PhobosGlobals {
             skip_crush_slowdown: false,
             aircraft_firing_force_scatter: aircraft_firing_force_scatter_default(),
             bunker_state_update_delay: fifteen(),
+            chrono_sphere_pre_delay: sixty(),
             sinkable: None,
             sink_speed: 5,
             paradrop_mission: MissionType::Guard,
@@ -1574,6 +1586,8 @@ impl PhobosGlobals {
         );
         globals.bunker_state_update_delay =
             general.read_int("BunkerStateUpdateDelay", globals.bunker_state_update_delay);
+        globals.chrono_sphere_pre_delay =
+            general.read_int("ChronoSpherePreDelay", globals.chrono_sphere_pre_delay);
         globals.sinkable = general.read_phobos_nullable_bool("Sinkable", globals.sinkable);
         globals.sink_speed = general.read_int("SinkSpeed", globals.sink_speed);
         globals.paradrop_mission = general.read_string_with(

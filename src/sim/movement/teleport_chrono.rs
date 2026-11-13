@@ -85,8 +85,28 @@ use crate::sim::movement::teleport_movement::{ChronoWarp, WarpSound};
 use crate::sim::occupancy::CellObjectMember;
 use crate::sim::world::{FrameAdvanceError, FrameEffects, ObjectAiCtx, Simulation};
 
-/// State 0's timer (`0x007197DF`, `MOV ECX,0x3C`).
+/// State 0's timer (`0x007197DF`, `MOV ECX,0x3C`), which Phobos replaces with
+/// the type's `ChronoSpherePreDelay=` else `[General] ChronoSpherePreDelay=`
+/// (`0x7197E4`, `Ext/TechnoType/Hooks.Teleport.cpp:154-163`).
 const CHRONO_WARP_OUT_FRAMES: i32 = 0x3C;
+
+/// The frames state 0 starts its timer with.
+fn chrono_warp_out_frames(
+    object: Option<&crate::rules::object_type::ObjectType>,
+    rules: &RuleSet,
+) -> i32 {
+    #[cfg(feature = "phobos")]
+    {
+        object
+            .and_then(|object| object.phobos_chrono_sphere_pre_delay)
+            .unwrap_or(rules.phobos_globals.chrono_sphere_pre_delay)
+    }
+    #[cfg(not(feature = "phobos"))]
+    {
+        let _ = (object, rules);
+        CHRONO_WARP_OUT_FRAMES
+    }
+}
 /// CellClass `+0x140`: a bridge over the cell, and the bit Update_Position
 /// requires with it (`0x00718452..0x0071846E`).
 const CELL_FLAG_BRIDGE: u32 = 0x100;
@@ -290,9 +310,17 @@ impl Simulation {
         }
         match warp.state() {
             0 => {
+                let warp_out_frames = {
+                    let object = self
+                        .substrate
+                        .entities
+                        .get(id)
+                        .and_then(|entity| self.interner.object_type(entity.type_ref(), rules));
+                    chrono_warp_out_frames(object, rules)
+                };
                 if let Some(warp) = self.substrate.chrono_warp_mut(id) {
                     warp.set_bytes(true, true, false);
-                    warp.start_timer(frame, CHRONO_WARP_OUT_FRAMES);
+                    warp.start_timer(frame, warp_out_frames);
                     warp.set_state(1);
                 }
             }
@@ -1048,5 +1076,41 @@ impl crate::sim::world::ObjectSubstrate {
             .as_mut()?
             .warp_teleport_mut()?
             .chrono_mut()
+    }
+}
+
+#[cfg(all(test, feature = "phobos"))]
+mod chrono_pre_delay_tests {
+    use super::*;
+    use crate::rules::ini_parser::IniFile;
+    use crate::rules::object_type::{ObjectCategory, ObjectType};
+
+    /// Phobos `ChronoSpherePreDelay=` (`Ext/TechnoType/Body.h:131`,
+    /// `Ext/Rules/Body.h:39,579`; hook `0x7197E4`,
+    /// `Ext/TechnoType/Hooks.Teleport.cpp:154-163`): the type's nullable wins,
+    /// then `[General]`, else the native `MOV ECX,0x3C`.
+    #[test]
+    fn chrono_sphere_pre_delay_reads_the_type_then_the_general() {
+        let object = |ini: &str| {
+            let file = IniFile::from_str(ini);
+            ObjectType::from_ini_section(
+                "MTNK",
+                file.section("MTNK").unwrap(),
+                ObjectCategory::Vehicle,
+            )
+        };
+        let rules = |ini: &str| RuleSet::from_ini(&IniFile::from_str(ini)).unwrap();
+        let general = rules("[General]\nChronoSpherePreDelay=45\n");
+        let typed = object("[MTNK]\nStrength=300\nChronoSpherePreDelay=30\n");
+        assert_eq!(typed.phobos_chrono_sphere_pre_delay, Some(30));
+        assert_eq!(chrono_warp_out_frames(Some(&typed), &general), 30);
+        let bare = object("[MTNK]\nStrength=300\n");
+        assert_eq!(bare.phobos_chrono_sphere_pre_delay, None);
+        assert_eq!(chrono_warp_out_frames(Some(&bare), &general), 45);
+        assert_eq!(
+            chrono_warp_out_frames(Some(&bare), &rules("")),
+            CHRONO_WARP_OUT_FRAMES
+        );
+        assert_eq!(chrono_warp_out_frames(None, &rules("")), 0x3C);
     }
 }

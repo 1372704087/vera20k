@@ -724,6 +724,21 @@ fn the_bunker_state_update_delay_defaults_to_fifteen() {
     );
 }
 
+/// `[General] ChronoSpherePreDelay=` (`Ext/Rules/Body.cpp:120`,
+/// constructor **60** `Body.h:579`).
+#[test]
+fn the_chrono_sphere_pre_delay_defaults_to_sixty() {
+    assert_eq!(PhobosGlobals::default().chrono_sphere_pre_delay, 60);
+    assert_eq!(
+        read("[General]\nChronoSpherePreDelay=45\n").chrono_sphere_pre_delay,
+        45
+    );
+    assert_eq!(
+        read("[AudioVisual]\nChronoSpherePreDelay=45\n").chrono_sphere_pre_delay,
+        60
+    );
+}
+
 /// `[General] AircraftFiringForceScatter=` (`Ext/Rules/Body.cpp:473`,
 /// constructor **true** `Body.h:888`).
 #[test]

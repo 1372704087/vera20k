@@ -221,6 +221,7 @@ fn original_attack_state_rows() {
                 weapon0_range: get("range")[0].as_i64().unwrap() as i32,
                 speed: get("speed").as_i64().unwrap() as i32,
                 strafing: StrafeKeys::STOCK,
+                firing_force_scatter: true,
             };
             let mut host = Replay {
                 code,

@@ -708,6 +708,14 @@ fn the_buildup_alpha_and_paradrop_delay_globals_read() {
     assert_eq!(wrong.paradrop_delay, 5);
 }
 
+/// `[General] AircraftFiringForceScatter=` (`Ext/Rules/Body.cpp:473`,
+/// constructor **true** `Body.h:888`).
+#[test]
+fn the_aircraft_firing_force_scatter_global_defaults_true() {
+    assert!(PhobosGlobals::default().aircraft_firing_force_scatter);
+    assert!(!read("[General]\nAircraftFiringForceScatter=no\n").aircraft_firing_force_scatter);
+}
+
 /// `[General] SkipCrushSlowdown=` (`Ext/Rules/Body.cpp:274`, constructor
 /// **false** `Body.h:716`) and its `[General]`-only placement.
 #[test]

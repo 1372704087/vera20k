@@ -1178,6 +1178,13 @@ pub struct ObjectType {
     /// types only.
     #[cfg(feature = "phobos")]
     pub phobos_retreat_to_edge: Option<crate::rules::phobos_aircraft_edge::PhobosEdgeType>,
+    /// Phobos `FiringForceScatter=` (`Nullable<bool>`, unset;
+    /// `Ext/AircraftType/Body.cpp:36`, `Body.h:27`, constructed unset
+    /// `Body.h:51`): false suppresses the target-cell scatter an attacking
+    /// aircraft forces (`Ext/Aircraft/Hooks.cpp:324,341-355`); unset takes
+    /// `[General] AircraftFiringForceScatter`. Aircraft types only.
+    #[cfg(feature = "phobos")]
+    pub phobos_firing_force_scatter: Option<bool>,
     /// Phobos `Explodes.KillPassengers` (`Ext/TechnoType/Body.cpp:968`) and
     /// `Explodes.DuringBuildup` (`Ext/BuildingType/Body.cpp:222`), consumed by
     /// the `TechnoClass::ReceiveDamage` death arm.
@@ -5817,6 +5824,10 @@ impl ObjectType {
                 })
                 .flatten(),
             #[cfg(feature = "phobos")]
+            phobos_firing_force_scatter: (category == ObjectCategory::Aircraft)
+                .then(|| section.read_phobos_nullable_bool("FiringForceScatter", None))
+                .flatten(),
+            #[cfg(feature = "phobos")]
             phobos_explodes: crate::rules::phobos_explodes::PhobosExplodesSettings::from_section(
                 section,
                 category == ObjectCategory::Building,
@@ -7687,7 +7698,8 @@ mod tests {
         );
 
         let aircraft = IniFile::from_str(
-            "[AIR]\nStrength=100\nLandingAnim=LAND\nParadropDelay=8\nParadropEndDelay=12\nSpawnHeight=200\n",
+            "[AIR]\nStrength=100\nLandingAnim=LAND\nParadropDelay=8\nParadropEndDelay=12\n\
+             SpawnHeight=200\nFiringForceScatter=no\n",
         );
         let object = ObjectType::from_ini_section(
             "AIR",
@@ -7698,6 +7710,7 @@ mod tests {
         assert_eq!(object.phobos_paradrop_delay, Some(8));
         assert_eq!(object.phobos_paradrop_end_delay, Some(12));
         assert_eq!(object.phobos_spawn_height, Some(200));
+        assert_eq!(object.phobos_firing_force_scatter, Some(false));
 
         let unset = IniFile::from_str("[UNT]\nStrength=100\n");
         let object = ObjectType::from_ini_section(
@@ -7707,6 +7720,8 @@ mod tests {
         );
         assert_eq!(object.phobos_deploy_fire_delay, None);
         assert_eq!(object.phobos_skip_crush_slowdown, None);
+        // Aircraft-only key: a Vehicle section never sets it.
+        assert_eq!(object.phobos_firing_force_scatter, None);
         assert_eq!(object.phobos_no_alpha_image_on_buildup, None);
         assert!(!object.phobos_no_build_area_on_buildup);
         assert_eq!(object.phobos_set_tab_by_selecting, -1);

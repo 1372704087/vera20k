@@ -122,6 +122,15 @@ pub(super) fn visit(
     });
     #[cfg(not(feature = "phobos"))]
     let strafing = StrafeKeys::STOCK;
+    // Phobos `FiringForceScatter` (`Ext/AircraftType/Body.cpp:36`, default from
+    // `[General] AircraftFiringForceScatter=`, constructor true
+    // `Ext/Rules/Body.h:888`).
+    #[cfg(feature = "phobos")]
+    let firing_force_scatter = obj
+        .phobos_firing_force_scatter
+        .unwrap_or(rules.phobos_globals.aircraft_firing_force_scatter);
+    #[cfg(not(feature = "phobos"))]
+    let firing_force_scatter = true;
     let facts = StrikeFacts {
         state,
         target: crate::sim::combat::target_present(entity.attack_target.target(), world),
@@ -133,6 +142,7 @@ pub(super) fn visit(
         weapon0_range: weapon0.map_or(0, |weapon| weapon.range_leptons),
         speed: crate::util::fixed_math::ra2_speed_to_leptons_per_frame(obj.speed),
         strafing,
+        firing_force_scatter,
     };
     let mut host = CombatStrike {
         fog_enabled: fog_enabled(world),
@@ -145,6 +155,7 @@ pub(super) fn visit(
         under_attack_events,
         obj,
         strafing,
+        firing_force_scatter,
         id,
     };
     let visit = strike_visit(&facts, &mut host);
@@ -174,6 +185,10 @@ struct CombatStrike<'w, 'r, 'f> {
     obj: &'r ObjectType,
     /// The selected slot's `Strafing.*` keys, `Get(5)`/globals applied.
     strafing: StrafeKeys,
+    /// Phobos `FiringForceScatter=` / `[General] AircraftFiringForceScatter=`
+    /// (`Ext/Aircraft/Hooks.cpp:341-345`): false suppresses the state-4 release
+    /// scatter as well as the strike states' Scatters.
+    firing_force_scatter: bool,
     id: u64,
 }
 
@@ -685,7 +700,9 @@ impl StrikeHost for CombatStrike<'_, '_, '_> {
         if fired {
             self.fire_weapon_tail();
         }
-        self.scatter();
+        if self.firing_force_scatter {
+            self.scatter();
+        }
     }
 
     /// One strafe state's `AircraftExt::FireWeapon` (`Ext/Aircraft/Hooks.cpp:167-197`).

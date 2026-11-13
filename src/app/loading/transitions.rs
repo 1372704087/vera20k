@@ -93,6 +93,8 @@ pub(crate) fn fallback_map_load_result() -> init::MapLoadResult {
             sidebar_indicators:
                 crate::rules::phobos_sidebar_indicators::SidebarIndicatorsUi::default(),
             #[cfg(feature = "phobos")]
+            briefing_dialog: Default::default(),
+            #[cfg(feature = "phobos")]
             sw_sidebar_art: None,
             outcome_banner_side_art: None,
             end_game_banner: None,
@@ -256,6 +258,7 @@ pub(crate) fn install_world_presentation(
             .center_pause_menu_background = assets.center_pause_menu_background;
         state.match_state.match_presentation.sw_sidebar_art = assets.sw_sidebar_art;
         state.match_state.match_presentation.sidebar_indicators = assets.sidebar_indicators;
+        state.match_state.match_presentation.briefing_dialog = assets.briefing_dialog;
         let significance = state
             .match_state
             .match_presentation
@@ -860,6 +863,11 @@ pub(crate) fn apply_map_load_result(state: &mut AppState, result: init::MapLoadR
             // Main_Game 0x0048CE7E: State_Machine's admission latch.
             state.match_state.match_presentation.modal_latch = true;
             state.frontend.screen = GameScreen::InGame;
+            // Phobos `MainGame_ShowBriefing @ 0x48CE85` and
+            // `AuxLoop_ShowBriefing @ 0x55D14F` open the dialog queued by
+            // `ScenarioClass_Start_ShowBriefing @ 0x683E41` here.
+            #[cfg(feature = "phobos")]
+            crate::app::briefing_start::admit_scenario_start_briefing(state);
             #[cfg(all(feature = "wasm", target_arch = "wasm32", target_os = "unknown"))]
             crate::web::match_started();
             if returns_scenario_rng_to_multiplayer_shell {

@@ -281,6 +281,18 @@ pub(crate) struct MatchPresentationState {
     pub(crate) diplomacy: crate::ui::shell::diplomacy::DiplomacyInteraction,
     /// Restate 0x10C's pointer state.
     pub(crate) restate: crate::ui::shell::restate::RestateInteraction,
+    /// Phobos `uimd.ini [UISettings]` briefing-dialog labels, loaded once
+    /// from the same UIMD.INI as the sidebar settings.
+    #[cfg(feature = "phobos")]
+    pub(crate) briefing_dialog: crate::rules::phobos_briefing_ui::BriefingDialogUi,
+    /// `BriefingTemp::ShowBriefing` (`src/Misc/Hooks.UI.cpp:322`): true while
+    /// the 0x10C dialog was opened by the scenario-start path rather than the
+    /// F2 restate path, which selects the authored resume/status labels.
+    #[cfg(feature = "phobos")]
+    pub(crate) briefing_at_start: bool,
+    /// `[Phobos] ShowBriefing=` client gate (`Phobos.INI.cpp:107`).
+    #[cfg(feature = "phobos")]
+    pub(crate) show_briefing: bool,
     /// `[0xB04CA0]`: the briefing text 0x10C shows, resolved once at open.
     pub(crate) restate_text: String,
     pub(crate) saved_game_browser:

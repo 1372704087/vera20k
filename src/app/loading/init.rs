@@ -1505,8 +1505,11 @@ pub struct PresentationLoadAssets {
     /// Phobos `uimd.ini [Sidebar] PowerDelta.*` and the `[ToolTips]` power
     /// labels, read from the same file as the other sidebar settings.
     #[cfg(feature = "phobos")]
-    pub sidebar_indicators:
-        crate::rules::phobos_sidebar_indicators::SidebarIndicatorsUi,
+    pub sidebar_indicators: crate::rules::phobos_sidebar_indicators::SidebarIndicatorsUi,
+    /// Phobos `uimd.ini [UISettings] ShowBriefingResumeButtonLabel` /
+    /// `.StatusLabel`, read from the same UIMD.INI as the sidebar settings.
+    #[cfg(feature = "phobos")]
+    pub briefing_dialog: crate::rules::phobos_briefing_ui::BriefingDialogUi,
     #[cfg(feature = "phobos")]
     pub sw_sidebar_art: Option<crate::render::sw_sidebar_art::SwSidebarArt>,
     /// This match's Ares `GraphicalText.Image/Palette` overlay art. `None`

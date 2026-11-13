@@ -1,9 +1,9 @@
 //! Application facade and shared imports for the focused orchestrator modules
 //! under `app/`. GPU initialization remains deferred to `resumed()`.
 
+use crate::util::time::Instant;
 use std::collections::{BTreeMap, HashMap};
 use std::sync::Arc;
-use crate::util::time::Instant;
 
 use anyhow::Result;
 use winit::application::ApplicationHandler;
@@ -48,13 +48,15 @@ use crate::util::config::GameConfig;
 
 pub mod app_bundle;
 pub(crate) mod audio_runtime;
+#[cfg(all(feature = "wasm", target_arch = "wasm32", target_os = "unknown"))]
+mod browser_lifecycle;
 pub(crate) mod campaign_defeat;
 pub(crate) mod campaign_victory;
 pub(crate) mod chrono_screen;
 mod cncnet;
-#[cfg(all(feature = "wasm", target_arch = "wasm32", target_os = "unknown"))]
-mod browser_lifecycle;
 pub(crate) use cncnet::SpawnAction;
+#[cfg(feature = "phobos")]
+pub(crate) mod briefing_start;
 pub(crate) mod commander_feedback;
 mod cooperative_round;
 #[cfg(feature = "debug-tools")]
@@ -80,9 +82,9 @@ pub mod match_bootstrap;
 pub(crate) mod match_diagnostics;
 pub(crate) mod match_runtime;
 pub(crate) mod movie_playback;
+pub(crate) mod movie_subtitles;
 #[cfg(not(all(feature = "wasm", target_arch = "wasm32", target_os = "unknown")))]
 mod network_goodbye;
-pub(crate) mod movie_subtitles;
 pub(crate) mod persistence;
 /// The build description's native version metadata (`Phobos.version.h`).
 pub(crate) mod phobos_version;

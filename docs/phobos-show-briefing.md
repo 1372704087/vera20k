@@ -37,41 +37,40 @@ Both land in `rules`/`app` with `#[cfg(feature = "phobos")]` module gating;
 the stock build is unchanged. All three canonical keys were already in
 `G:/20k/scratch/phobos_read_keys.json`, so no registry edit was needed.
 
-## Why the consumer is not wired (escalate, per task 52 rule 6)
+## Scenario-start pass (wired)
 
-VERA **does** have a briefing dialog — `InGameMenuState::MissionBriefing`
-renders through `app/frontend/skirmish_shell_render/restate.rs`, using
-`ui/shell/restate.rs`'s `RETURN_LABEL = ("GUI:Return", "Return")` and
-`RestateControl::Return.help_key() = Some("STT:BriefingButtonReturn")`.
-`Phobos`'s item 1059 is decimal `0x423`: **the same button**. But the two are
-different *paths* of that dialog:
+VERA's `InGameMenuState::MissionBriefing` **is** the native 0x10C dialog
+(`app/input/restate.rs` calls it "in-scenario state 9"; Phobos opens
+`Game::SpecialDialog = 9`, item 1059 = 0x423). Before this pass VERA only
+opened it through the F2 / sidebar-gadget path. Phobos arms the same dialog at
+scenario start and, while `BriefingTemp::ShowBriefing` is set, replaces the
+0x423 caption and the status label. The pass keeps the two paths distinct
+instead of renaming the stock "Return" button:
 
-- VERA's `0x10C` shell is the **F2 restate** path: the button says `Return`
-  (`GUI:Return`), and its help key is already `STT:BriefingButtonReturn`.
-- Phobos's two labels apply **only while `BriefingTemp::ShowBriefing` is set**,
-  i.e. the **scenario-start** path, where the same button becomes `Resume`
-  (`GUI:Resume`).
+1. **Scenario gate** — `map/basic.rs::BasicSection::show_briefing` reads
+   `[Basic] ShowBriefing=` with `read_bool_value` (`Ext/Scenario/Body.cpp:167`,
+   constructor false at `Body.h:62`); an absent key stays `None`.
+2. **Admission** — `app/briefing_start.rs::admits` combines the client
+   `[Phobos] ShowBriefing`, the scenario flag and
+   `ScenarioGameMode::Campaign` (`SessionClass::IsCampaign()`). It runs from
+   `install_world_presentation`'s `Main_Game 0x0048CE7E` branch, VERA's
+   counterpart of `MainGame_ShowBriefing @ 0x48CE85` /
+   `AuxLoop_ShowBriefing @ 0x55D14F`. On admission it calls
+   `input::restate::open` and sets `MatchPresentationState::briefing_at_start`
+   (the `BriefingTemp::ShowBriefing` equivalent) only if the dialog really
+   opened; `restate::open` clears that flag for the F2 path.
+3. **uimd chain** — `app/loading/init_helpers.rs` loads
+   `BriefingDialogUi::from_uimd_bytes` from the same `uimd_bytes` as
+   `PauseMenuUi` / `SidebarIndicatorsUi`; `PresentationLoadAssets` carries it
+   into `MatchPresentationState` through `loading/transitions.rs`.
+4. **Labels** — `render_restate_shell` uses
+   `BriefingDialogUi::button_label_key` / `status_label_key`, which return the
+   authored CSF keys only when `briefing_at_start` is set. The F2 path keeps
+   `GUI:Return` and `STT:BriefingButtonReturn`.
 
-VERA has no `ScenarioClass_Start`/`MainGame`/`AuxLoop` scenario-start briefing
-pass (`0x683E41`, `0x48CE85`, `0x55D14F`), no `Game::SpecialDialog = 9`
-equivalent and no `BriefingTheme` queue. Wiring the two labels into
-`render_restate_shell` would rename the stock F2 "Return" button to "Resume"
-— a visible regression, not a port. `ShowBriefing` has the same problem: the
-scenario `[Basic]` layer lives in `rules/campaign_loading.rs`, which is owned
-by an in-flight branch of task 52 (`wt-bare55-brief`).
-
-So the three keys are read at their exact native layers and left without a
-consumer. Building the pass is a separate piece of work:
-
-1. read scenario `[Basic] ShowBriefing` / `BriefingTheme` in the campaign
-   loader (coordinate with the in-flight `campaign_loading.rs` owner);
-2. add a scenario-start briefing admission gated by the client switch, the
-   scenario switch, the caller's `showBriefing` and `IsCampaign`;
-3. load `BriefingDialogUi` from `uimd.ini` in
-   `app/loading/init_helpers.rs:626-650` (the same `uimd_bytes` chain that
-   already builds `PauseMenuUi` / `SidebarIndicatorsUi`), store it in
-   `MatchPresentationState`, and use the two labels in the new dialog only;
-4. keep `render_restate_shell` on `GUI:Return` / `STT:BriefingButtonReturn`.
+All new state fields and the `briefing_start` module are
+`#[cfg(feature = "phobos")]`; a stock build uses `GUI:Return` and never opens
+the start dialog.
 
 ## Tests (production readers)
 
@@ -82,14 +81,26 @@ consumer. Building the pass is a separate piece of work:
 - `phobos_settings.rs::tests`:
   `show_briefing_defaults_to_yes_and_reads_an_explicit_no`, plus the extended
   `imported_switches_are_read` and `missing_profile_or_section_keeps_the_source_defaults`.
+- `phobos_briefing_ui.rs::tests`:
+  `the_authored_labels_apply_only_to_the_scenario_start_path`.
+- `map/basic.rs::tests`:
+  `the_basic_show_briefing_flag_defaults_to_absent_and_reads_both_spellings`.
+- `app/briefing_start.rs::tests`:
+  `the_modelled_gates_admit_only_a_campaign_with_both_switches_on`.
 
 ## Residuals
 
-- No scenario-start briefing dialog pass; all three values are currently
-  storage-only. The scanner will see the literal reads, but no behaviour
-  changes until the pass above is built.
-- `ShowBriefingResumeButtonLabel` is a CSF key resolved by
-  `GeneralUtils::LoadStringOrDefault` (`Phobos.INI.cpp:247`); VERA stores the
-  key string and would resolve it through `i18n::label` when the dialog exists.
-- The scenario `[Basic] ShowBriefing` / `BriefingTheme` layer is not ported
-  here to avoid a second owner on the in-flight `campaign_loading.rs`.
+- The fourth native gate, `ScenarioClass::Start`'s `showBriefing` stack
+  argument (`Misc/Hooks.UI.cpp:352`), has no VERA owner; `admits` treats it as
+  true. A loaded save or non-fresh launch therefore also admits when the two
+  switches and campaign mode hold.
+- `Ext/Scenario/Hooks.cpp:21` also reads `ShowBriefing` under the scenario's
+  own MISSIONMD section; only the `[Basic]` layer is ported here (the
+  `campaign_loading.rs` owner belongs to another in-flight branch).
+- `BriefingTheme` (`ScenarioExt`, `SideExt::BriefingTheme`,
+  `Misc/Hooks.UI.cpp:359-371`) and the `0x683F66` / `0x685D95` redraw skips
+  are not ported; `audio_runtime::bind_match_theme_context` owns the map theme.
+- `0x604985` returns a dialog-level status label, while VERA shows the status
+  line only while a control is hovered; the authored label therefore appears
+  on hover of the resume button.
+- The button label is a CSF key resolved through `i18n::label` at draw time.

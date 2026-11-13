@@ -647,6 +647,12 @@ pub(crate) fn finish_presentation_assets(
             )
         })
         .unwrap_or_default();
+    // Phobos reads `[UISettings]` from the same uimd.ini at startup
+    // (`src/Phobos.INI.cpp:246-251`), for the scenario-start briefing dialog.
+    #[cfg(feature = "phobos")]
+    let briefing_dialog = uimd_bytes
+        .map(crate::rules::phobos_briefing_ui::BriefingDialogUi::from_uimd_bytes)
+        .unwrap_or_default();
     #[cfg(feature = "phobos")]
     let sw_sidebar_art = sw_sidebar_ui
         .enabled
@@ -769,6 +775,8 @@ pub(crate) fn finish_presentation_assets(
         center_pause_menu_background,
         #[cfg(feature = "phobos")]
         sidebar_indicators,
+        #[cfg(feature = "phobos")]
+        briefing_dialog,
         #[cfg(feature = "phobos")]
         sw_sidebar_art,
         outcome_banner_side_art,

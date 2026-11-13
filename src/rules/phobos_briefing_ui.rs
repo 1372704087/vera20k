@@ -60,6 +60,26 @@ impl BriefingDialogUi {
             .map_or_else(Self::default, Self::from_section)
     }
 
+    /// `BriefingDialog_ShowBriefing @ 0x65F764` uses the authored label only
+    /// while `BriefingTemp::ShowBriefing` is set (the scenario-start path).
+    /// The stock F2 restate dialog keeps its own caption.
+    pub fn button_label_key<'a>(&'a self, at_start: bool, stock: &'a str) -> &'a str {
+        if at_start {
+            &self.resume_button_label
+        } else {
+            stock
+        }
+    }
+
+    /// `GetDialogUIStatusLabels_ShowBriefing @ 0x604985`, same gate.
+    pub fn status_label_key<'a>(&'a self, at_start: bool, stock: &'a str) -> &'a str {
+        if at_start {
+            &self.resume_button_status_label
+        } else {
+            stock
+        }
+    }
+
     pub fn from_section(section: &IniSection) -> Self {
         // `INI_EX::ReadString`: the default is copied only when the key is
         // absent; an authored empty value stays empty. The status label lands
@@ -117,6 +137,24 @@ mod tests {
         assert_eq!(only_label.resume_button_label, "GUI:Go");
         assert_eq!(
             only_label.resume_button_status_label,
+            "STT:BriefingButtonReturn"
+        );
+    }
+
+    #[test]
+    fn the_authored_labels_apply_only_to_the_scenario_start_path() {
+        let ui = BriefingDialogUi::from_uimd_bytes(
+            b"[UISettings]\nShowBriefingResumeButtonLabel=GUI:Go\n\
+              ShowBriefingResumeButtonStatusLabel=STT:Go\n",
+        );
+        assert_eq!(ui.button_label_key(true, "GUI:Return"), "GUI:Go");
+        assert_eq!(ui.button_label_key(false, "GUI:Return"), "GUI:Return");
+        assert_eq!(
+            ui.status_label_key(true, "STT:BriefingButtonReturn"),
+            "STT:Go"
+        );
+        assert_eq!(
+            ui.status_label_key(false, "STT:BriefingButtonReturn"),
             "STT:BriefingButtonReturn"
         );
     }

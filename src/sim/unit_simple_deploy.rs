@@ -26,6 +26,54 @@ pub(crate) fn is_simple_deployer(sim: &Simulation, entity: &GameEntity, rules: &
             })
 }
 
+/// Phobos `Hooks.SimpleDeployer.cpp:75-78`: a non-empty `DeployingAnims=`
+/// replaces the stock `DeployingAnim=` and is picked from the Unit's primary
+/// facing. The rules pass resolves the list and drops unknown AnimTypes; the
+/// art filter here also covers a directly constructed `ObjectType` fixture.
+fn deploy_anim_name(
+    object: &crate::rules::object_type::ObjectType,
+    entity: &GameEntity,
+    rules: &RuleSet,
+    frame: u32,
+) -> Option<String> {
+    #[cfg(feature = "phobos")]
+    {
+        let names: Vec<&String> = object
+            .phobos_deploying_anims
+            .iter()
+            .filter(|name| rules.art().anim_runtime_config(name.as_str()).is_some())
+            .collect();
+        if !names.is_empty() {
+            let index = item_for_direction(names.len(), entity.body_facing_current(frame));
+            return names.get(index).map(|name| (*name).to_owned());
+        }
+    }
+    #[cfg(not(feature = "phobos"))]
+    let _ = (entity, frame, rules);
+    object.deploying_anim.clone()
+}
+
+/// Phobos `GeneralUtils::GetItemForDirection` (`Utilities/GeneralUtils.h:66-93`):
+/// a 16-bit facing selects an entry of a 2^n list (n = 3..=16); any other
+/// length takes item 0.
+#[cfg(feature = "phobos")]
+fn item_for_direction(len: usize, raw: u16) -> usize {
+    let Some(bits_to) = len.checked_ilog2() else {
+        return 0;
+    };
+    if !(3..=16).contains(&bits_to) {
+        return 0;
+    }
+    if bits_to < 16 {
+        let offset = 1u32 << (bits_to - 3);
+        let mask_out = (1u32 << bits_to) - 1;
+        (((((u32::from(raw) >> (16 - bits_to - 1)) + 1) >> 1) + offset) as usize)
+            & (mask_out as usize)
+    } else {
+        usize::from(raw)
+    }
+}
+
 impl Simulation {
     /// Unload73DE6E..73DEC8 observes6E0 before choosing its updater. Pending
     /// animation/landing returns1; completed work queues/commences Guard then
@@ -139,8 +187,12 @@ impl Simulation {
             return Ok(());
         }
         let deploy_to_land = object.deploy_to_land;
-        let configured_anim = object.deploying_anim.clone();
+        let configured_anim = deploy_anim_name(object, entity, rules, self.session.binary_frame());
         let object_has_deploying_anim = configured_anim.is_some();
+        #[cfg(feature = "phobos")]
+        let reverse_for_undeploy = object.phobos_deploying_anim_reverse_for_undeploy;
+        #[cfg(not(feature = "phobos"))]
+        let reverse_for_undeploy = true;
         let active = if deploying {
             leaf.deploy_begin_active()
         } else {
@@ -214,7 +266,12 @@ impl Simulation {
                 let anim_id = if let Some(anim_id) = retained {
                     anim_id
                 } else {
-                    self.start_unit_deploy_anim(id, &name, !deploying, rules)?
+                    self.start_unit_deploy_anim(
+                        id,
+                        &name,
+                        !deploying && reverse_for_undeploy,
+                        rules,
+                    )?
                 };
                 let anim = self
                     .anim(anim_id)
@@ -443,9 +500,23 @@ impl Simulation {
             position.z(),
         );
         let type_name = self.interner.intern(name);
+        // Phobos `DeployingAnim.UseUnitDrawer` (`Ext/UnitType/Body.cpp:61`,
+        // `Hooks.SimpleDeployer.cpp:89-93`): `IsBuildingAnim=true`, the
+        // cell-light/tint path. RESIDUAL: native also points the Anim's
+        // LightConvert at the Unit's drawer; VERA's anim remap is the frozen
+        // owner house, so a dynamic unit tint (Iron Curtain, shield) does not
+        // follow the Unit.
+        #[cfg(feature = "phobos")]
+        let use_unit_drawer = self
+            .interner
+            .object_type(entity.type_ref(), rules)
+            .is_some_and(|object| object.phobos_deploying_anim_use_unit_drawer);
+        #[cfg(not(feature = "phobos"))]
+        let use_unit_drawer = false;
         let descriptor = AnimClassSpawnDescriptor {
             draw_flags: 0x600,
             reverse,
+            use_cell_drawer: use_unit_drawer,
             owner: Some(id),
             ..AnimClassSpawnDescriptor::new(type_name, rx, ry, sx, sy, z)
         };

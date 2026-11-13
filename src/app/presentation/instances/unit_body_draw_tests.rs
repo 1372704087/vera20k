@@ -1294,3 +1294,55 @@ fn disguise_viewer_sees_through_per_disguise_blinking_visibility() {
     assert!(!visible(&none, "Americans"));
     assert!(!visible(&none, "Russians"));
 }
+
+/// Phobos `UnitClass_Draw_It_KeepUnitVisible` (hook `0x73CF46`,
+/// `Ext/Unit/Hooks.SimpleDeployer.cpp:378-397`): a deploy transition hides
+/// the Unit body unless `DeployingAnim.KeepUnitVisible` keeps it, or it is
+/// deploying with no deploy animation attached.
+#[cfg(feature = "phobos")]
+#[test]
+fn deploying_anim_keep_unit_visible_gates_the_unit_body() {
+    let rules = RuleSet::from_ini(&IniFile::from_str(
+        "[VehicleTypes]\n0=KEEP\n1=HIDE\n\
+         [KEEP]\nStrength=100\nDeployingAnim.KeepUnitVisible=yes\n\
+         [HIDE]\nStrength=100\n",
+    ))
+    .expect("deploy draw rules");
+    let mut sim = Simulation::new();
+    crate::sim::arena_fixture::flat_ground(&mut sim, &rules);
+    let keep = sim
+        .spawn_object("KEEP", "Americans", 10, 10, 0, &rules)
+        .unwrap();
+    let hide = sim
+        .spawn_object("HIDE", "Americans", 10, 10, 0, &rules)
+        .unwrap();
+    let begin = sim
+        .spawn_object("HIDE", "Americans", 10, 10, 0, &rules)
+        .unwrap();
+    for id in [keep, hide] {
+        sim.entities_mut_for_test()
+            .get_mut(id)
+            .unwrap()
+            .set_unit_simple_deploy_for_test(true, false, true);
+    }
+    sim.entities_mut_for_test()
+        .get_mut(begin)
+        .unwrap()
+        .set_unit_simple_deploy_for_test(false, true, false);
+    let hides = |sim: &Simulation, id: u64| {
+        super::helpers::deploy_hides_unit_body(
+            sim.entities().get(id).unwrap(),
+            sim.interner(),
+            Some(&rules),
+        )
+    };
+    assert!(!hides(&sim, keep), "KeepUnitVisible draws the body");
+    assert!(
+        hides(&sim, hide),
+        "an unset key keeps the stock hidden body"
+    );
+    assert!(
+        !hides(&sim, begin),
+        "a deploying Unit without an Anim draws"
+    );
+}

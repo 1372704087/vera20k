@@ -1222,7 +1222,7 @@ fn unit_body_draw<'a>(
     observer: crate::render::draw_state::ObserverDrawContext,
     water: bool,
 ) -> Option<(Cow<'a, str>, BodyDraw)> {
-    if entity.category() == EntityCategory::Unit && entity.unit_deploying() {
+    if super::helpers::deploy_hides_unit_body(entity, interner, rules) {
         return None;
     }
     let model = drawn_model_id(entity, interner, rules, binary_frame, observer, water);

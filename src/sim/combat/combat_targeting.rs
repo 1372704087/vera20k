@@ -418,6 +418,16 @@ pub(crate) fn should_retaliate(
         {
             return false;
         }
+    }
+    // Phobos `TechnoClass_AllowedToRetaliate_AttackMindControlledDelay`
+    // (`0x7089E8`, `Ext/Techno/Hooks.Misc.cpp:620-628`): a freshly
+    // mind-controlled source is shielded from the retaliation of houses
+    // allied with its original owner.
+    #[cfg(feature = "phobos")]
+    if !world.can_attack_mind_controlled(source_id, victim_id) {
+        return false;
+    }
+    if human {
         // `0x007089E8..0x00708A26`: unless `PlayerReturnFire=`, a human's
         // non-building object retaliates only on Guard, Area Guard or Patrol.
         const GUARD: i32 = 5;

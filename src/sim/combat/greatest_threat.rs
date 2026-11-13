@@ -2963,6 +2963,17 @@ fn evaluate_candidate(
             ),
         },
     )?;
+    // Phobos `TechnoClass_CanAutoTargetObject_AttackMindControlledDelay`
+    // (`0x6F88BF`, `Ext/Techno/Hooks.Misc.cpp:630-640`): refuse a candidate
+    // shielded by its fresh capture. The hook sits after the score is
+    // computed and before ThreatAvoidance_Modifier, returning 0
+    // (`0x6F894F`) instead of a score.
+    #[cfg(feature = "phobos")]
+    if let Some(world) = ctx.fire_world
+        && !world.can_attack_mind_controlled(candidate.stable_id(), ctx.scanner.stable_id())
+    {
+        return None;
+    }
     finish_score(threat_avoidance(ctx, candidate, score))
 }
 
@@ -3617,6 +3628,10 @@ mod extra_threat_tests;
 #[cfg(all(test, feature = "phobos"))]
 #[path = "greatest_threat_iron_curtain_tests.rs"]
 mod iron_curtain_tests;
+
+#[cfg(all(test, feature = "phobos"))]
+#[path = "greatest_threat_mind_control_tests.rs"]
+mod mind_control_tests;
 
 #[cfg(all(test, feature = "phobos"))]
 #[path = "greatest_threat_attack_no_threat_tests.rs"]

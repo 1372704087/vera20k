@@ -2947,6 +2947,87 @@ fn warhead_mind_control_anim_overrides_the_global_ring() {
     );
 }
 
+/// Phobos `BulletClass_Detonate` (`0x4692BD`,
+/// `Ext/Bullet/Hooks.DetonateLogics.cpp:41-56`) passes
+/// `MindControl_ThreatDelay.Get([General] MindControl.ThreatDelay)`;
+/// `CaptureManagerExt::CaptureUnit` arms `BeControlledThreatFrame` for a
+/// positive value and `FreeUnit` clears it
+/// (`Ext/CaptureManager/Body.cpp:141,200-201`).
+#[cfg(feature = "phobos")]
+#[test]
+fn mind_control_threat_delay_arms_the_shield_and_free_unit_clears_it() {
+    let detonate = |sim: &mut Simulation, rules: &RuleSet| {
+        let yuri = spawn(sim, rules, "YURI", "YuriCountry", 10, 10);
+        let tank = spawn(sim, rules, "HTNK", "Americans", 11, 10);
+        let warhead = sim.interner.intern("Controller");
+        let detonation = crate::sim::projectile::ProjectileDetonation {
+            projectile_id: 0,
+            source_id: yuri,
+            target: crate::sim::projectile::ProjectileTarget::Entity(tank),
+            impact: crate::sim::projectile::ProjectileCoord::new(0, 0, 0),
+            payload: crate::sim::projectile::ProjectilePayload::new(1, warhead, None, false),
+            reason: crate::sim::projectile::ProjectileDetonationReason::ReachedTarget,
+        };
+        sim.mind_control_detonation(detonation, rules, None, FrameEffects::default());
+        (yuri, tank)
+    };
+    let frame = |sim: &Simulation, id: u64| {
+        sim.substrate
+            .entities
+            .get(id)
+            .unwrap()
+            .phobos_be_controlled_threat_frame
+    };
+
+    let warhead_key = enhanced_rules(&[
+        ("[General]\n", "[General]\nMindControl.ThreatDelay=9\n"),
+        (
+            "[Controller]\nMindControl=yes\n",
+            "[Controller]\nMindControl=yes\nMindControl.ThreatDelay=5\n",
+        ),
+    ]);
+    let mut first = sim(7);
+    let (yuri, tank) = detonate(&mut first, &warhead_key);
+    assert_eq!(
+        frame(&first, tank),
+        5,
+        "the warhead's 5 beats the general's 9"
+    );
+    assert!(first.free_unit(yuri, tank, &warhead_key, None, FrameEffects::default()));
+    assert_eq!(frame(&first, tank), 0, "FreeUnit clears the shield");
+
+    let general_key = enhanced_rules(&[("[General]\n", "[General]\nMindControl.ThreatDelay=9\n")]);
+    let mut second = sim(7);
+    let (_, tank) = detonate(&mut second, &general_key);
+    assert_eq!(
+        frame(&second, tank),
+        9,
+        "an unset warhead key falls back to [General]"
+    );
+
+    let zero_key = enhanced_rules(&[
+        ("[General]\n", "[General]\nMindControl.ThreatDelay=9\n"),
+        (
+            "[Controller]\nMindControl=yes\n",
+            "[Controller]\nMindControl=yes\nMindControl.ThreatDelay=0\n",
+        ),
+    ]);
+    let mut third = sim(7);
+    let (_, tank) = detonate(&mut third, &zero_key);
+    assert_eq!(frame(&third, tank), 0, "an explicit 0 disables the shield");
+
+    let plain = rules();
+    let mut fourth = sim(7);
+    let tower = spawn(&mut fourth, &plain, "YAPSYT", "YuriCountry", 10, 10);
+    let tank = spawn(&mut fourth, &plain, "HTNK", "Americans", 11, 10);
+    assert!(fourth.capture_unit(tower, tank, &plain, None, FrameEffects::default()));
+    assert_eq!(
+        frame(&fourth, tank),
+        0,
+        "only the warhead detonation passes a delay"
+    );
+}
+
 /// TechnoClass::ChangeOwner deselects the local player's selected object
 /// before the owner swap (`0x007014B9..0x007014CF`); another house's
 /// selected byte is left alone.

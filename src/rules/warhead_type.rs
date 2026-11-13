@@ -457,6 +457,12 @@ pub struct WarheadType {
     /// `[CombatDamage] ControlledAnimationType`.
     #[cfg(feature = "phobos")]
     pub mind_control_anim: Option<String>,
+    /// Phobos `WarheadTypeExt::MindControl_ThreatDelay`
+    /// (`Ext/WarheadType/Body.cpp:244`, `Nullable<int>`): frames its capture
+    /// shields the new pawn from its former allies' retaliation and
+    /// auto-targeting; unset falls back to `[General] MindControl.ThreatDelay`.
+    #[cfg(feature = "phobos")]
+    pub mind_control_threat_delay: Option<i32>,
     /// Phobos AttachEffect attach/remove lists and the reflected-damage
     /// suppressor this warhead carries.
     #[cfg(feature = "phobos")]
@@ -1218,6 +1224,9 @@ impl WarheadType {
             mind_control_anim: section.read_phobos_nullable_with("MindControl.Anim", None, |raw| {
                 Some(raw.to_owned())
             }),
+            #[cfg(feature = "phobos")]
+            mind_control_threat_delay: section
+                .read_phobos_nullable_int("MindControl.ThreatDelay", None),
         }
     }
 }

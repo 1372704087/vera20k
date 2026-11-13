@@ -822,6 +822,50 @@ impl Simulation {
         )
     }
 
+    /// Phobos `CanAttackMindControlled` (`Ext/Techno/Hooks.Misc.cpp:595-618`,
+    /// hooks `0x7089E8` and `0x6F88BF`): whether `retaliator` may attack the
+    /// mind-controlled `controlled` now. A fresh pawn is shielded from houses
+    /// allied with its original owner (its own included) until
+    /// `BeControlledThreatFrame` passes; a berserk retaliator, a controller
+    /// without a manager or a non-allied house ignores the shield.
+    #[cfg(feature = "phobos")]
+    pub(crate) fn can_attack_mind_controlled(
+        &self,
+        controlled_id: u64,
+        retaliator_id: u64,
+    ) -> bool {
+        let Some(controlled) = self.substrate.entities.get(controlled_id) else {
+            return true;
+        };
+        let Some(controller_id) = controlled.mind_control.controller else {
+            return true;
+        };
+        let Some(retaliator) = self.substrate.entities.get(retaliator_id) else {
+            return true;
+        };
+        if retaliator.berserk.is_active() {
+            return true;
+        }
+        let Some(original_owner) = self
+            .substrate
+            .entities
+            .get(controller_id)
+            .and_then(|controller| controller.capture_manager.as_ref())
+            .and_then(|manager| manager.original_owner(controlled_id))
+        else {
+            return true;
+        };
+        if !crate::sim::combat::combat_weapon::is_ally_by_object(
+            Some(&self.house_alliances),
+            &self.interner,
+            retaliator.owner(),
+            original_owner,
+        ) {
+            return true;
+        }
+        controlled.phobos_be_controlled_threat_frame <= self.session.binary_frame() as i32
+    }
+
     /// `CaptureManagerClass::CaptureUnit @ 0x00471D40`.
     pub(crate) fn capture_unit(
         &mut self,
@@ -1253,6 +1297,14 @@ impl Simulation {
             .and_then(|warhead| warhead.mind_control_anim.as_deref());
         #[cfg(not(feature = "phobos"))]
         let ring_anim: Option<&str> = None;
+        // Phobos `BulletClass_Detonate` (`0x4692BD`,
+        // `Ext/Bullet/Hooks.DetonateLogics.cpp:41-56`) passes
+        // `MindControl_ThreatDelay.Get([General] MindControl.ThreatDelay)`.
+        #[cfg(feature = "phobos")]
+        let threat_delay = rules
+            .warhead(self.interner.resolve(current.payload.warhead))
+            .and_then(|warhead| warhead.mind_control_threat_delay)
+            .unwrap_or(rules.phobos_globals.mind_control_threat_delay);
         if !self.capture_unit_with_ring(
             current.source_id,
             target_id,
@@ -1262,6 +1314,15 @@ impl Simulation {
             frame_effects,
         ) {
             return;
+        }
+        // `CaptureManagerExt::CaptureUnit` (`Ext/CaptureManager/Body.cpp:200-201`):
+        // a positive delay arms the shield; zero leaves the field untouched.
+        #[cfg(feature = "phobos")]
+        if threat_delay > 0 {
+            let frame = self.session.binary_frame() as i32 + threat_delay;
+            if let Some(target) = self.substrate.entities.get_mut(target_id) {
+                target.phobos_be_controlled_threat_frame = frame;
+            }
         }
         let Some(sound) = rules.mind_control.mind_control_sound.clone() else {
             return;
@@ -1502,6 +1563,12 @@ impl Simulation {
                     let event = SimSoundEvent::voc_at(sound, &victim.position);
                     self.sound_events.emit(event);
                 }
+            }
+            // `CaptureManagerExt::FreeUnit` (`Ext/CaptureManager/Body.cpp:141`)
+            // clears Phobos's threat shield before the house returns.
+            #[cfg(feature = "phobos")]
+            if let Some(victim) = self.substrate.entities.get_mut(victim_id) {
+                victim.phobos_be_controlled_threat_frame = 0;
             }
             self.change_owner_with_rules(victim_id, original_owner, rules, registry, frame_effects);
             // DecideUnitFate runs while `+0x2C0` still names the controller.

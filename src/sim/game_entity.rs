@@ -865,6 +865,13 @@ pub struct GameEntity {
     /// `+0x2C8` the ring anim), written only by `capture_manager`.
     #[serde(default)]
     pub mind_control: crate::sim::capture_manager::MindControlLink,
+    /// Phobos `TechnoExt::BeControlledThreatFrame` (`Ext/Techno/Body.h:54`):
+    /// the first frame its former allies may retaliate against or auto-target
+    /// this freshly mind-controlled object (`Ext/Techno/Hooks.Misc.cpp:595-640`).
+    /// A `MindControl.ThreatDelay=` capture sets it, `FreeUnit` clears it.
+    #[cfg(feature = "phobos")]
+    #[serde(default)]
+    pub(crate) phobos_be_controlled_threat_frame: i32,
     /// TemporalClass state (`TechnoClass+0x274` TemporalImUsing and `+0x278`
     /// TemporalTargetingMe), written only by `temporal`.
     #[serde(default)]
@@ -2845,6 +2852,8 @@ impl GameEntity {
             airstrike: Default::default(),
             airstrike_tint: Default::default(),
             mind_control: Default::default(),
+            #[cfg(feature = "phobos")]
+            phobos_be_controlled_threat_frame: 0,
             temporal: Default::default(),
             bomb: None,
             berserk: Default::default(),

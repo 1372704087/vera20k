@@ -3350,6 +3350,110 @@ fn an_iron_curtained_source_gates_human_retaliation_by_weapon_and_global() {
     );
 }
 
+/// Phobos `TechnoClass_AllowedToRetaliate_AttackMindControlledDelay`
+/// (`0x7089E8`, `Ext/Techno/Hooks.Misc.cpp:595-628`): a freshly
+/// mind-controlled source is shielded from the retaliation of houses allied
+/// with its original owner until `BeControlledThreatFrame` passes. The
+/// boundary frame, a berserk retaliator, a controller without a manager and
+/// a non-allied house all retaliate.
+#[cfg(feature = "phobos")]
+#[test]
+fn a_freshly_mind_controlled_source_is_shielded_from_its_former_allies_retaliation() {
+    use crate::sim::capture_manager::{CaptureManagerState, MindControlLink};
+    const CONTROLLER: u64 = 3;
+    let build = || {
+        let (mut sim, rules) = retaliation_gate_world(
+            "VICTIM",
+            EntityCategory::Unit,
+            "SOURCE",
+            EntityCategory::Unit,
+            false,
+        );
+        let original_owner = sim.substrate.entities.get(GATE_VICTIM).unwrap().owner();
+        let mut controller = GameEntity::test_default(CONTROLLER, "SOURCE", "Test", 16, 5);
+        controller.set_owner_for_test(sim.interner.intern("Source"));
+        controller.set_type_ref_for_test(sim.interner.intern("SOURCE"));
+        controller.set_category_for_test(EntityCategory::Unit);
+        controller.capture_manager = Some(CaptureManagerState::with_nodes_for_test(&[(
+            GATE_SOURCE,
+            original_owner,
+        )]));
+        sim.substrate.entities.insert(controller);
+        sim.substrate
+            .entities
+            .get_mut(GATE_SOURCE)
+            .unwrap()
+            .mind_control = MindControlLink::controlled_by_for_test(CONTROLLER);
+        (sim, rules)
+    };
+    let retaliates = |sim: &crate::sim::world::Simulation,
+                      rules: &crate::rules::ruleset::RuleSet| {
+        combat_targeting::should_retaliate(sim, rules, GATE_VICTIM, GATE_SOURCE, None)
+    };
+
+    let (mut sim, rules) = build();
+    assert!(
+        retaliates(&sim, &rules),
+        "frame 0 with an unarmed shield retaliates"
+    );
+    sim.substrate
+        .entities
+        .get_mut(GATE_SOURCE)
+        .unwrap()
+        .phobos_be_controlled_threat_frame = 5;
+    assert!(!retaliates(&sim, &rules), "frame 0 is inside the shield");
+    sim.session.set_binary_frame_for_test(4);
+    assert!(!retaliates(&sim, &rules));
+    sim.session.set_binary_frame_for_test(5);
+    assert!(
+        retaliates(&sim, &rules),
+        "the shield ends on its boundary frame"
+    );
+
+    // `pRetaliator->Berzerk` ignores the shield.
+    sim.session.set_binary_frame_for_test(0);
+    sim.substrate
+        .entities
+        .get_mut(GATE_VICTIM)
+        .unwrap()
+        .berserk
+        .set_active_for_test(true);
+    assert!(retaliates(&sim, &rules));
+
+    // `!pManager` ignores the shield.
+    let (mut sim, rules) = build();
+    sim.substrate
+        .entities
+        .get_mut(GATE_SOURCE)
+        .unwrap()
+        .phobos_be_controlled_threat_frame = 5;
+    sim.substrate
+        .entities
+        .get_mut(CONTROLLER)
+        .unwrap()
+        .capture_manager = None;
+    assert!(retaliates(&sim, &rules));
+
+    // A retaliator allied with neither the original owner nor the
+    // controller ignores the shield.
+    let (mut sim, rules) = build();
+    let source_owner = sim.substrate.entities.get(GATE_SOURCE).unwrap().owner();
+    sim.substrate
+        .entities
+        .get_mut(CONTROLLER)
+        .unwrap()
+        .capture_manager = Some(CaptureManagerState::with_nodes_for_test(&[(
+        GATE_SOURCE,
+        source_owner,
+    )]));
+    sim.substrate
+        .entities
+        .get_mut(GATE_SOURCE)
+        .unwrap()
+        .phobos_be_controlled_threat_frame = 5;
+    assert!(retaliates(&sim, &rules));
+}
+
 /// A garrisoned building fights back with its occupant's weapon: GetWeapon
 /// (`BuildingClass::GetWeapon @ 0x004526F0`) answers the occupant's
 /// `OccupyWeapon=` for every slot, so `GetWeaponDamageValue(-1)`, SelectWeapon,

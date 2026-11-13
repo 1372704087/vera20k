@@ -545,9 +545,9 @@ impl Simulation {
         // crusher (vtable `+0x45C`, argument 0; no stock crusher cloaks),
         // and crushing a Unit tilts a level crusher forwards. Phobos'
         // OverrunSquare hook supplies the rate through the unit's
-        // CrushForwardTiltPerFrame (`Ext/Unit/Hooks.Crushing.cpp:27-38`) and
-        // gates the store on `TiltsWhenCrushes.Vehicles`, falling back to the
-        // stock `TiltsWhenCrushes`.
+        // CrushForwardTiltPerFrame (`Ext/Unit/Hooks.Crushing.cpp:27-38`),
+        // gates the store on `TiltsWhenCrushes.Vehicles` (falling back to the
+        // stock `TiltsWhenCrushes`) and stores it even over a nonzero rate.
         if crushed_unit {
             let crusher_type = self
                 .substrate

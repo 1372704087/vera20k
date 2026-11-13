@@ -125,16 +125,21 @@ impl RockingState {
         ));
     }
 
-    /// Crush_Or_Prescatter_Cell's tail after crushing a Unit
-    /// (`0x00741939..0x00741954`): FCOMP of Techno+334 with binary32 0.0
-    /// (`0x007E1748`); on C3 (equal, either zero, or unordered) the store of
-    /// the crusher's rate. Phobos `UnitClass_OverrunSquare_TiltWhenCrushes`
-    /// (`Ext/Unit/Hooks.Crushing.cpp:27-38`, hook `0x741941`) supplies that
-    /// rate through `CrushForwardTiltPerFrame`, defaulting to the stock
-    /// binary32 -0.05 (`0xBD4CCCCD`), and gates the store on
-    /// `TiltsWhenCrushes.Vehicles` (resolved by the caller). RESIDUAL: the
-    /// hook also makes the store unconditional; VERA keeps the stock zero
-    /// check, so a nonzero pre-crush rate keeps its value.
+    /// Phobos `UnitClass_OverrunSquare_TiltWhenCrushes`
+    /// (`Ext/Unit/Hooks.Crushing.cpp:27-38`, hook `0x741941`) replaces the
+    /// stock FCOMP block and stores its `CrushForwardTiltPerFrame` rate
+    /// (default stock binary32 -0.05, `0xBD4CCCCD`) unconditionally. The
+    /// caller applies the `TiltsWhenCrushes.Vehicles` gate first.
+    #[cfg(feature = "phobos")]
+    pub(crate) fn tilt_after_unit_crush(&mut self, tilt: NativeF32Bits) {
+        self.vel_forwards = tilt;
+    }
+
+    /// Crush_Or_Prescatter_Cell's stock tail (`0x00741939..0x00741954`):
+    /// FCOMP of Techno+334 with binary32 0.0 (`0x007E1748`); on C3 (equal,
+    /// either zero, or unordered) it stores the crusher's rate. The Phobos
+    /// hook is not compiled in.
+    #[cfg(not(feature = "phobos"))]
     pub(crate) fn tilt_after_unit_crush(&mut self, tilt: NativeF32Bits) {
         let forwards = f32::from_bits(self.vel_forwards.bits());
         if forwards == 0.0 || forwards.is_nan() {

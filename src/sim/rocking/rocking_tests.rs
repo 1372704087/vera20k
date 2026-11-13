@@ -327,3 +327,24 @@ fn overlay_recoil_adds_the_type_extra_forward_tilt() {
     stock.recoil_after_overlay_crush(0.02);
     assert_eq!(stock.vel_forwards.bits(), 0x3ca3_d70a);
 }
+
+/// Phobos `UnitClass_OverrunSquare_TiltWhenCrushes` (`0x741941`,
+/// `Ext/Unit/Hooks.Crushing.cpp:23-38`) replaces the stock FCOMP and stores
+/// its rate even over a nonzero pre-crush forward rate.
+#[cfg(feature = "phobos")]
+#[test]
+fn unit_crush_tilt_overwrites_a_nonzero_pre_crush_rate() {
+    let mut value = state([0, 0, 0, 0x3e80_0000]);
+    value.tilt_after_unit_crush(NativeF32Bits::from_bits(0xbd4c_cccd));
+    assert_eq!(value.vel_forwards.bits(), 0xbd4c_cccd);
+}
+
+/// The stock tail stores only on the FCOMP C3 arm, so a nonzero pre-crush
+/// rate keeps its value.
+#[cfg(not(feature = "phobos"))]
+#[test]
+fn stock_unit_crush_tilt_keeps_a_nonzero_pre_crush_rate() {
+    let mut value = state([0, 0, 0, 0x3e80_0000]);
+    value.tilt_after_unit_crush(NativeF32Bits::from_bits(0xbd4c_cccd));
+    assert_eq!(value.vel_forwards.bits(), 0x3e80_0000);
+}

@@ -545,14 +545,17 @@ impl Simulation {
         // crusher (vtable `+0x45C`, argument 0; no stock crusher cloaks),
         // and crushing a Unit tilts a level crusher forwards. Phobos'
         // OverrunSquare hook supplies the rate through the unit's
-        // CrushForwardTiltPerFrame (`Ext/Unit/Hooks.Crushing.cpp:27-38`).
+        // CrushForwardTiltPerFrame (`Ext/Unit/Hooks.Crushing.cpp:27-38`) and
+        // gates the store on `TiltsWhenCrushes.Vehicles`, falling back to the
+        // stock `TiltsWhenCrushes`.
         if crushed_unit {
-            let tilt = self
+            let crusher_type = self
                 .substrate
                 .entities
                 .get(id)
-                .and_then(|crusher| self.object_type(crusher.type_ref(), rules))
-                .map_or(
+                .and_then(|crusher| self.object_type(crusher.type_ref(), rules));
+            if crusher_type.is_none_or(|object| object.tilts_when_crushes_vehicles()) {
+                let tilt = crusher_type.map_or(
                     crate::util::native_x87::NativeF32Bits::from_bits(0xbd4c_cccd),
                     |object| {
                         object.crush_forward_tilt_per_frame(
@@ -560,8 +563,9 @@ impl Simulation {
                         )
                     },
                 );
-            if let Some(crusher) = self.substrate.entities.get_mut(id) {
-                crusher.rocking_mut().tilt_after_unit_crush(tilt);
+                if let Some(crusher) = self.substrate.entities.get_mut(id) {
+                    crusher.rocking_mut().tilt_after_unit_crush(tilt);
+                }
             }
         }
         // 0x0073B08F tests only IsAlive (`+0x90`) before the Foot body.
@@ -676,15 +680,21 @@ impl Simulation {
         }
         self.apply_wall_damage(target, -1, registry);
         if let Some(actor) = self.substrate.entities.get_mut(id) {
-            // Phobos `CrushOverlayExtraForwardTilt` (0x73B05B) replaces the
-            // stock +0.02 with the type's value (default 0.02).
-            #[cfg(feature = "phobos")]
-            let extra = object.phobos_crush_overlay_extra_forward_tilt as f32;
-            #[cfg(not(feature = "phobos"))]
-            let extra = 0.02f32;
-            actor.rocking_mut().recoil_after_overlay_crush(extra);
+            // Phobos `UnitClass_PerCellProcess_TiltWhenCrushes` (hook
+            // `0x73B05B`, `Ext/Unit/Hooks.Crushing.cpp:6-21`) gates the
+            // forward tilt on `TiltsWhenCrushes.Overlays` (falling back to the
+            // stock `TiltsWhenCrushes`) and replaces the stock +0.02 with the
+            // type's `CrushOverlayExtraForwardTilt`.
+            if object.tilts_when_crushes_overlays() {
+                #[cfg(feature = "phobos")]
+                let extra = object.phobos_crush_overlay_extra_forward_tilt as f32;
+                #[cfg(not(feature = "phobos"))]
+                let extra = 0.02f32;
+                actor.rocking_mut().recoil_after_overlay_crush(extra);
+            }
             //73B067 clears Foot+6B5 after the damage call, even when the
-            //Cell refuses a non-Wall overlay. TiltsWhenCrushes is not a gate.
+            //Cell refuses a non-Wall overlay. The clear is independent of the
+            //tilt gate.
             actor.foot_speed.clear_crush_slowdown();
         }
     }

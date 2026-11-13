@@ -1202,6 +1202,18 @@ pub struct ObjectType {
     /// `DeployingAnim=`. Unit types only.
     #[cfg(feature = "phobos")]
     pub phobos_deploying_anims: Vec<String>,
+    /// Phobos `TiltsWhenCrushes.Vehicles=` (`Ext/UnitType/Body.cpp:69`,
+    /// `Nullable<bool>`, `Body.h:54`): whether crushing a Unit stores the
+    /// crusher's forward tilt (`0x741941`); unset keeps the stock
+    /// `TiltsWhenCrushes`. Unit types only.
+    #[cfg(feature = "phobos")]
+    pub phobos_tilts_when_crushes_vehicles: Option<bool>,
+    /// Phobos `TiltsWhenCrushes.Overlays=` (`Ext/UnitType/Body.cpp:70`,
+    /// `Nullable<bool>`, `Body.h:55`): whether an overlay crush adds the
+    /// forward tilt (`0x73B05B`); unset keeps the stock `TiltsWhenCrushes`.
+    /// Unit types only.
+    #[cfg(feature = "phobos")]
+    pub phobos_tilts_when_crushes_overlays: Option<bool>,
     /// Phobos `CrushOverlayExtraForwardTilt=` (`Ext/UnitType/Body.cpp:72`,
     /// `Valueable<double>`, default **0.02**): the extra forward rocking rate
     /// a crushing Unit adds (`Ext/Unit/Hooks.Crushing.cpp:18`). Phobos reads it
@@ -4253,6 +4265,38 @@ impl ObjectType {
         stock
     }
 
+    /// `TiltsWhenCrushes_Vehicles.Get(Type->TiltsWhenCrushes)`
+    /// (`Ext/UnitType/Body.cpp:69`, `Ext/Unit/Hooks.Crushing.cpp:23-38`,
+    /// hook `0x741941`): whether the OverrunSquare tail stores the crusher's
+    /// forward tilt; unset keeps the stock `TiltsWhenCrushes`.
+    #[cfg(feature = "phobos")]
+    pub(crate) fn tilts_when_crushes_vehicles(&self) -> bool {
+        self.phobos_tilts_when_crushes_vehicles
+            .unwrap_or(self.tilts_when_crushes)
+    }
+
+    /// `TiltsWhenCrushes_Overlays.Get(Type->TiltsWhenCrushes)`
+    /// (`Ext/UnitType/Body.cpp:70`, `Ext/Unit/Hooks.Crushing.cpp:6-21`,
+    /// hook `0x73B05B`): whether the overlay-crush tail adds the forward
+    /// tilt; unset keeps the stock `TiltsWhenCrushes`.
+    #[cfg(feature = "phobos")]
+    pub(crate) fn tilts_when_crushes_overlays(&self) -> bool {
+        self.phobos_tilts_when_crushes_overlays
+            .unwrap_or(self.tilts_when_crushes)
+    }
+
+    /// With Phobos compiled out neither hook exists, so both stock tails
+    /// always tilt.
+    #[cfg(not(feature = "phobos"))]
+    pub(crate) fn tilts_when_crushes_vehicles(&self) -> bool {
+        true
+    }
+
+    #[cfg(not(feature = "phobos"))]
+    pub(crate) fn tilts_when_crushes_overlays(&self) -> bool {
+        true
+    }
+
     /// Phobos `GetRestrictedFactoryPlantMult`'s per-priced-type scale
     /// (`Ext/House/Body.cpp:585`): `Valueable<float>` constructor 1.0f
     /// (`Ext/TechnoType/Body.cpp:788`, `Body.h:48,486`). Both Ares and Phobos
@@ -6090,6 +6134,14 @@ impl ObjectType {
             } else {
                 Vec::new()
             },
+            #[cfg(feature = "phobos")]
+            phobos_tilts_when_crushes_vehicles: (category == ObjectCategory::Vehicle)
+                .then(|| section.read_phobos_nullable_bool("TiltsWhenCrushes.Vehicles", None))
+                .flatten(),
+            #[cfg(feature = "phobos")]
+            phobos_tilts_when_crushes_overlays: (category == ObjectCategory::Vehicle)
+                .then(|| section.read_phobos_nullable_bool("TiltsWhenCrushes.Overlays", None))
+                .flatten(),
             #[cfg(feature = "phobos")]
             phobos_crush_overlay_extra_forward_tilt: if category == ObjectCategory::Vehicle {
                 section.read_phobos_double("CrushOverlayExtraForwardTilt", 0.02)
@@ -8083,7 +8135,7 @@ mod tests {
     }
 
     /// `Ext/BuildingType/Body.cpp:233-234,282,311`,
-    /// `Ext/UnitType/Body.cpp:58,72` and `Ext/AircraftType/Body.cpp:27,37,41`:
+    /// `Ext/UnitType/Body.cpp:58,69-70,72` and `Ext/AircraftType/Body.cpp:27,37,41`:
     /// each key keeps its own constructor value and its own category.
     #[cfg(feature = "phobos")]
     #[test]
@@ -8104,7 +8156,8 @@ mod tests {
 
         let unit = IniFile::from_str(
             "[UNT]\nStrength=100\nDeployingAnims=A,B,C\nCrushOverlayExtraForwardTilt=0.05\n\
-             SkipCrushSlowdown=yes\nCrushForwardTiltPerFrame=-0.125\n",
+             SkipCrushSlowdown=yes\nCrushForwardTiltPerFrame=-0.125\n\
+             TiltsWhenCrushes.Vehicles=no\nTiltsWhenCrushes.Overlays=yes\n",
         );
         let object = ObjectType::from_ini_section(
             "UNT",
@@ -8116,6 +8169,10 @@ mod tests {
             object.phobos_crush_forward_tilt_per_frame,
             Some(f64::from(-0.125_f32))
         );
+        assert_eq!(object.phobos_tilts_when_crushes_vehicles, Some(false));
+        assert_eq!(object.phobos_tilts_when_crushes_overlays, Some(true));
+        assert!(!object.tilts_when_crushes_vehicles());
+        assert!(object.tilts_when_crushes_overlays());
         assert_eq!(object.phobos_deploying_anims, ["A", "B", "C"]);
         // Phobos `ReadDouble` writes a `float`; the literal therefore lands as
         // the nearest binary32 widened back to double.
@@ -8126,7 +8183,8 @@ mod tests {
 
         let aircraft = IniFile::from_str(
             "[AIR]\nStrength=100\nLandingAnim=LAND\nParadropDelay=8\nParadropEndDelay=12\n\
-             SpawnHeight=200\nFiringForceScatter=no\n",
+             SpawnHeight=200\nFiringForceScatter=no\n\
+             TiltsWhenCrushes.Vehicles=yes\nTiltsWhenCrushes.Overlays=yes\n",
         );
         let object = ObjectType::from_ini_section(
             "AIR",
@@ -8138,6 +8196,9 @@ mod tests {
         assert_eq!(object.phobos_paradrop_end_delay, Some(12));
         assert_eq!(object.phobos_spawn_height, Some(200));
         assert_eq!(object.phobos_firing_force_scatter, Some(false));
+        // UnitType-only keys: an Aircraft section never sets them.
+        assert_eq!(object.phobos_tilts_when_crushes_vehicles, None);
+        assert_eq!(object.phobos_tilts_when_crushes_overlays, None);
 
         let unset = IniFile::from_str("[UNT]\nStrength=100\n");
         let object = ObjectType::from_ini_section(
@@ -8148,6 +8209,11 @@ mod tests {
         assert_eq!(object.phobos_deploy_fire_delay, None);
         assert_eq!(object.phobos_skip_crush_slowdown, None);
         assert_eq!(object.phobos_crush_forward_tilt_per_frame, None);
+        assert_eq!(object.phobos_tilts_when_crushes_vehicles, None);
+        assert_eq!(object.phobos_tilts_when_crushes_overlays, None);
+        // Unset keys fall back to the stock `TiltsWhenCrushes`.
+        assert!(object.tilts_when_crushes_vehicles());
+        assert!(object.tilts_when_crushes_overlays());
         // Aircraft-only key: a Vehicle section never sets it.
         assert_eq!(object.phobos_firing_force_scatter, None);
         assert_eq!(object.phobos_no_alpha_image_on_buildup, None);

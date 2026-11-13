@@ -131,9 +131,10 @@ impl RockingState {
     /// the crusher's rate. Phobos `UnitClass_OverrunSquare_TiltWhenCrushes`
     /// (`Ext/Unit/Hooks.Crushing.cpp:27-38`, hook `0x741941`) supplies that
     /// rate through `CrushForwardTiltPerFrame`, defaulting to the stock
-    /// binary32 -0.05 (`0xBD4CCCCD`). RESIDUAL: the hook also makes the store
-    /// unconditional and gates it on the separate `TiltsWhenCrushes.Vehicles`
-    /// key; neither is ported, so a nonzero pre-crush rate keeps its value.
+    /// binary32 -0.05 (`0xBD4CCCCD`), and gates the store on
+    /// `TiltsWhenCrushes.Vehicles` (resolved by the caller). RESIDUAL: the
+    /// hook also makes the store unconditional; VERA keeps the stock zero
+    /// check, so a nonzero pre-crush rate keeps its value.
     pub(crate) fn tilt_after_unit_crush(&mut self, tilt: NativeF32Bits) {
         let forwards = f32::from_bits(self.vel_forwards.bits());
         if forwards == 0.0 || forwards.is_nan() {

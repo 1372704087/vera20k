@@ -160,6 +160,18 @@ pub struct PhobosGlobals {
     /// also be on.
     #[serde(default = "true_bool")]
     pub show_designator_range: bool,
+    /// `[AudioVisual] HeightShadowScaling=`, default `no` (`Ext/Rules/Body.cpp:186`,
+    /// constructor `Ext/Rules/Body.h:630`): a drawing unit scales its voxel
+    /// shadow by its live height (`Ext/TechnoType/Hooks.MatrixOp.cpp:677`).
+    /// `Ext/Rules/Body.cpp:187` forces it off when `AirShadowBaseScale > 0.98`.
+    pub height_shadow_scaling: bool,
+    /// `[AudioVisual] HeightShadowScaling.MinScale=`, default `0.0` (`:189`).
+    /// Raw bits keep `PhobosGlobals` `Eq + Hash`.
+    pub height_shadow_scaling_min_scale: NativeF64Bits,
+    /// `Ext/Rules/Body.cpp:183-184`: `-ln(min(AirShadowBaseScale, 1.0))`, the
+    /// exponent base `Pade2_2` consumes; default `0.693376137`
+    /// (`Ext/Rules/Body.h:632`, the log of a half-size shadow).
+    pub air_shadow_base_scale_log: NativeF64Bits,
     /// `AutoDeath.OnOwnerChange.IgnoreRevertOnExit=`, default `no`
     /// (`Ext/Rules/Body.cpp:630`).
     pub auto_death_on_owner_change_ignore_revert_on_exit: bool,
@@ -1238,6 +1250,9 @@ impl Default for PhobosGlobals {
             overload_particle_sys_count: 5,
             affects_invoker_only_ignore_invoker_state: true,
             show_designator_range: true,
+            height_shadow_scaling: false,
+            height_shadow_scaling_min_scale: NativeF64Bits::from_bits(0.0f64.to_bits()),
+            air_shadow_base_scale_log: NativeF64Bits::from_bits(0.693_376_137f64.to_bits()),
             auto_death_on_owner_change_ignore_revert_on_exit: false,
             auto_death_allow_limboed: true,
             convert_reset_mind_control: false,
@@ -1456,6 +1471,25 @@ impl PhobosGlobals {
         // `NoAlphaImageOnBuildup=` overrides.
         globals.no_alpha_image_on_buildup =
             audio_visual.read_bool("NoAlphaImageOnBuildup", globals.no_alpha_image_on_buildup);
+        // `Ext/Rules/Body.cpp:182-189`: the height-scaled shadow block. The
+        // base scale is stored as `-ln(min(v, 1))`, and a base above 0.98
+        // switches `HeightShadowScaling` off no matter what the key says.
+        globals.height_shadow_scaling =
+            audio_visual.read_bool("HeightShadowScaling", globals.height_shadow_scaling);
+        globals.height_shadow_scaling_min_scale = read_double_bits(
+            &audio_visual,
+            "HeightShadowScaling.MinScale",
+            globals.height_shadow_scaling_min_scale,
+        );
+        let air_shadow_base_scale =
+            audio_visual.read_phobos_nullable_double("AirShadowBaseScale", None);
+        if let Some(base) = air_shadow_base_scale.filter(|base| *base > 0.0) {
+            globals.air_shadow_base_scale_log =
+                NativeF64Bits::from_bits((-base.min(1.0).ln()).to_bits());
+        }
+        if air_shadow_base_scale.is_some_and(|base| base > 0.98) {
+            globals.height_shadow_scaling = false;
+        }
         globals.parasite_grapple_anim = audio_visual
             .read_type_name("Parasite.GrappleAnim", 0x100)
             .map(str::to_owned);

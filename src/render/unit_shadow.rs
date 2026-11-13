@@ -27,6 +27,9 @@ pub(crate) struct UnitShadowPose {
     pub slope: u8,
     pub mask: UnitShadowMask,
     pub mask_offset: [i32; 2],
+    /// `GetHeight()` (`0x0071C011`) in leptons: Phobos' `ShadowSizeCharacteristicHeight=`
+    /// scale divides it (`Ext/TechnoType/Hooks.MatrixOp.cpp:672,682`).
+    pub height_leptons: i32,
 }
 
 impl UnitShadowPose {
@@ -92,6 +95,7 @@ pub(crate) fn pose(
         //73C4C8..73C4D5 adds one only on the positive-height arm. This
         //offset samples the elevated body surface; it does not move the quad.
         mask_offset: [0, point_y.wrapping_add(i32::from(height > 0))],
+        height_leptons: height,
     })
 }
 

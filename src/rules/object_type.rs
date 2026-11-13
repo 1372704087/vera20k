@@ -1186,6 +1186,15 @@ pub struct ObjectType {
     /// (`Ext/Building/Hooks.Unload.cpp:73`). Building types only.
     #[cfg(feature = "phobos")]
     pub phobos_deploy_fire_delay: Option<i32>,
+    /// Phobos `ShadowSizeCharacteristicHeight=` (`Ext/TechnoType/Body.cpp:912`,
+    /// rules layer, `Nullable<int>`, empty at construction `Body.h:567`): the
+    /// height at which a drawing techno's shadow reaches the base scale. Unset
+    /// falls back to the drawing locomotion's height — the Jumpjet's own
+    /// `Height=` (`Ext/TechnoType/Hooks.MatrixOp.cpp:682`) or
+    /// `[AudioVisual] CruiseHeight=` (`:695`), and an aircraft's
+    /// `GetFlightLevel()` (`:961`).
+    #[cfg(feature = "phobos")]
+    pub phobos_shadow_size_characteristic_height: Option<i32>,
     /// Phobos `NoAlphaImageOnBuildup=` (`Ext/BuildingType/Body.cpp:234`,
     /// `Nullable<bool>`): skip the buildup image's alpha blend; unset takes
     /// `[AudioVisual]`. Building types only.
@@ -6133,6 +6142,9 @@ impl ObjectType {
             phobos_paradrop_end_delay: (category == ObjectCategory::Aircraft)
                 .then(|| section.read_phobos_nullable_int("ParadropEndDelay", None))
                 .flatten(),
+            #[cfg(feature = "phobos")]
+            phobos_shadow_size_characteristic_height: section
+                .read_phobos_nullable_int("ShadowSizeCharacteristicHeight", None),
             #[cfg(feature = "phobos")]
             phobos_spawn_height: (category == ObjectCategory::Aircraft)
                 .then(|| section.read_phobos_nullable_int("SpawnHeight", None))

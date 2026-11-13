@@ -946,6 +946,20 @@ impl PartialEq for TriggerRuntime {
 impl Eq for TriggerRuntime {}
 
 impl TriggerRuntime {
+    /// The scenario variable's presence (`ScenarioExt::Global()->Variables`
+    /// find, `BannerClass.cpp:139-143`). VERA keeps the native State bit
+    /// only; the binary variable actions are unported, so an existing
+    /// variable's Value is the native default 0.
+    #[cfg(feature = "phobos")]
+    pub fn variable_set(&self, global: bool, index: i32) -> bool {
+        let set = if global {
+            &self.globals_set
+        } else {
+            &self.locals_set
+        };
+        set.contains(&(index as u32))
+    }
+
     /// Trigger deleting destructor726950 selected by the common725C70 owner.
     /// Pointer expiry splices this identity out of every live Tag chain.
     pub(crate) fn delete_live_trigger(&mut self, index: usize) {

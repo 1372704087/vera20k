@@ -697,6 +697,16 @@ pub(crate) fn finish_presentation_assets(
     };
     #[cfg(not(feature = "ares"))]
     let outcome_banner_side_art = None;
+    // Phobos `[BannerTypes]` art: every banner type's PCX/SHP decodes into
+    // one atlas with the world, the way the native lazy surface resolves on
+    // its first draw (`Utilities/Constructs.cpp`'s PhobosPCXFile).
+    #[cfg(feature = "phobos")]
+    let banner_art = crate::app::presentation::banners::BannerArtSet::build(
+        gpu,
+        batch,
+        asset_manager,
+        rules.banner_types(),
+    );
     // `[EndGameScreens]` may name the local player's own country a win/lose
     // card. It takes the retail `GRFXTXT` banner's slot in the tactical
     // viewport, so it is built with the world like the banner art above; the
@@ -781,6 +791,10 @@ pub(crate) fn finish_presentation_assets(
         sw_sidebar_art,
         outcome_banner_side_art,
         end_game_banner,
+        #[cfg(feature = "phobos")]
+        banner_art,
+        #[cfg(feature = "phobos")]
+        banners: Vec::new(),
         software_cursor,
         overlay_names: overlays.overlay_names,
         overlay_radar_colors: overlays.overlay_radar_colors,

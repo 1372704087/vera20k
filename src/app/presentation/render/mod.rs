@@ -912,6 +912,16 @@ fn upload_to_gpu(
     // raw-wall reveal and requests typing audio once per successful paint.
     // Keep the row's existing opaque black background behind its glyphs.
     let (message_fill, message_text) = crate::app::input::messages::build_message_instances(state);
+    // Phobos `TacticalClass_Render_Banner` (`0x6D4B25`): the trigger banners
+    // draw after the timer lines, before the outcome draw.
+    #[cfg(feature = "phobos")]
+    let (banner_fill, banner_text) =
+        crate::app::presentation::banners::build_banner_instances(state);
+    #[cfg(not(feature = "phobos"))]
+    let (banner_fill, banner_text): (
+        Vec<crate::render::batch::SpriteInstance>,
+        Vec<crate::render::batch::SpriteInstance>,
+    ) = Default::default();
     let (outcome_shape, outcome_text) = crate::app::presentation::outcome_banner::instances(state);
 
     // A4 in-game tooltip: built before the pool borrow (it reads &AppState);
@@ -930,12 +940,20 @@ fn upload_to_gpu(
     let (build_text_fill, build_text_text) =
         crate::app::presentation::build_text::build_instances(state);
     state.renderer.bit_font.set_raster(frame_raster);
-    let [message_fill, tooltip_fill, tooltip_border, super_timer_fill, build_text_fill] = [
+    let [
         message_fill,
         tooltip_fill,
         tooltip_border,
         super_timer_fill,
         build_text_fill,
+        banner_fill,
+    ] = [
+        message_fill,
+        tooltip_fill,
+        tooltip_border,
+        super_timer_fill,
+        build_text_fill,
+        banner_fill,
     ]
     .map(|quads| match window_raster {
         Some(raster) => quads.into_iter().map(|quad| raster.quad(quad)).collect(),
@@ -1055,6 +1073,8 @@ fn upload_to_gpu(
     }
     pool.upload("message_text", &message_text);
     pool.upload("message_fill", &message_fill);
+    pool.upload("banner_fill", &banner_fill);
+    pool.upload("banner_text", &banner_text);
     pool.upload("outcome_shape", &outcome_shape);
     pool.upload("outcome_text", &outcome_text);
     pool.upload("tooltip_fill", &tooltip_fill);

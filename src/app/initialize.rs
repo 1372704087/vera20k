@@ -1141,6 +1141,10 @@ impl App {
                     sidebar_chrome: None,
                     outcome_banner_side_art: None,
                     end_game_banner: None,
+                    #[cfg(feature = "phobos")]
+                    banner_art: None,
+                    #[cfg(feature = "phobos")]
+                    banners: Vec::new(),
                     software_cursor: startup_software_cursor,
                 },
                 match_audio: Default::default(),

@@ -413,11 +413,19 @@ fn a_unit_owns_one_bolt_whose_source_follows_it() {
     bolts.create(birth(10));
     bolts.create(birth(20));
     let owners: Vec<_> = bolts.live.iter().map(|bolt| bolt.birth.owner).collect();
+    // The stock `+0x6DC` slot admits one bolt; Phobos's InitEBolt hook skips
+    // the slot test and links every bolt into `TechnoExt::ElectricBolts`.
+    #[cfg(not(feature = "phobos"))]
     assert_eq!(owners, [Some(owner), None]);
+    #[cfg(feature = "phobos")]
+    assert_eq!(owners, [Some(owner), Some(owner)]);
 
     bolts.follow_owners(|_| Some(ProjectileCoord::new(99, 1, 2)));
     let sources: Vec<_> = bolts.live.iter().map(|bolt| bolt.birth.from.x).collect();
+    #[cfg(not(feature = "phobos"))]
     assert_eq!(sources, [99, 20], "only the owned bolt follows");
+    #[cfg(feature = "phobos")]
+    assert_eq!(sources, [99, 99], "every linked bolt follows");
     bolts.follow_owners(|_| Some(ProjectileCoord::new(0, 0, 0)));
     assert_eq!(bolts.live[0].birth.from, ProjectileCoord::new(99, 1, 2));
     bolts.follow_owners(|_| None);
@@ -434,4 +442,24 @@ fn a_unit_owns_one_bolt_whose_source_follows_it() {
         Some(owner),
         "the slot is free again"
     );
+}
+
+/// `EBoltExt::CreateEBolt`'s Lifetime reaches the registry through
+/// `ElectricBoltBirth::decay`; the stock 17 is not hard-coded in the app.
+#[test]
+fn the_registry_seeds_decay_from_the_birth() {
+    let birth = ElectricBoltBirth {
+        frame: 0,
+        from: ProjectileCoord::new(0, 0, 0),
+        to: ProjectileCoord::new(0, 0, 0),
+        z_adjust: 0,
+        phase: 0,
+        alternate_color: false,
+        colors: [None; 3],
+        owner: None,
+        decay: 4,
+    };
+    let mut bolts = ElectricBolts::default();
+    bolts.create(birth);
+    assert_eq!(bolts.live[0].decay, 4);
 }

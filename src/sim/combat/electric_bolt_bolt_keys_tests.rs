@@ -94,3 +94,69 @@ fn bolt_follow_flh_overrides_the_unit_only_owner_link() {
         .expect("an authored yes links a non-Unit bolt");
     assert!(!owner.unit_slot, "only a Unit owns the +0x6DC slot");
 }
+
+/// The Phobos `TechnoClass_InitEBolt` hook skips the stock `+0x6DC` slot test,
+/// so a Unit links every bolt, and the native SetOwner InLimbo check
+/// (`0x4C2BF2`) never runs, so a Limbo Unit still links.
+#[test]
+fn phobos_links_every_unit_bolt_and_a_limbo_unit_still_links() {
+    let rules = bolt_rules(None, None);
+    let mut sim = crate::sim::arena_fixture::rival_arena(&rules, 0x6F_D5D8);
+    sim.intern_rule_type_ids(&rules);
+    sim.resolve_type_handles(&rules);
+    let firer = sim
+        .spawn_object("TESLA", "Americans", 10, 10, 0, &rules)
+        .expect("firer");
+    let target = sim
+        .spawn_object("TARGET", "Russians", 12, 10, 0, &rules)
+        .expect("target");
+    crate::sim::arena_fixture::discover(&mut sim, target);
+    sim.lifecycle_outputs.clear_for_test();
+    let weapon = rules.weapon("Coil").expect("Coil weapon");
+    for _ in 0..2 {
+        electric_bolt::fired(&mut sim, &rules, firer, TargetKind::Entity(target), weapon);
+    }
+    let owners: Vec<_> = sim
+        .lifecycle_outputs
+        .iter()
+        .filter_map(|output| match output {
+            LifecycleOutput::ElectricBoltCreated(birth) => birth.owner,
+            _ => None,
+        })
+        .collect();
+    assert_eq!(owners.len(), 2, "both shots build a bolt");
+    assert!(
+        owners.iter().all(|owner| owner.unit == firer),
+        "the hook links every Unit bolt into ElectricBolts"
+    );
+
+    let mut sim = crate::sim::arena_fixture::rival_arena(&rules, 0x6F_D5D9);
+    sim.intern_rule_type_ids(&rules);
+    sim.resolve_type_handles(&rules);
+    let firer = sim
+        .spawn_object("TESLA", "Americans", 10, 10, 0, &rules)
+        .expect("firer");
+    let target = sim
+        .spawn_object("TARGET", "Russians", 12, 10, 0, &rules)
+        .expect("target");
+    crate::sim::arena_fixture::discover(&mut sim, target);
+    sim.substrate
+        .entities
+        .get_mut(firer)
+        .unwrap()
+        .lifecycle
+        .set_in_limbo_for_test(true);
+    sim.lifecycle_outputs.clear_for_test();
+    electric_bolt::fired(&mut sim, &rules, firer, TargetKind::Entity(target), weapon);
+    let birth = sim
+        .lifecycle_outputs
+        .iter()
+        .find_map(|output| match output {
+            LifecycleOutput::ElectricBoltCreated(birth) => Some(*birth),
+            _ => None,
+        });
+    assert!(
+        birth.is_some_and(|birth| birth.owner.is_some_and(|owner| owner.unit == firer)),
+        "a Limbo Unit still links its bolt"
+    );
+}

@@ -119,14 +119,11 @@ pub(crate) fn fired(
         return;
     };
     let from = bolt_source(world, rules, source, object, index);
-    // `0x006FD5E2..0x006FD5FA` admits a live Unit (its `+0x6DC` slot is the
-    // app registry's); SetOwner (`0x004C2BF2`) then refuses one in Limbo.
-    // RESIDUAL: native has already stored the bolt in `+0x6DC` by then
-    // (`0x006FD600`), so a Limbo Unit's slot stays taken by an unowned bolt
-    // and its later bolts never follow; here the slot stays free. Trigger: a
-    // Limbo Unit firing an IsElectricBolt weapon; no retail case is known.
     // Phobos `EBoltExt::_SetOwner` (`Ext/EBolt/Hooks.cpp:104-121`): the
-    // weapon's `Bolt.FollowFLH` overrides the stock Unit-only link.
+    // weapon's `Bolt.FollowFLH` overrides the stock Unit-only link, and the
+    // hook bypasses the native SetOwner checks at `0x4C2BF2` (InLimbo) and
+    // the Unit `+0x6DC` slot test at `0x006FD5F2`..`0x006FD600`, so every
+    // linked bolt follows and a Limbo Unit links as well.
     #[cfg(feature = "phobos")]
     let follow = selected
         .weapon
@@ -134,12 +131,15 @@ pub(crate) fn fired(
         .unwrap_or(source.category() == crate::map::entities::EntityCategory::Unit);
     #[cfg(not(feature = "phobos"))]
     let follow = source.category() == crate::map::entities::EntityCategory::Unit;
-    let owner =
-        (follow && source.is_object_alive() && !source.in_limbo()).then_some(ElectricBoltOwner {
-            unit: source_id,
-            weapon_index: index,
-            unit_slot: source.category() == crate::map::entities::EntityCategory::Unit,
-        });
+    #[cfg(feature = "phobos")]
+    let link = follow && source.is_object_alive();
+    #[cfg(not(feature = "phobos"))]
+    let link = follow && source.is_object_alive() && !source.in_limbo();
+    let owner = link.then_some(ElectricBoltOwner {
+        unit: source_id,
+        weapon_index: index,
+        unit_slot: source.category() == crate::map::entities::EntityCategory::Unit,
+    });
     #[cfg(feature = "phobos")]
     let visual_scatter = selected.weapon.phobos_visual_scatter();
     #[cfg(not(feature = "phobos"))]

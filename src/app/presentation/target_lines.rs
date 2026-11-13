@@ -186,6 +186,7 @@ pub(crate) fn build_target_line_instances_sampled(
                 *viewer,
                 sites,
                 cells.as_ref(),
+                rules,
             )
         {
             return;

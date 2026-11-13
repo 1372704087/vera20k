@@ -3309,6 +3309,13 @@ pub struct ObjectType {
     pub super_gap_radius_in_cells: i32,
     /// BuildingType+170C: signed ReadInt460C41, current default zero.
     pub psychic_detection_radius: i32,
+    /// Phobos `PsychicDetectable=` (`Ext/TechnoType/Body.cpp:1201`,
+    /// `Valueable<bool>` `Ext/TechnoType/Body.h:438`, constructed **true**
+    /// `Body.h:857`): false makes `TechnoClass`'s psychic sensor check
+    /// (`0x0043B150`) answer false before any site test
+    /// (`Ext/Techno/Hooks.Misc.cpp:1107-1118`).
+    #[cfg(feature = "phobos")]
+    pub phobos_psychic_detectable: bool,
     /// `SensorArray=` — building sensor-array flag used by GetSensorRange.
     pub sensor_array: bool,
     /// `Sensors=` — generic cloak-sensor flag.
@@ -7131,6 +7138,8 @@ impl ObjectType {
             #[cfg(feature = "ares")]
             super_gap_radius_in_cells: section.read_ares_int("SuperGapRadiusInCells", 0),
             psychic_detection_radius: section.read_int("PsychicDetectionRadius", 0),
+            #[cfg(feature = "phobos")]
+            phobos_psychic_detectable: section.read_bool("PsychicDetectable", true),
             sensor_array: section.read_bool("SensorArray", false),
             sensors: section.read_bool("Sensors", false),
             sensors_sight: section.read_int("SensorsSight", 0).clamp(0, u8::MAX as i32) as u8,

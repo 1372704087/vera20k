@@ -167,6 +167,7 @@ pub(crate) fn materialize_combat_lights(
     interner: &StringInterner,
     detail_level: u32,
     detail: &mut DetailState,
+    hide_light_flash_effects: bool,
 ) -> Vec<CombatLight> {
     impacts
         .into_iter()
@@ -187,6 +188,12 @@ pub(crate) fn materialize_combat_lights(
                 flags,
                 ..
             } => {
+                // Phobos `[Phobos] HideLightFlashEffects=` (`DoFlash @ 0x48A62E`
+                // skips to `0x48A6FA`, `Misc/Hooks.LightEffects.cpp:51-56`):
+                // the impact makes no light. Sparks are a separate native path.
+                if hide_light_flash_effects {
+                    return None;
+                }
                 // Flash48A620..48A65A queries mutable55AF60 before Bright,
                 // including calls that produce no light. Force bypasses only
                 // Bright; creation's low-nibble bypass differs from Draw's E.
@@ -472,6 +479,7 @@ mod tests {
                 &interner,
                 detail,
                 &mut detail_with_frame_rate(60),
+                false,
             );
             let expected = &case["first_logic_visit"]["state"]["lights"];
             assert_eq!(
@@ -612,6 +620,7 @@ mod tests {
                     sim.interner(),
                     2,
                     &mut detail_with_frame_rate(60),
+                    false,
                 )
                 .len(),
                 row["light_constructor_calls"].as_u64().unwrap() as usize
@@ -646,6 +655,7 @@ mod tests {
                 sim.interner(),
                 input["detail"].as_u64().unwrap() as u32,
                 &mut detail,
+                false,
             );
             assert_eq!(
                 serde_json::json!(
@@ -686,6 +696,7 @@ mod tests {
                 sim.interner(),
                 input["detail"].as_u64().unwrap() as u32,
                 &mut detail,
+                false,
             )
             .is_empty()
         );
@@ -708,6 +719,48 @@ mod tests {
             serde_json::json!(omitted_flash.minimum_frame_rate()),
             history["without_flash_next_threshold"]
         );
+    }
+
+    /// Phobos `[Phobos] HideLightFlashEffects=` (read default false,
+    /// `Phobos.INI.cpp:111`; `Misc/Hooks.LightEffects.cpp:51-56` returns
+    /// `SkipFlash` `0x48A6FA` from `DoFlash` `0x48A62E`): the impact builds no
+    /// light, while the separate Spark request still becomes one.
+    #[test]
+    fn hide_light_flash_effects_drops_the_impact_light_only() {
+        let rules =
+            RuleSet::from_ini(&IniFile::from_str("[Warheads]\n0=WH\n[WH]\nBright=yes\n")).unwrap();
+        let mut sim = Simulation::with_seed(0);
+        let impact = |sim: &mut Simulation| CombatLightRequest::Impact {
+            target_id: None,
+            damage: 100,
+            warhead_ref: sim.intern("WH"),
+            coord: ProjectileCoord::new(0, 0, 0),
+            force_create: false,
+            flags: 0,
+        };
+        let spark = || CombatLightRequest::Spark {
+            coord: ProjectileCoord::new(0, 0, 0),
+            base_size: 40,
+        };
+        let shown = materialize_combat_lights(
+            vec![impact(&mut sim), spark()],
+            Some(&rules),
+            sim.interner(),
+            2,
+            &mut detail_with_frame_rate(60),
+            false,
+        );
+        assert_eq!(shown.len(), 2);
+        let hidden = materialize_combat_lights(
+            vec![impact(&mut sim), spark()],
+            Some(&rules),
+            sim.interner(),
+            2,
+            &mut detail_with_frame_rate(60),
+            true,
+        );
+        assert_eq!(hidden.len(), 1);
+        assert_eq!(hidden[0].base_size, 40);
     }
 }
 

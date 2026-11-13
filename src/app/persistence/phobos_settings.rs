@@ -57,6 +57,14 @@ pub(crate) struct PhobosClientSettings {
     /// (`Phobos.INI.cpp:73` static, read `:112`): suppresses laser-trail
     /// drawing; the read default overrides the static `true`.
     pub(crate) hide_laser_trail_effects: bool,
+    /// `[Phobos] HideLightFlashEffects=`, default `no`
+    /// (`Phobos.INI.cpp:72` static, read `:111`): skips the combat light
+    /// flash (`DoFlash @ 0x48A62E`, `Misc/Hooks.LightEffects.cpp:51-56`).
+    pub(crate) hide_light_flash_effects: bool,
+    /// `[Phobos] HideShakeEffects=`, default `no`
+    /// (`Phobos.INI.cpp:74` static, read `:113`): skips the screen-shake
+    /// writes (`Ext/Bullet/Hooks.DetonateLogics.cpp:33`).
+    pub(crate) hide_shake_effects: bool,
     /// `[Phobos] ShowGameTime=`, default `no` (`Phobos.INI.cpp:116`): draws the
     /// elapsed-game-time clock.
     pub(crate) show_game_time: bool,
@@ -85,6 +93,8 @@ impl Default for PhobosClientSettings {
             message_display_in_center: false,
             save_game_on_scenario_start: true,
             hide_laser_trail_effects: false,
+            hide_light_flash_effects: false,
+            hide_shake_effects: false,
             show_game_time: false,
             campaign_default_game_speed: 2,
         }
@@ -138,6 +148,9 @@ pub(crate) fn read(settings_dir: &Path) -> PhobosClientSettings {
         ),
         hide_laser_trail_effects: section
             .read_bool("HideLaserTrailEffects", defaults.hide_laser_trail_effects),
+        hide_light_flash_effects: section
+            .read_bool("HideLightFlashEffects", defaults.hide_light_flash_effects),
+        hide_shake_effects: section.read_bool("HideShakeEffects", defaults.hide_shake_effects),
         show_game_time: section.read_bool("ShowGameTime", defaults.show_game_time),
         // `Phobos.INI.cpp:120-124`: index `6 - key`, then the same 0..=6 guard
         // that forces the stock `GS4` speed 2 when the read leaves the range.
@@ -182,7 +195,8 @@ mod tests {
              ShowPowerPlantEnhancerRange=yes\nShowPowerDelta=no\nShowHarvesterCounter=no\n\
              ShowWeedsCounter=no\nPriorityDeployFiltering=no\nTypeSelectUseIFVMode=no\n\
              MessageDisplayInCenter=yes\nSaveGameOnScenarioStart=no\n\
-             HideLaserTrailEffects=yes\nShowGameTime=yes\nCampaignDefaultGameSpeed=4\n",
+             HideLaserTrailEffects=yes\nShowGameTime=yes\nCampaignDefaultGameSpeed=4\n\
+             HideLightFlashEffects=yes\nHideShakeEffects=yes\n",
         );
         assert_eq!(
             read(&dir),
@@ -200,6 +214,8 @@ mod tests {
                 message_display_in_center: true,
                 save_game_on_scenario_start: false,
                 hide_laser_trail_effects: true,
+                hide_light_flash_effects: true,
+                hide_shake_effects: true,
                 show_game_time: true,
                 campaign_default_game_speed: 2,
             }

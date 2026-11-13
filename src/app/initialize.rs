@@ -1073,6 +1073,10 @@ impl App {
                     #[cfg(feature = "phobos")]
                     show_flash_on_selecting: phobos_client.show_flash_on_selecting,
                     #[cfg(feature = "phobos")]
+                    hide_light_flash_effects: phobos_client.hide_light_flash_effects,
+                    #[cfg(feature = "phobos")]
+                    hide_shake_effects: phobos_client.hide_shake_effects,
+                    #[cfg(feature = "phobos")]
                     center_pause_menu_background: false,
                     #[cfg(feature = "phobos")]
                     sidebar_indicators:

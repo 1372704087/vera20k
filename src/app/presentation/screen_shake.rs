@@ -66,6 +66,20 @@ impl ScreenShakeState {
             }
         }
     }
+
+    /// Phobos `[Phobos] HideShakeEffects=` (read default false,
+    /// `Phobos.INI.cpp:113`; `Ext/Bullet/Hooks.DetonateLogics.cpp:33`): while
+    /// hidden the detonation writes are dropped, leaving only the stock decay.
+    pub(crate) fn apply_updates_with_hide(
+        &mut self,
+        updates: &[crate::sim::combat::ScreenShakeUpdate],
+        hide: bool,
+    ) {
+        if hide {
+            return;
+        }
+        self.apply_updates(updates);
+    }
 }
 
 /// The native branches preserve sign alternation while reducing magnitude:
@@ -141,5 +155,25 @@ mod tests {
         assert!(shake.decays_at(12));
         assert_eq!(shake.service_offset_snapshot(Some(12), true), [3, 0]);
         assert_eq!(shake.service_offset_snapshot(Some(12), true), [-2, 0]);
+    }
+
+    /// Phobos `[Phobos] HideShakeEffects=` (read default false,
+    /// `Phobos.INI.cpp:113`): the detonation writes land only when the switch
+    /// is off, and a standing offset still decays through the stock path.
+    #[test]
+    fn hide_shake_effects_drops_the_detonation_writes() {
+        let update = [ScreenShakeUpdate {
+            x: Some(6),
+            y: Some(-3),
+        }];
+        let mut shown = ScreenShakeState::default();
+        shown.apply_updates_with_hide(&update, false);
+        assert_eq!(shown.service_offset_snapshot(Some(11), false), [6, -3]);
+
+        let mut hidden = ScreenShakeState::default();
+        hidden.apply_updates_with_hide(&update, true);
+        assert_eq!(hidden.service_offset_snapshot(Some(11), false), [0, 0]);
+        assert_eq!(hidden.offset_px, [0, 0]);
+        assert!(!hidden.decays_at(12));
     }
 }

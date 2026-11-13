@@ -392,6 +392,12 @@ pub struct WeaponType {
     /// constructor default 3): a simulated child laser's line count.
     #[cfg(feature = "phobos")]
     pub phobos_laser_thickness: i32,
+    /// Phobos `WeaponTypeExt::LaserZAdjust` (`Ext/WeaponType/Body.cpp:130`,
+    /// `Nullable<int>`, unset inherits `[AudioVisual] LaserZAdjust`, default
+    /// 0): added to the LaserZap zAdjust (`0x6FD3FD`,
+    /// `Misc/Hooks.LaserDraw.cpp:51-58`).
+    #[cfg(feature = "phobos")]
+    pub phobos_laser_z_adjust: Option<i32>,
     /// Phobos `WeaponTypeExt::Beam_IsHouseColor` (`Beam.IsHouseColor=`): a
     /// simulated child radiation beam takes the firing House's laser color.
     #[cfg(feature = "phobos")]
@@ -783,6 +789,8 @@ impl WeaponType {
             phobos_laser_is_single_color: section.read_ares_bool("IsSingleColor", false),
             #[cfg(feature = "phobos")]
             phobos_laser_thickness: section.read_ares_int("LaserThickness", 3),
+            #[cfg(feature = "phobos")]
+            phobos_laser_z_adjust: section.read_phobos_nullable_int("LaserZAdjust", None),
             #[cfg(feature = "phobos")]
             phobos_beam_is_house_color: section.read_ares_bool("Beam.IsHouseColor", false),
 

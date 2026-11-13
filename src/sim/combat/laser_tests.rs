@@ -52,10 +52,13 @@ fn weapon_ini(name: &str, input: &Value) -> String {
     let thickness = input["laser_thickness"]
         .as_i64()
         .map_or_else(String::new, |value| format!("LaserThickness={value}\n"));
+    let z_adjust = input["laser_z_adjust"]
+        .as_i64()
+        .map_or_else(String::new, |value| format!("LaserZAdjust={value}\n"));
     format!(
         "[{name}]\nIsLaser={is_laser}\nIsHouseColor={house}\nIsSingleColor={single}\nIsBigLaser={big}\n\
          LaserDuration={duration}\nLaserInnerColor={r},{g},{b}\n\
-         LaserOuterColor={or},{og},{ob}\nLaserOuterSpread={sr},{sg},{sb}\n{thickness}"
+         LaserOuterColor={or},{og},{ob}\nLaserOuterSpread={sr},{sg},{sb}\n{thickness}{z_adjust}"
     )
 }
 
@@ -70,6 +73,11 @@ fn fixture_rules(input: &Value) -> RuleSet {
     } else {
         ("LaserProbe", String::new())
     };
+    let global_z = input["global_laser_z_adjust"]
+        .as_i64()
+        .map_or_else(String::new, |value| {
+            format!("[AudioVisual]\nLaserZAdjust={value}\n")
+        });
     let rules_ini = crate::sim::arena_fixture::clear_ground_ini(&format!(
         "[General]\nPrismType=ATESLA\nPrismSupportDuration={support_duration}\nPrismSupportDelay=45\n\
          [VehicleTypes]\n0=UNIT\n1=TARGET\n[InfantryTypes]\n0=INF\n\
@@ -79,7 +87,7 @@ fn fixture_rules(input: &Value) -> RuleSet {
          [GAPOWR]\nStrength=750\n\
          [UNIT]\nImage=UNITART\nStrength=600\nPrimary=LaserProbe\n\
          [INF]\nStrength=125\nPrimary=LaserProbe\n\
-         [TARGET]\nStrength=1000\n{selected}{current}"
+         [TARGET]\nStrength=1000\n{selected}{current}{global_z}"
     ));
     let art_ini = IniFile::from_str(
         "[GAPRIS]\nFoundation=1x1\nPrimaryFirePixelOffset=0,-4\n\
@@ -432,6 +440,47 @@ fn stock_single_color_laser_keeps_only_the_inner_colour() {
     );
     let (color, owner) = birth(true, true);
     assert_eq!(color, LaserColor::House(owner));
+}
+
+/// Phobos `TechnoClass_LaserZap_ZAdjust` (`0x6FD3FD`,
+/// `Misc/Hooks.LaserDraw.cpp:51-58`): the weapon's `LaserZAdjust=` else the
+/// `[AudioVisual] LaserZAdjust` global adds to the native zAdjust.
+#[cfg(feature = "phobos")]
+#[test]
+fn laser_z_adjust_adds_the_weapon_value_else_the_global() {
+    fn birth(weapon_z: Option<i64>, global_z: Option<i64>) -> i32 {
+        let mut input = json!({ "is_laser": true, "inner": [11, 22, 33] });
+        if let Some(z) = weapon_z {
+            input["laser_z_adjust"] = json!(z);
+        }
+        if let Some(z) = global_z {
+            input["global_laser_z_adjust"] = json!(z);
+        }
+        let rules = fixture_rules(&input);
+        let mut sim = Simulation::new();
+        place(&mut sim, 1, "UNIT", EntityCategory::Unit, [1280, 1280, 0]);
+        place(&mut sim, 2, "TARGET", EntityCategory::Unit, [1536, 1280, 0]);
+        laser::create(
+            &mut sim,
+            &rules,
+            1,
+            crate::sim::projectile::ProjectileTarget::Entity(2),
+            0,
+            rules.weapon("LaserProbe").unwrap(),
+            Some(ProjectileCoord::new(1280, 1280, 0)),
+            false,
+        )
+        .unwrap()
+        .z_adjust
+    }
+    assert_eq!(birth(None, None), 0);
+    assert_eq!(birth(Some(10), None), 10);
+    assert_eq!(birth(None, Some(5)), 5);
+    assert_eq!(
+        birth(Some(10), Some(5)),
+        10,
+        "the weapon key overrides the global"
+    );
 }
 
 #[test]

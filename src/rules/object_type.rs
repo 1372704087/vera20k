@@ -772,6 +772,11 @@ pub struct ObjectType {
     /// TechnoType+7FC, read from the current Image section of fixed ARTMD.
     /// The ordered processor owns its retained default (constructor0).
     voxel_shadow_index: i32,
+    /// Phobos `ShadowIndices=` (`Ext/TechnoType/Body.cpp:1325`, ART): the HVA
+    /// sections whose stencils compose into this type's shadow in place of
+    /// the single `ShadowIndex`. Empty keeps the single-section path.
+    #[cfg(feature = "phobos")]
+    phobos_shadow_indices: Vec<i32>,
     /// `PitchSpeed=` (`TechnoType+0x3A8`): constructor `0.25`; each
     /// `TechnoTypeClass::ReadINI @ 0x00712170` pass uses this current double
     /// as `ReadDouble`'s default (`0x007123DA..0x007123E8`). Normal Fly
@@ -4646,6 +4651,18 @@ impl ObjectType {
         self.voxel_shadow_index = index;
     }
 
+    /// Phobos `ShadowIndices=`'s HVA sections (`Ext/TechnoType/Body.cpp:1325`);
+    /// empty leaves the type's single `ShadowIndex` alone.
+    #[cfg(feature = "phobos")]
+    pub fn phobos_shadow_indices(&self) -> &[i32] {
+        &self.phobos_shadow_indices
+    }
+
+    #[cfg(feature = "phobos")]
+    pub(crate) fn set_phobos_shadow_indices(&mut self, indices: Vec<i32>) {
+        self.phobos_shadow_indices = indices;
+    }
+
     /// Type+C95 also selects Fly's flat shadow-matrix arm (4CFB4B).
     pub const fn is_dropship(&self) -> bool {
         self.is_dropship
@@ -6468,6 +6485,8 @@ impl ObjectType {
             #[cfg(feature = "phobos")]
             airstrike_line_color: section.read_phobos_nullable_color("AirstrikeLineColor", None),
             voxel_shadow_index: 0,
+            #[cfg(feature = "phobos")]
+            phobos_shadow_indices: Vec::new(),
             pitch_speed: section.read_double_bits(
                 "PitchSpeed",
                 NativeF64Bits::from_bits(0x3fd0_0000_0000_0000),

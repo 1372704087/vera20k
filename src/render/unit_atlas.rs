@@ -613,7 +613,7 @@ fn render_unit_key(
     let legacy_shadow = (key.layer == VxlLayer::Shadow
         && key.frame == 0
         && native_draw_bounds.is_some()
-        && model.shadow.is_some_and(|shadow| shadow.ground))
+        && model.shadow.as_ref().is_some_and(|shadow| shadow.ground))
     .then(|| {
         let mut fallback_key = key.clone();
         fallback_key.frame = LEGACY_SHADOW_FRAME;
@@ -632,7 +632,7 @@ fn render_unit_key(
     });
     if key.layer == VxlLayer::Shadow
         && native_draw_bounds.is_some()
-        && let Some(shadow) = model.shadow
+        && let Some(shadow) = model.shadow.as_ref()
         && let Some(body) = &model.body
     {
         cached.shadow_center = vxl_raster::shadow::center(
@@ -813,14 +813,18 @@ fn seed_unit_variant_keys(
     // Aircraft414728 includes the body frame remainder in its shadow cache
     // key, but707280 still samples ShadowIndex's HVA frame zero. Unit's key
     // (73B619, 73C21E..73C287) carries no body frame.
-    if is_ground_vehicle || shadow.is_some_and(|shadow| shadow.aircraft || shadow.jumpjet) {
+    if is_ground_vehicle
+        || shadow
+            .as_ref()
+            .is_some_and(|shadow| shadow.aircraft || shadow.jumpjet)
+    {
         let mut shadows = HashSet::new();
         insert_unit_layer_keys(
             &mut shadows,
             variant,
             VxlLayer::Shadow,
             0,
-            if shadow.is_some_and(|s| s.aircraft) {
+            if shadow.as_ref().is_some_and(|s| s.aircraft) {
                 shadow_frames
             } else {
                 1
@@ -833,7 +837,7 @@ fn seed_unit_variant_keys(
         let grounded: Vec<_> = shadows
             .iter()
             .filter(|key| {
-                shadow.is_some_and(|shadow| {
+                shadow.as_ref().is_some_and(|shadow| {
                     !shadow.aircraft && (shadow.jumpjet || key.slope_type == 0)
                 })
             })
@@ -1278,7 +1282,7 @@ pub(crate) struct UnitModel {
     use_buffer: bool,
 }
 
-#[derive(Clone, Copy)]
+#[derive(Clone)]
 struct ShadowModel {
     index: i32,
     considered_aircraft: bool,
@@ -1289,6 +1293,9 @@ struct ShadowModel {
     /// Also draws its ground shadow outside that suffix, so its legacy
     /// stencil stays resident beside a native one.
     ground: bool,
+    /// Phobos `ShadowIndices=` (`Ext/TechnoType/Body.cpp:1325`): one stencil
+    /// per listed HVA section; empty keeps the type's single `ShadowIndex`.
+    indices: Vec<i32>,
 }
 
 impl ShadowModel {
@@ -1321,6 +1328,10 @@ impl ShadowModel {
                 aircraft,
                 jumpjet: own_jumpjet || lifted,
                 ground: vehicle && !own_jumpjet,
+                #[cfg(feature = "phobos")]
+                indices: object.phobos_shadow_indices().to_vec(),
+                #[cfg(not(feature = "phobos"))]
+                indices: Vec::new(),
             })
     }
 }
@@ -1468,19 +1479,33 @@ impl UnitModel {
         // vehicle's flight template stays unmasked.
         if key.layer == VxlLayer::Shadow
             && key.frame != LEGACY_SHADOW_FRAME
-            && let Some(shadow) = self.shadow
+            && let Some(shadow) = self.shadow.as_ref()
             && (shadow.aircraft
                 || shadow.jumpjet
                 || (params.slope_type == 0 && key.frame == GROUNDED_SHADOW_FRAME_FLAG))
             && let Some(body) = &self.body
         {
-            let sprite = vxl_raster::shadow::render(
-                body.vxl(),
-                body.hva(),
-                &params,
-                shadow.index,
-                shadow.considered_aircraft,
-            );
+            // Phobos `ShadowIndices=` draws one stencil per listed section
+            // instead of the type's single `ShadowIndex`
+            // (`Ext/TechnoType/Hooks.MatrixOp.cpp:793-800`).
+            let sprite = if shadow.indices.is_empty() {
+                vxl_raster::shadow::render(
+                    body.vxl(),
+                    body.hva(),
+                    &params,
+                    shadow.index,
+                    shadow.considered_aircraft,
+                )
+            } else {
+                vxl_raster::shadow::render_indices(
+                    body.vxl(),
+                    body.hva(),
+                    &params,
+                    shadow.index,
+                    &shadow.indices,
+                    shadow.considered_aircraft,
+                )
+            };
             if (shadow.aircraft || (shadow.jumpjet && !shadow.ground)) && sprite.is_none() {
                 return None;
             }

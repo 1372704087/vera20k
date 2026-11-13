@@ -406,6 +406,43 @@ fn voxel_shadow_index_retains_art_image_history_and_save_state() {
     );
 }
 
+/// Phobos `ShadowIndices=` (`Ext/TechnoType/Body.cpp:1325`) is read from the
+/// pass's retained Image section, keyed by HVA section: a repeated index
+/// collapses (later entries overwrite), and a pass whose section lacks the key
+/// leaves the list empty rather than keeping the previous pass's.
+#[cfg(feature = "phobos")]
+#[test]
+fn phobos_shadow_indices_read_the_image_section_on_every_pass() {
+    use crate::rules::ruleset::RuleSet;
+    let art =
+        IniFile::from_str("[FIRST]\nShadowIndices=2,1,2\n[OTHER]\n[PLAIN]\nShadowIndices=0\n");
+    let mut layers = RulesLayerStack::new(IniFile::from_str(
+        "[AircraftTypes]\n0=JET\n[JET]\nImage=FIRST\n",
+    ));
+    let read = |processed: &ProcessedRulesLayers| {
+        RuleSet::from_processed_rules(processed)
+            .unwrap()
+            .object("JET")
+            .unwrap()
+            .phobos_shadow_indices()
+            .to_vec()
+    };
+    assert_eq!(read(&layers.process_with_fixed_art(&art).unwrap()), [2, 1]);
+    layers.push(
+        RulesLayerKind::GameMode,
+        IniFile::from_str("[JET]\nImage=OTHER\n"),
+    );
+    assert_eq!(
+        read(&layers.process_with_fixed_art(&art).unwrap()),
+        Vec::<i32>::new()
+    );
+    layers.push(
+        RulesLayerKind::Scenario,
+        IniFile::from_str("[JET]\nImage=PLAIN\n"),
+    );
+    assert_eq!(read(&layers.process_with_fixed_art(&art).unwrap()), [0]);
+}
+
 #[test]
 fn repair_inputs_retain_native_layer_defaults_through_reset_and_save() {
     use crate::rules::ruleset::RuleSet;

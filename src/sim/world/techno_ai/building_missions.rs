@@ -569,6 +569,28 @@ fn mission_factory_unload(
             //44DDBF/44DE16: use the existing animation lifetime owner. The
             //original ART readers leave both names empty for stock GAWEAP.
             sim.clear_building_anim_slot(id, 18);
+            // Phobos `BuildingClass_Unload_RoofProductionAnim` (`0x44DDF0`/
+            // `0x44DDDE`, `Ext/Building/Hooks.cpp:1188-1205`): a roof-exit
+            // docked unit plays the roof Production anim and skips the stock
+            // PlayAnim; every other unit keeps the stock play.
+            #[cfg(feature = "phobos")]
+            {
+                let roof_exit = contact
+                    .and_then(|product| sim.substrate.entities.get(product))
+                    .and_then(|product| sim.entity_object_type(product, rules))
+                    .is_some_and(|product_type| product_type.exits_through_roof());
+                let garrisoned = sim
+                    .substrate
+                    .entities
+                    .get(id)
+                    .is_some_and(|building| !building.passenger_role.occupants().is_empty());
+                if roof_exit {
+                    sim.play_roof_production_anim(id, damaged, garrisoned, rules);
+                } else {
+                    let _ = sim.set_building_anim_slot(id, 8, damaged, false, 0, rules);
+                }
+            }
+            #[cfg(not(feature = "phobos"))]
             let _ = sim.set_building_anim_slot(id, 8, damaged, false, 0, rules);
             //Draw-dirty and activation sound remain presentation dependencies.
         }

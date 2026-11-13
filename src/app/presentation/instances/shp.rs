@@ -1418,39 +1418,45 @@ fn factory_unload_art<'a>(
     if entity.mission.effective().known() != Some(crate::sim::mission::MissionType::Unload) {
         return None;
     }
+    // Two native sites with different fallbacks (`Ext/Building/Hooks.cpp:1051-1078`):
+    // `0x43D0CF DrawDoorAnim` uses `ExitThroughRoof.Get(JumpJet)` for the body
+    // pair, while `0x43D363 DrawUnderDoorAnim` (MarkRoof) uses
+    // `IsRoofExitTechno` (`JumpJet || BalloonHover`) for the under-door pair.
     #[cfg(feature = "phobos")]
-    let roof = entity
+    let (body_roof, under_roof) = entity
         .radio_contacts
         .slot(0)
         .and_then(|id| sim.entities().get(id))
         .and_then(|product| sim.interner().object_type(product.type_ref(), rules))
-        .is_some_and(|object| {
-            // Phobos `BuildingClass_DrawUnderDoorAnim_ExitThroughRoof`
-            // @ 0x43D363 (`Ext/Building/Hooks.cpp:1051-1075`): the produced
-            // unit's `ExitThroughRoof=` overrides the vanilla
-            // `JumpJet || BalloonHover` gate for the roof art pair.
-            object
-                .phobos_exit_through_roof
-                .exits_through_roof(object.jumpjet, object.balloon_hover)
+        .map_or((false, false), |object| {
+            (
+                object
+                    .phobos_exit_through_roof
+                    .draws_through_roof(object.jumpjet),
+                object
+                    .phobos_exit_through_roof
+                    .exits_through_roof(object.jumpjet, object.balloon_hover),
+            )
         });
     #[cfg(not(feature = "phobos"))]
-    let roof = entity
+    let (body_roof, under_roof) = entity
         .radio_contacts
         .slot(0)
         .and_then(|id| sim.entities().get(id))
         .and_then(|product| sim.interner().object_type(product.type_ref(), rules))
-        .is_some_and(|object| object.jumpjet || object.balloon_hover);
+        .map_or((false, false), |object| {
+            (object.jumpjet, object.jumpjet || object.balloon_hover)
+        });
     let door = &art.factory_door;
-    let (body, under_door) = if roof {
-        (
-            door.roof_deploying.as_deref().map(|name| (name, -40)),
-            door.under_roof_door.as_deref(),
-        )
+    let body = if body_roof {
+        door.roof_deploying.as_deref().map(|name| (name, -40))
     } else {
-        (
-            door.deploying.as_deref().map(|name| (name, -20)),
-            door.under_door.as_deref(),
-        )
+        door.deploying.as_deref().map(|name| (name, -20))
+    };
+    let under_door = if under_roof {
+        door.under_roof_door.as_deref()
+    } else {
+        door.under_door.as_deref()
     };
     Some(FactoryUnloadArt {
         body,

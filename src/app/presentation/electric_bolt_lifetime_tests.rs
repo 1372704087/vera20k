@@ -44,6 +44,7 @@ fn lifetime_bolt() -> (ElectricBoltBirth, SurfaceLineViewport, ElectricBoltPalet
         alternate_color: source["alternate"].as_bool().unwrap(),
         colors: [None; 3],
         owner: None,
+        decay: 0x10000,
     };
     let mut camera = point(&row["input"]["camera"]);
     camera[1] += 15;
@@ -181,6 +182,7 @@ fn native_tactical_visits_own_lifetime_reverse_order_and_clear() {
                 alternate_color: birth["alternate"].as_bool().unwrap(),
                 colors: [None; 3],
                 owner: None,
+                decay: 0x10000,
             });
             // These explicit native manager fixtures include retained zero
             // and last-decay values, independent of the normal constructor.
@@ -321,6 +323,7 @@ fn accepted_bolt_composites_preserve_the_next_actual_bullet_identity() {
             alternate_color: birth["alternate"].as_bool().unwrap(),
             colors: [None; 3],
             owner: None,
+            decay: 0x10000,
         });
         for visit in row["visits"]
             .as_array()
@@ -393,6 +396,7 @@ fn a_unit_owns_one_bolt_whose_source_follows_it() {
     let owner = ElectricBoltOwner {
         unit: 7,
         weapon_index: 0,
+        unit_slot: true,
     };
     let birth = |x| ElectricBoltBirth {
         frame: 0,
@@ -403,6 +407,7 @@ fn a_unit_owns_one_bolt_whose_source_follows_it() {
         alternate_color: false,
         colors: [None; 3],
         owner: Some(owner),
+        decay: 0x10000,
     };
     let mut bolts = ElectricBolts::default();
     bolts.create(birth(10));

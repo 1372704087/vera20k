@@ -1071,7 +1071,8 @@ fn a_tesla_tank_bolt_names_its_firer_and_follows_its_flh() {
         owner,
         electric_bolt::ElectricBoltOwner {
             unit: tank,
-            weapon_index: 0
+            weapon_index: 0,
+            unit_slot: true,
         }
     );
     assert_eq!(

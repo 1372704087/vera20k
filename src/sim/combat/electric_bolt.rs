@@ -26,13 +26,21 @@ pub struct ElectricBoltBirth {
     /// (bolt `+0x20`/`+0x24`); the app keeps it only while the Unit holds
     /// no other bolt (`+0x6DC`).
     pub owner: Option<ElectricBoltOwner>,
+    /// `pBolt->Lifetime` (`EBoltExt::CreateEBolt`, `Ext/EBolt/Body.cpp:30`):
+    /// `1 << (Bolt.Duration - 1)`, 0x10000 for the stock 17. The tactical
+    /// pass shifts it right once per composite.
+    pub decay: i32,
 }
 
-/// A bolt's owner Unit and the weapon index its FLH is read for.
+/// A bolt's owner and the weapon index its FLH is read for.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub struct ElectricBoltOwner {
     pub unit: u64,
     pub weapon_index: i32,
+    /// A Unit owner also occupies `Unit+0x6DC`, so only its first live bolt
+    /// links; a non-Unit `Bolt.FollowFLH=yes` owner keeps every bolt in its
+    /// `TechnoExt::ElectricBolts` vector (`Ext/EBolt/Hooks.cpp:104-121`).
+    pub unit_slot: bool,
 }
 
 /// The source a bolt fired by `source`'s weapon `index` starts at: GetFLH
@@ -117,13 +125,21 @@ pub(crate) fn fired(
     // (`0x006FD600`), so a Limbo Unit's slot stays taken by an unowned bolt
     // and its later bolts never follow; here the slot stays free. Trigger: a
     // Limbo Unit firing an IsElectricBolt weapon; no retail case is known.
-    let owner = (source.category() == crate::map::entities::EntityCategory::Unit
-        && source.is_object_alive()
-        && !source.in_limbo())
-    .then_some(ElectricBoltOwner {
-        unit: source_id,
-        weapon_index: index,
-    });
+    // Phobos `EBoltExt::_SetOwner` (`Ext/EBolt/Hooks.cpp:104-121`): the
+    // weapon's `Bolt.FollowFLH` overrides the stock Unit-only link.
+    #[cfg(feature = "phobos")]
+    let follow = selected
+        .weapon
+        .phobos_bolt_follow_flh
+        .unwrap_or(source.category() == crate::map::entities::EntityCategory::Unit);
+    #[cfg(not(feature = "phobos"))]
+    let follow = source.category() == crate::map::entities::EntityCategory::Unit;
+    let owner =
+        (follow && source.is_object_alive() && !source.in_limbo()).then_some(ElectricBoltOwner {
+            unit: source_id,
+            weapon_index: index,
+            unit_slot: source.category() == crate::map::entities::EntityCategory::Unit,
+        });
     #[cfg(feature = "phobos")]
     let visual_scatter = selected.weapon.phobos_visual_scatter();
     #[cfg(not(feature = "phobos"))]
@@ -245,6 +261,12 @@ fn emit(
     // Init4C2AA3 draws from process Main, before constructing SparkSys. The
     // shared RNG owns every rejection retry. EBolt itself allocates no ID.
     let phase = world.main_rng.next_range_i32_inclusive(0, 256);
+    // `EBoltExt::CreateEBolt` (`Ext/EBolt/Body.cpp:30`): the constructor's
+    // Lifetime is the weapon's `Bolt.Duration` exponent, default 17.
+    #[cfg(feature = "phobos")]
+    let decay = 1_i32 << (weapon.phobos_bolt_duration.clamp(1, 31) - 1);
+    #[cfg(not(feature = "phobos"))]
+    let decay = 0x10000;
     world
         .lifecycle_outputs
         .emit(crate::sim::world::LifecycleOutput::ElectricBoltCreated(
@@ -257,6 +279,7 @@ fn emit(
                 alternate_color,
                 colors,
                 owner,
+                decay,
             },
         ));
     // Init4C2B30 supplies the copied TARGET, no owner/attachment and static

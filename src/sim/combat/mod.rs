@@ -128,6 +128,9 @@ mod combat_cloak_fire_tests;
 mod combat_tests;
 #[cfg(test)]
 mod combat_turret_facing_tests;
+#[cfg(all(test, feature = "phobos"))]
+#[path = "electric_bolt_bolt_keys_tests.rs"]
+mod electric_bolt_bolt_keys_tests;
 #[cfg(test)]
 mod electric_bolt_tests;
 #[cfg(test)]

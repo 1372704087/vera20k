@@ -403,6 +403,17 @@ pub struct WeaponType {
     /// 0): added to the electric-bolt zAdjust (`Ext/EBolt/Hooks.cpp:215`).
     #[cfg(feature = "phobos")]
     pub phobos_ebolt_z_adjust: Option<i32>,
+    /// Phobos `WeaponTypeExt::Bolt_Duration` (`Ext/WeaponType/Body.cpp:101`,
+    /// `Valueable<int>`, constructor `Body.h:131` stores 17): the EBolt
+    /// lifetime exponent; `EBoltExt::CreateEBolt` stores
+    /// `1 << (clamp(value, 1, 31) - 1)` (`Ext/EBolt/Body.cpp:30`).
+    #[cfg(feature = "phobos")]
+    pub phobos_bolt_duration: i32,
+    /// Phobos `WeaponTypeExt::Bolt_FollowFLH` (`Ext/WeaponType/Body.cpp:102`,
+    /// `Nullable<bool>`): whether the bolt follows its firer's FLH; unset
+    /// follows only a Unit (`Ext/EBolt/Hooks.cpp:113`).
+    #[cfg(feature = "phobos")]
+    pub phobos_bolt_follow_flh: Option<bool>,
     /// Phobos `WeaponTypeExt::Beam_IsHouseColor` (`Beam.IsHouseColor=`): a
     /// simulated child radiation beam takes the firing House's laser color.
     #[cfg(feature = "phobos")]
@@ -824,6 +835,10 @@ impl WeaponType {
             phobos_laser_z_adjust: section.read_phobos_nullable_int("LaserZAdjust", None),
             #[cfg(feature = "phobos")]
             phobos_ebolt_z_adjust: section.read_phobos_nullable_int("EBoltZAdjust", None),
+            #[cfg(feature = "phobos")]
+            phobos_bolt_duration: section.read_int("Bolt.Duration", 17),
+            #[cfg(feature = "phobos")]
+            phobos_bolt_follow_flh: section.read_phobos_nullable_bool("Bolt.FollowFLH", None),
             #[cfg(feature = "phobos")]
             phobos_beam_is_house_color: section.read_ares_bool("Beam.IsHouseColor", false),
 

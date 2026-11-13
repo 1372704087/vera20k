@@ -41,6 +41,7 @@ impl ElectricBolts {
         // only into an empty Unit `+0x6DC`; the slot holds the Unit's live
         // owned bolt until that bolt's last pass (`0x004C29A9`).
         if let Some(owner) = birth.owner
+            && owner.unit_slot
             && self
                 .live
                 .iter()
@@ -50,8 +51,8 @@ impl ElectricBolts {
         }
         self.live.push(Bolt {
             phase: birth.phase,
+            decay: birth.decay,
             birth,
-            decay: 0x10000,
         });
     }
 

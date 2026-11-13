@@ -897,6 +897,12 @@ pub struct ScenarioSession {
     /// belong to the countdown owner; UI consumes only its retained view.
     #[serde(default)]
     scenario_countdown: countdown::ScenarioCountdown,
+    /// Phobos `BannerClass::Array` (`New/Entity/BannerClass.h:11`): the
+    /// trigger actions 800-802 create these; mutations belong to
+    /// [`crate::sim::banner`], the draw reads them.
+    #[cfg(feature = "phobos")]
+    #[serde(default)]
+    banners: Vec<crate::sim::banner::RuntimeBanner>,
     /// Destination Scenario+1C78/+1C80; immutable after its Basic read.
     #[serde(default)]
     carry_over_money: Option<crate::util::native_x87::NativeF64Bits>,
@@ -2093,6 +2099,8 @@ impl ScenarioSession {
             chrono_screen: crate::sim::superweapon::chrono_screen::ChronoScreenState::default(),
             scenario_pause: pause::ScenarioPause::default(),
             scenario_countdown: countdown::ScenarioCountdown::new(desc.timer_inherit),
+            #[cfg(feature = "phobos")]
+            banners: Vec::new(),
             carry_over_money: desc.carry_over_money,
             carry_over_cap: desc.carry_over_cap.unwrap_or(0),
             started: false,

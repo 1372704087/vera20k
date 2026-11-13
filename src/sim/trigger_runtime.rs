@@ -4098,6 +4098,39 @@ impl Simulation {
                 });
             }
             103 => self.session.set_scenario_timer_caption(action.csf_label()),
+            #[cfg(feature = "phobos")]
+            800 | 801 => {
+                // Phobos `TActionExt::CreateBannerLocal`/`CreateBannerGlobal`
+                // (`Ext/TAction/Body.cpp:845-852`) ->
+                // `CreateOrReplaceBanner` (`:813-843`): the action's Text
+                // finds the `[BannerTypes]` entry, Param3 ids the banner,
+                // Param4/Param5 position it as view percents and Param6
+                // names the scenario variable. A missing type is a no-op.
+                let type_name = action.csf_label();
+                if rules.banner_types().entry(type_name).is_some() {
+                    self.session
+                        .banner_create_or_replace(crate::sim::banner::RuntimeBanner {
+                            id: action.params.get(2).map_or(0, |v| crt_atoi(v)),
+                            type_name: type_name.to_owned(),
+                            position_percent: [
+                                action.params.get(3).map_or(0, |v| crt_atoi(v)),
+                                action.params.get(4).map_or(0, |v| crt_atoi(v)),
+                            ],
+                            variable: action.params.get(5).map_or(0, |v| crt_atoi(v)),
+                            global_variable: action.kind == 801,
+                        });
+                }
+                true
+            }
+            #[cfg(feature = "phobos")]
+            802 => {
+                // Phobos `TActionExt::DeleteBanner` (`Ext/TAction/Body.cpp:858-875`):
+                // the first banner whose ID equals the action's +90 value goes.
+                if let Some(id) = value {
+                    self.session.banner_delete(id);
+                }
+                true
+            }
             20 => {
                 // Steam gamemd: Execute6DE8E4..6DE903 passes +90
                 // to Theme720B20 and returns AL1, even when audio is gated.
@@ -6224,3 +6257,92 @@ mod building_sale_native_tests;
 #[cfg(test)]
 #[path = "trigger_runtime_skirmish_map_tests.rs"]
 mod skirmish_map_tests;
+
+/// Phobos banner actions 800/801/802 (`Ext/TAction/Body.cpp:813-875`): the
+/// action's Text finds the `[BannerTypes]` entry, Param3 ids the banner,
+/// Param4/Param5 position it as view percents, Param6 names the variable,
+/// 801 marks that variable global; 802 deletes the first banner with the
+/// action's +90 value.
+#[cfg(feature = "phobos")]
+#[test]
+fn banner_actions_create_replace_and_delete_by_id() {
+    let rules = RuleSet::from_ini_with_fixed_art_for_test(
+        &crate::rules::ini_parser::IniFile::from_str(
+            "[BannerTypes]\n0=INTRO\n\n[INTRO]\nCSF=Name:Title\n",
+        ),
+        &crate::rules::ini_parser::IniFile::empty(),
+    )
+    .unwrap();
+    let actions = crate::map::actions::parse_actions(&crate::rules::ini_parser::IniFile::from_str(
+        "[Actions]\n\
+         CUE=1,800,4,INTRO,7,50,40,3\n\
+         REP=1,801,4,INTRO,7,60,20,5\n\
+         DEL=1,802,0,7,0,0,0,0\n",
+    ));
+    let resolve = |name| {
+        RuntimeDefinitions::default().resolve_action(
+            actions[name].entries()[0].clone(),
+            None,
+            None,
+            None,
+        )
+    };
+    let mut sim = formed_sim(31, 2);
+    let mut effects = Vec::new();
+    let ctx = TriggerActionContext {
+        live_index: None,
+        incoming_house: None,
+        input: TagEventInput::default(),
+    };
+
+    assert!(sim.apply_live_trigger_action(
+        &resolve("CUE"),
+        ctx,
+        &mut effects,
+        &rules,
+        None,
+        crate::sim::world::FrameEffects::empty()
+    ));
+    assert_eq!(
+        sim.session.banners(),
+        vec![crate::sim::banner::RuntimeBanner {
+            id: 7,
+            type_name: "INTRO".to_owned(),
+            position_percent: [50, 40],
+            variable: 3,
+            global_variable: false,
+        }],
+        "action 800 appends the banner from its params"
+    );
+
+    assert!(sim.apply_live_trigger_action(
+        &resolve("REP"),
+        ctx,
+        &mut effects,
+        &rules,
+        None,
+        crate::sim::world::FrameEffects::empty()
+    ));
+    assert_eq!(
+        sim.session.banners().len(),
+        1,
+        "the id replaces, not appends"
+    );
+    let banner = &sim.session.banners()[0];
+    assert_eq!(banner.position_percent, [60, 20]);
+    assert_eq!(banner.variable, 5);
+    assert!(
+        banner.global_variable,
+        "action 801 marks the variable global"
+    );
+
+    assert!(sim.apply_live_trigger_action(
+        &resolve("DEL"),
+        ctx,
+        &mut effects,
+        &rules,
+        None,
+        crate::sim::world::FrameEffects::empty()
+    ));
+    assert!(sim.session.banners().is_empty(), "802 erases by id");
+}

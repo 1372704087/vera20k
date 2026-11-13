@@ -223,6 +223,15 @@ fn emit(
     ares_ext: bool,
 ) {
     let alternate_color = weapon.is_alternate_color;
+    // Phobos `EBolt_Draw_*` (`Ext/EBolt/Hooks.cpp:215`): the weapon's
+    // EBoltZAdjust else `[AudioVisual] EBoltZAdjust` adds to the bolt's
+    // zAdjust before the birth is retained.
+    #[cfg(feature = "phobos")]
+    let z_adjust = z_adjust.wrapping_add(
+        weapon
+            .phobos_ebolt_z_adjust
+            .unwrap_or(rules.phobos_globals.ebolt_z_adjust),
+    );
     #[cfg(feature = "ares")]
     let visuals = ares_ext.then_some(&weapon.ares_visuals);
     #[cfg(not(feature = "ares"))]

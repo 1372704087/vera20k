@@ -8419,27 +8419,16 @@ impl Simulation {
                 let entity = self.substrate.entities.get(*id)?;
                 let object = self.object_type(entity.type_ref(), rules);
                 let underwater = object.is_some_and(|object| object.underwater);
-                let kind = entity.locomotor.as_ref().map(|loco| loco.active_kind());
                 // Phobos `TechnoExt::TypeExtData->MakesWake` over each
                 // locomotor's `*MakesWake` global
-                // (`Ext/Techno/Hooks.Misc.cpp:357-392`).
+                // (`Ext/Techno/Hooks.Misc.cpp:360-374`, `:376-384`,
+                // `:425-441`).
+                let kind = entity.locomotor.as_ref().map(|loco| loco.active_kind());
                 #[cfg(feature = "phobos")]
-                let makes_wake = object
-                    .and_then(|object| object.phobos_makes_wake)
-                    .unwrap_or_else(|| match kind {
-                        Some(crate::rules::locomotor_type::LocomotorKind::Drive) => {
-                            rules.phobos_globals.drive_locomotor_makes_wake
-                        }
-                        Some(crate::rules::locomotor_type::LocomotorKind::Hover) => {
-                            rules.phobos_globals.hover_locomotor_makes_wake
-                        }
-                        Some(crate::rules::locomotor_type::LocomotorKind::Ship) => {
-                            rules.phobos_globals.ship_locomotor_makes_wake
-                        }
-                        _ => true,
-                    });
+                let typed = object.and_then(|object| object.phobos_makes_wake);
                 #[cfg(not(feature = "phobos"))]
-                let makes_wake = true;
+                let typed = None;
+                let makes_wake = resolves_makes_wake(typed, kind, rules);
                 wake_anchor_for(
                     entity,
                     rules_context,
@@ -8670,6 +8659,42 @@ const WAKE_DRAW_FLAGS: u32 = 0x600;
 /// owner off a bridge (`+0x8C`) on a cell whose `CellClass+0xEC` mirror is
 /// Water. The wake is anchored at the unit's Location, a Hover's altitude
 /// included. A Jumpjet or Fly flier over water leaves none.
+/// Phobos `TechnoExt::TypeExtData->MakesWake` over each locomotor's
+/// `[AudioVisual] *MakesWake=` global (`Ext/Techno/Hooks.Misc.cpp:360-374`,
+/// `:376-384`, `:425-441`). Without the Phobos feature every locomotor wakes,
+/// as the stock hooks do.
+#[cfg(feature = "phobos")]
+fn resolves_makes_wake(
+    typed: Option<bool>,
+    kind: Option<crate::rules::locomotor_type::LocomotorKind>,
+    rules: &RuleSet,
+) -> bool {
+    typed.unwrap_or_else(|| match kind {
+        Some(crate::rules::locomotor_type::LocomotorKind::Walk) => {
+            rules.phobos_globals.walk_locomotor_makes_wake
+        }
+        Some(crate::rules::locomotor_type::LocomotorKind::Drive) => {
+            rules.phobos_globals.drive_locomotor_makes_wake
+        }
+        Some(crate::rules::locomotor_type::LocomotorKind::Hover) => {
+            rules.phobos_globals.hover_locomotor_makes_wake
+        }
+        Some(crate::rules::locomotor_type::LocomotorKind::Ship) => {
+            rules.phobos_globals.ship_locomotor_makes_wake
+        }
+        _ => true,
+    })
+}
+
+#[cfg(not(feature = "phobos"))]
+fn resolves_makes_wake(
+    _typed: Option<bool>,
+    _kind: Option<crate::rules::locomotor_type::LocomotorKind>,
+    _rules: &RuleSet,
+) -> bool {
+    true
+}
+
 pub(crate) fn wake_anchor_for(
     entity: &crate::sim::game_entity::GameEntity,
     rules: crate::sim::movement::SpeedRules<'_>,

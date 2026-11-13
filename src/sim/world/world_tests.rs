@@ -706,21 +706,31 @@ fn a_jumpjet_cruising_over_water_leaves_no_wake() {
     );
 }
 
-/// Ship's own wake gate (`0x0069FE3C..0x0069FE74`): every 8th frame, not
-/// Drive's 10th, and never for an `Underwater=` type.
 /// Phobos `MakesWake=` (`Ext/TechnoType/Body.cpp:1070`, `Nullable<bool>`)
 /// over each locomotor's `[AudioVisual] *MakesWake=` global
 /// (`Ext/Rules/Body.cpp:543-546`, ctor no/yes/yes/yes): `no` skips the wake
 /// entirely, an authored `yes` re-enables a global-disabled locomotor, and a
-/// Drive boat still wakes on the 10th frame and a Ship on the 8th.
+/// Drive/Hover boat still wakes on the 10th frame and a Ship on the 8th.
 #[cfg(feature = "phobos")]
 #[test]
-fn mikes_wake_gates_each_locomotor_wake() {
-    fn scene(global: &str, boat_keys: &str, ship: bool) -> (Simulation, RuleSet) {
-        let locomotor = if ship {
-            "{2BEA74E1-7CCA-11d3-BE14-00104B62A16C}"
-        } else {
-            "{4A582741-9839-11d1-B709-00A024DDAFD1}"
+fn makes_wake_gates_each_locomotor_wake() {
+    #[derive(Clone, Copy, PartialEq)]
+    enum Kind {
+        Drive,
+        Ship,
+    }
+    fn scene(global: &str, boat_keys: &str, kind: Kind) -> (Simulation, RuleSet) {
+        let (locomotor, family, cadence) = match kind {
+            Kind::Drive => (
+                "{4A582741-9839-11d1-B709-00A024DDAFD1}",
+                crate::sim::movement::track_process::TrackFamily::Drive,
+                10,
+            ),
+            Kind::Ship => (
+                "{2BEA74E1-7CCA-11d3-BE14-00104B62A16C}",
+                crate::sim::movement::track_process::TrackFamily::Ship,
+                8,
+            ),
         };
         let ini = IniFile::from_str(&format!(
             "[General]
@@ -762,11 +772,6 @@ Rate=120
             y: 128,
             z: 0,
         };
-        let family = if ship {
-            crate::sim::movement::track_process::TrackFamily::Ship
-        } else {
-            crate::sim::movement::track_process::TrackFamily::Drive
-        };
         let runtime = boat.locomotor.as_mut().unwrap();
         assert!(runtime.ensure_installed_track_state());
         assert!(runtime.store_track_destination(family, Some(ahead)));
@@ -778,6 +783,7 @@ Rate=120
             cell.land_type = crate::rules::terrain_rules::LandType::Water.as_index();
         }
         sim.resolved_terrain = Some(terrain);
+        sim.session.set_binary_frame_for_test(cadence);
         (sim, rules)
     }
     let wakes = |sim: &Simulation| {
@@ -789,20 +795,22 @@ Rate=120
             })
             .count()
     };
-    // Drive: the global default (yes) keeps the wake; the type's `no` and a
-    // global `no` both skip it; an authored `yes` beats the global `no`.
-    for (global, boat_keys, expected) in [
-        ("", "", 1),
+    for (global, boat_keys, kind, expected) in [
+        // Drive: global default keeps the wake; the type's no and a global no
+        // both skip it; an authored yes beats the global no.
+        ("", "", Kind::Drive, 1),
         (
             "",
             "MakesWake=no
 ",
+            Kind::Drive,
             0,
         ),
         (
             "DriveLocomotorMakesWake=no
 ",
             "",
+            Kind::Drive,
             0,
         ),
         (
@@ -810,30 +818,94 @@ Rate=120
 ",
             "MakesWake=yes
 ",
+            Kind::Drive,
+            1,
+        ),
+        // Ship's own 8th-frame gate obeys the same key.
+        ("", "", Kind::Ship, 1),
+        (
+            "",
+            "MakesWake=no
+",
+            Kind::Ship,
+            0,
+        ),
+        (
+            "ShipLocomotionClassMakesWake=no
+",
+            "",
+            Kind::Ship,
+            0,
+        ),
+        (
+            "ShipLocomotionClassMakesWake=no
+",
+            "MakesWake=yes
+",
+            Kind::Ship,
             1,
         ),
     ] {
-        let (mut sim, rules) = scene(global, boat_keys, false);
-        sim.session.set_binary_frame_for_test(10);
+        let (mut sim, rules) = scene(global, boat_keys, kind);
         sim.spawn_wakes_for_frame(&rules);
-        assert_eq!(wakes(&sim), expected, "{global:?} {boat_keys:?}");
-    }
-    // Ship's own 8th-frame gate obeys the same key.
-    for (boat_keys, expected) in [
-        ("", 1),
-        (
-            "MakesWake=no
-",
-            0,
-        ),
-    ] {
-        let (mut sim, rules) = scene("", boat_keys, true);
-        sim.session.set_binary_frame_for_test(8);
-        sim.spawn_wakes_for_frame(&rules);
-        assert_eq!(wakes(&sim), expected, "ship {boat_keys:?}");
+        assert_eq!(
+            wakes(&sim),
+            expected,
+            "{global:?} {boat_keys:?} kind {:?}",
+            kind as u8
+        );
     }
 }
 
+/// The resolver behind [`super::spawn_wakes_for_frame`]: each locomotor kind
+/// takes its own `[AudioVisual]` global, a type value wins over it, and a
+/// kind with no native wake hook stays true.
+#[cfg(feature = "phobos")]
+#[test]
+fn makes_wake_resolves_each_locomotor_global_and_type_override() {
+    use crate::rules::locomotor_type::LocomotorKind;
+
+    let defaults = RuleSet::from_ini(&IniFile::from_str(
+        "[AudioVisual]
+",
+    ))
+    .unwrap();
+    let resolve = |typed, kind| super::resolves_makes_wake(typed, kind, &defaults);
+    assert!(!resolve(None, Some(LocomotorKind::Walk)), "Walk ctor no");
+    assert!(resolve(None, Some(LocomotorKind::Drive)), "Drive ctor yes");
+    assert!(resolve(None, Some(LocomotorKind::Hover)), "Hover ctor yes");
+    assert!(resolve(None, Some(LocomotorKind::Ship)), "Ship ctor yes");
+    assert!(
+        resolve(None, Some(LocomotorKind::Jumpjet)),
+        "no native MakesWake hook"
+    );
+
+    let flipped = RuleSet::from_ini(&IniFile::from_str(
+        "[AudioVisual]
+WalkLocomotorMakesWake=yes
+DriveLocomotorMakesWake=no
+         HoverLocomotionClassMakesWake=no
+ShipLocomotionClassMakesWake=no
+",
+    ))
+    .unwrap();
+    let resolve = |typed, kind| super::resolves_makes_wake(typed, kind, &flipped);
+    assert!(resolve(None, Some(LocomotorKind::Walk)));
+    assert!(!resolve(None, Some(LocomotorKind::Drive)));
+    assert!(!resolve(None, Some(LocomotorKind::Hover)));
+    assert!(!resolve(None, Some(LocomotorKind::Ship)));
+    assert!(
+        resolve(Some(true), Some(LocomotorKind::Ship)),
+        "type yes wins"
+    );
+    assert!(
+        !resolve(Some(false), Some(LocomotorKind::Walk)),
+        "type no wins"
+    );
+}
+
+/// Ship's own wake gate (`0x0069FE3C..0x0069FE74`): every 8th frame, not
+/// Drive's 10th, and never for an `Underwater=` type.
 #[test]
 fn a_ship_wakes_every_eighth_frame_unless_it_is_underwater() {
     let ini = IniFile::from_str(

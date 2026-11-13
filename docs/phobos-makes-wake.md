@@ -23,9 +23,9 @@ Readers: the four globals at `Ext/Rules/Body.cpp:543-546` (constructors
 `TechnoExt::TypeExtData->MakesWake.Get(<locomotor>MakesWake)` gates each
 locomotor's movement-wake producer:
 
-- `0x4B079D` Drive (`Ext/Techno/Hooks.Misc.cpp:357-364`) — `NoWake` at
+- `0x4B079D` Drive (`Ext/Techno/Hooks.Misc.cpp:360-366`) — `NoWake` at
   `0x4B0828`;
-- `0x514A32` Hover (`:366-374`) — `NoWake` at `0x514AC8`;
+- `0x514A32` Hover (`:368-374`) — `NoWake` at `0x514AC8`;
 - `0x69FE4A` Ship (`:376-384`) — `NoWake` at `0x69FEF0`;
 - `0x75AC93` Walk (`:425-441`), which otherwise requires the walker to be
   really moving, not on a bridge, on a Water cell, and on a 10-frame cadence.
@@ -33,24 +33,30 @@ locomotor's movement-wake producer:
 ## VERA
 
 `PhobosGlobals` reads the four globals; `ObjectType::phobos_makes_wake` reads
-the type key. `Simulation::spawn_wakes_for_frame` resolves the effective value
-for each movant (type key, else the global for its active locomotor kind) and
-`wake_anchor_for` returns no anchor when it is false. The batched wake pass
-still spawns the `[General] Wake=` animation through the shared constructor.
+the type key. `spawn_wakes_for_frame` resolves each movant through
+`resolves_makes_wake` (type key, else the global for its active locomotor
+kind) and `wake_anchor_for` returns no anchor when it is false. The batched
+wake pass still spawns the `[General] Wake=` animation through the shared
+constructor.
 
 ## Tests
 
-- `src/sim/world/world_tests.rs` — `mikes_wake_gates_each_locomotor_wake`:
+- `src/sim/world/world_tests.rs` — `makes_wake_gates_each_locomotor_wake`:
   water-going Drive and Ship hulls wake by default, `MakesWake=no` and a
   global `no` both skip it, and an authored `yes` re-enables a
-  global-disabled Drive hull. The gate was mutated red (`if false &&`) and
-  restored.
+  global-disabled hull (including Ship's own global). The gate was mutated red
+  (`if false &&`) and restored. `makes_wake_resolves_each_locomotor_global_and_type_override`
+  covers all four kinds plus a kind with no native hook in the resolver.
 
 ## Residuals
 
-- VERA spawns no infantry (`Walk`) movement wakes at all, so
-  `WalkLocomotorMakesWake=` is read but dormant. Phobos' own default (`no`)
-  makes the Phobos build match; the stock walk wake is a pre-existing VERA
-  residual.
+- VERA spawns no infantry (`Walk`) movement wake at all: the resolver reads
+  `WalkLocomotorMakesWake=` (and a type `MakesWake=yes` resolves true), but
+  the batched pass has no Walk arm, so no walk wake is ever created in either
+  build. Phobos' default (`no`) matches that; a stock walk wake or an authored
+  `WalkLocomotorMakesWake=yes` stays dormant — a pre-existing residual.
+- A `Nullable<bool>` `none`/`<none>` token is treated as unset (falls back to
+  the global) by the shared reader, while Phobos parses it as `false` with a
+  set value. This is a pre-existing helper difference for every such key.
 - The `Wake_Grapple`/`Wake_Sinking` per-type overrides are separate keys with
   their own consumer sites; neither is part of this key.

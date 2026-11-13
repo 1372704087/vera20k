@@ -286,6 +286,13 @@ pub struct PhobosGlobals {
     /// facing spin (hook `0x54CB0E`).
     #[serde(default = "truth")]
     pub jumpjet_rotate_on_crash: bool,
+    /// `[General] JumpjetClimbIgnoreBuilding=` (`Valueable<bool>`, default
+    /// **false**; `Ext/Rules/Body.cpp:338`, `Body.h:244,768`): the fallback for
+    /// a TechnoType's nullable `JumpjetClimbIgnoreBuilding=`; the jumpjet floor
+    /// reference then ignores a building's top (hooks `0x54D820`/`0x54D859`/
+    /// `0x54D8EA`, `Ext/Unit/Hooks.Jumpjet.cpp:439-457`).
+    #[serde(default)]
+    pub jumpjet_climb_ignore_building: bool,
     /// `[General] Sinkable=` (`Nullable<bool>`, unset; `Ext/Rules/Body.cpp:
     /// 484`, `Body.h:394,899`): the fallback for a UnitType's `Sinkable`;
     /// unset keeps the stock type-property gate.
@@ -1256,6 +1263,7 @@ impl Default for PhobosGlobals {
             chrono_sphere_delay: 0,
             mind_control_threat_delay: 0,
             jumpjet_rotate_on_crash: truth(),
+            jumpjet_climb_ignore_building: false,
             sinkable: None,
             sink_speed: 5,
             paradrop_mission: MissionType::Guard,
@@ -1805,6 +1813,10 @@ impl PhobosGlobals {
         globals.jumpjet_rotate_on_crash = ini
             .section_or_empty("JumpjetControls")
             .read_bool("RotateOnCrash", globals.jumpjet_rotate_on_crash);
+        globals.jumpjet_climb_ignore_building = general.read_bool(
+            "JumpjetClimbIgnoreBuilding",
+            globals.jumpjet_climb_ignore_building,
+        );
         globals.sinkable = general.read_phobos_nullable_bool("Sinkable", globals.sinkable);
         globals.sink_speed = general.read_int("SinkSpeed", globals.sink_speed);
         globals.paradrop_mission = general.read_string_with(

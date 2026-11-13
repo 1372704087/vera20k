@@ -798,6 +798,18 @@ fn the_jumpjet_rotate_on_crash_defaults_true() {
     assert!(read("[General]\nRotateOnCrash=no\n").jumpjet_rotate_on_crash);
 }
 
+/// `[General] JumpjetClimbIgnoreBuilding=` (`Ext/Rules/Body.cpp:338`,
+/// constructor **false** `Body.h:768`).
+#[test]
+fn the_jumpjet_climb_ignore_building_global_defaults_false() {
+    assert!(!PhobosGlobals::default().jumpjet_climb_ignore_building);
+    assert!(read("[General]\nJumpjetClimbIgnoreBuilding=yes\n").jumpjet_climb_ignore_building);
+    // `[JumpjetControls]` does not own this key.
+    assert!(
+        !read("[JumpjetControls]\nJumpjetClimbIgnoreBuilding=yes\n").jumpjet_climb_ignore_building
+    );
+}
+
 /// `[General] AircraftFiringForceScatter=` (`Ext/Rules/Body.cpp:473`,
 /// constructor **true** `Body.h:888`).
 #[test]

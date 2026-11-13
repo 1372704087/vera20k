@@ -1142,6 +1142,14 @@ pub struct ObjectType {
     /// is the nearest binary32 widened back. Unit types only.
     #[cfg(feature = "phobos")]
     pub phobos_crush_overlay_extra_forward_tilt: f64,
+    /// Phobos `CrushForwardTiltPerFrame=` (`Nullable<double>`, unset;
+    /// `Ext/UnitType/Body.cpp:71`, `Body.h:56`, constructed unset `Body.h:119`):
+    /// the forward rocking rate stored when a Unit crushes a Unit or a Vehicle
+    /// type crushes (`0x00741954`, `0x4B19F7`/`0x4B1A4B`, `0x6A0809`); unset
+    /// keeps the stock -0.050000001 (`Ext/Unit/Hooks.Crushing.cpp:35,68,99`).
+    /// Vehicle types only.
+    #[cfg(feature = "phobos")]
+    pub phobos_crush_forward_tilt_per_frame: Option<f64>,
     /// Phobos `LandingAnim=` (`Ext/AircraftType/Body.cpp:41`,
     /// `Nullable<AnimType*>`): the anim a landing aircraft plays; unset takes
     /// `[AudioVisual] DefaultLandingAnim` (and its
@@ -5792,6 +5800,10 @@ impl ObjectType {
                 0.0
             },
             #[cfg(feature = "phobos")]
+            phobos_crush_forward_tilt_per_frame: (category == ObjectCategory::Vehicle)
+                .then(|| section.read_phobos_nullable_double("CrushForwardTiltPerFrame", None))
+                .flatten(),
+            #[cfg(feature = "phobos")]
             phobos_landing_anim: (category == ObjectCategory::Aircraft)
                 .then(|| {
                     section.read_phobos_nullable_with("LandingAnim", None, |raw| {
@@ -7681,7 +7693,7 @@ mod tests {
 
         let unit = IniFile::from_str(
             "[UNT]\nStrength=100\nDeployingAnims=A,B,C\nCrushOverlayExtraForwardTilt=0.05\n\
-             SkipCrushSlowdown=yes\n",
+             SkipCrushSlowdown=yes\nCrushForwardTiltPerFrame=-0.125\n",
         );
         let object = ObjectType::from_ini_section(
             "UNT",
@@ -7689,6 +7701,10 @@ mod tests {
             ObjectCategory::Vehicle,
         );
         assert_eq!(object.phobos_skip_crush_slowdown, Some(true));
+        assert_eq!(
+            object.phobos_crush_forward_tilt_per_frame,
+            Some(f64::from(-0.125_f32))
+        );
         assert_eq!(object.phobos_deploying_anims, ["A", "B", "C"]);
         // Phobos `ReadDouble` writes a `float`; the literal therefore lands as
         // the nearest binary32 widened back to double.
@@ -7720,6 +7736,7 @@ mod tests {
         );
         assert_eq!(object.phobos_deploy_fire_delay, None);
         assert_eq!(object.phobos_skip_crush_slowdown, None);
+        assert_eq!(object.phobos_crush_forward_tilt_per_frame, None);
         // Aircraft-only key: a Vehicle section never sets it.
         assert_eq!(object.phobos_firing_force_scatter, None);
         assert_eq!(object.phobos_no_alpha_image_on_buildup, None);

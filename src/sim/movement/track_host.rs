@@ -860,8 +860,23 @@ impl Simulation {
                     entity.foot_speed.arm_crush_slowdown();
                 }
                 if tilt {
+                    // Phobos `CrushForwardTiltPerFrame=` (hook `0x4B19F7`/
+                    // `0x4B1A4B`, `Ext/Unit/Hooks.Crushing.cpp:68`): the type's
+                    // nullable, else the stock -0.050000001 (`0xBD4CCCCD`).
+                    let forwards = {
+                        #[cfg(feature = "phobos")]
+                        {
+                            object
+                                .phobos_crush_forward_tilt_per_frame
+                                .map_or(0xbd4c_cccd, |value| (value as f32).to_bits())
+                        }
+                        #[cfg(not(feature = "phobos"))]
+                        {
+                            0xbd4c_cccd
+                        }
+                    };
                     entity.rocking_mut().set_vel_forwards_native(
-                        crate::util::native_x87::NativeF32Bits::from_bits(0xbd4c_cccd),
+                        crate::util::native_x87::NativeF32Bits::from_bits(forwards),
                     );
                 }
             }

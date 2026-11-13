@@ -348,6 +348,69 @@ fn a_battle_fortress_crushing_a_tank_plays_its_death_explosion() {
     assert_eq!(rocking.native_bits()[3], 0xbd4c_cccd);
 }
 
+/// Phobos `CrushForwardTiltPerFrame=` (`Ext/UnitType/Body.cpp:71`,
+/// `Nullable<double>` unset `Ext/UnitType/Body.h:56`): the crush tail
+/// (`0x00741954`, hook `0x741941` at `Ext/Unit/Hooks.Crushing.cpp:35`) stores
+/// the crusher type's value instead of the stock binary32 -0.05.
+#[cfg(feature = "phobos")]
+#[test]
+fn crush_forward_tilt_per_frame_replaces_the_stock_tilt() {
+    let tilt_bits = |extra: &str| {
+        let rules = crate::rules::ruleset::RuleSet::from_ini(
+            &crate::rules::ini_parser::IniFile::from_str(&format!(
+                "[VehicleTypes]\n0=TANK\n1=VICTIM\n\
+                 [TANK]\nStrength=300\nArmor=heavy\nCrusher=yes\nSpeed=4\n{extra}\
+                 [VICTIM]\nStrength=50\nArmor=none\nCrushable=yes\nSpeed=4\n"
+            )),
+        )
+        .unwrap();
+        let mut sim = crate::sim::arena_fixture::rival_arena(&rules, 0x741941);
+        let tank = sim
+            .spawn_object("TANK", "Russians", 10, 10, 0, &rules)
+            .unwrap();
+        let spike = sim
+            .spawn_object("VICTIM", "Americans", 12, 10, 0, &rules)
+            .unwrap();
+        let mut position = sim.substrate.entities.get(tank).unwrap().position;
+        let centre = position_world_coord(&position);
+        position.put_world_xy([centre.x + 16, centre.y]);
+        sim.substrate.entities.get_mut(spike).unwrap().position = position;
+        // The level crusher rocks only if it carries the state the native
+        // Techno allocates when built; a zero forward velocity takes the store.
+        sim.substrate.entities.get_mut(tank).unwrap().rocking =
+            Some(crate::sim::rocking::RockingState::default());
+        sim.substrate.occupancy = OccupancyGrid::rebuild(&sim.substrate.entities);
+        sim.per_cell_process(
+            tank,
+            PerCellReason::Arrival,
+            &rules,
+            None,
+            FrameEffects::default(),
+        )
+        .unwrap();
+        assert!(
+            sim.substrate
+                .entities
+                .get(spike)
+                .is_none_or(|victim| !victim.lifecycle.object_alive()),
+            "the victim vehicle is crushed"
+        );
+        sim.substrate
+            .entities
+            .get(tank)
+            .unwrap()
+            .rocking
+            .expect("the crusher rocks")
+            .native_bits()
+    };
+
+    assert_eq!(tilt_bits("")[3], 0xbd4c_cccd);
+    assert_eq!(
+        tilt_bits("CrushForwardTiltPerFrame=-0.125\n")[3],
+        (-0.125_f32).to_bits()
+    );
+}
+
 /// Ares UnitClass_CrushCell_CrushDamage (hook 0x7418AA): crushing a type
 /// with `CrushDamage=` damages the crusher with its `CrushDamage.Warhead`;
 /// an explicit `none` warhead deals nothing.

@@ -544,8 +544,27 @@ impl Simulation {
         // The loop's tail (`0x00741925..0x00741954`): any crush uncloaks the
         // crusher (vtable `+0x45C`, argument 0; no stock crusher cloaks),
         // and crushing a Unit tilts a level crusher forwards.
+        // Phobos `CrushForwardTiltPerFrame=` (`Ext/Unit/Hooks.Crushing.cpp:35`,
+        // `0x741941`) replaces the stock -0.05 with the crusher type's value.
+        let crush_tilt_bits = {
+            #[cfg(feature = "phobos")]
+            {
+                self.substrate
+                    .entities
+                    .get(id)
+                    .and_then(|entity| self.interner.object_type(entity.type_ref(), rules))
+                    .and_then(|object| object.phobos_crush_forward_tilt_per_frame)
+                    .map_or(0xbd4c_cccd, |value| (value as f32).to_bits())
+            }
+            #[cfg(not(feature = "phobos"))]
+            {
+                0xbd4c_cccd
+            }
+        };
         if crushed_unit && let Some(crusher) = self.substrate.entities.get_mut(id) {
-            crusher.rocking_mut().tilt_after_unit_crush();
+            crusher.rocking_mut().tilt_after_unit_crush(
+                crate::util::native_x87::NativeF32Bits::from_bits(crush_tilt_bits),
+            );
         }
         // 0x0073B08F tests only IsAlive (`+0x90`) before the Foot body.
         if self.per_cell_owner_alive(id) {

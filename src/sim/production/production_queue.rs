@@ -1098,6 +1098,41 @@ fn infantry_exit_tail(
             log::debug!("{spawned} factory exit destination: {cause}");
         }
     }
+    // Phobos `BuildingClass_ExitObject_ProductionAnimForInfantryFactory`
+    // (`0x444D11`, `Ext/Building/Hooks.cpp:1210-1240`): an InfantryType factory
+    // destroys Idle and plays the roof or stock Production anim. A roof-exit
+    // unit always takes the roof helper, which also owns the powered gate and
+    // the plain ProductionAnim fallback; every other unit keeps the stock play.
+    #[cfg(feature = "phobos")]
+    let producer_anim = {
+        let producer = sim.substrate.entities.get(producer_id);
+        producer
+            .and_then(|producer| sim.entity_object_type(producer, rules))
+            .filter(|object| {
+                object.factory_type() == Some(crate::rules::object_type::FactoryType::InfantryType)
+            })
+            .map(|object| object.strength)
+            .and_then(|strength| {
+                let producer = producer?;
+                Some((
+                    crate::sim::building_art::requested_damage_state(
+                        producer.health,
+                        strength,
+                        rules.general.condition_yellow,
+                    ),
+                    !producer.passenger_role.occupants().is_empty(),
+                ))
+            })
+    };
+    #[cfg(feature = "phobos")]
+    if let Some((damaged, garrisoned)) = producer_anim {
+        sim.clear_building_anim_slot(producer_id, 18);
+        if product_type.exits_through_roof() {
+            sim.play_roof_production_anim(producer_id, damaged, garrisoned, rules);
+        } else {
+            sim.set_building_anim_slot(producer_id, 8, damaged, false, 0, rules);
+        }
+    }
     infantry_exit_post(sim, rules, producer_id, spawned, overlay_registry, effects);
     // Ares BuildingClass_KickOutUnit_Infantry (hook 0x00444DBC -> 10041660)
     // clones before the HELLO, with the A8E7AC scope lowered around them.

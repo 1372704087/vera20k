@@ -652,6 +652,73 @@ impl Simulation {
         }
     }
 
+    /// Phobos `PlayRoofProductionAnim` (`Ext/Building/Hooks.cpp:1091-1165`):
+    /// play slot 8 with the roof-exit ART overrides. The native temporary
+    /// mutation of the type record becomes a per-call config override; the
+    /// slot's persistent power flags stay stock. Returns whether the roof path
+    /// handled the play (the caller then skips the stock ProductionAnim).
+    #[cfg(feature = "phobos")]
+    pub(crate) fn play_roof_production_anim(
+        &mut self,
+        id: u64,
+        damaged: bool,
+        garrisoned: bool,
+        rules: &RuleSet,
+    ) -> bool {
+        use crate::rules::art_data::BuildingAnimPowerFlags;
+        let Some(entity) = self.substrate.entities.get(id) else {
+            return false;
+        };
+        let type_name = self.interner.resolve(entity.type_ref());
+        let Some(entry) = self
+            .interner
+            .object_type(entity.type_ref(), rules)
+            .and_then(|object| rules.art().resolve_metadata_entry(type_name, &object.image))
+        else {
+            return false;
+        };
+        let roof = entry.roof_production_anim.clone();
+        if roof.is_empty() {
+            return false;
+        }
+        let Some(stock) = entry
+            .building_anims
+            .iter()
+            .find(|config| config.native_slot == 8)
+            .cloned()
+        else {
+            return false;
+        };
+        // A picked name that the AnimType registry did not resolve is null in
+        // the native vector, so Pick falls back to the plain ProductionAnim.
+        let name = roof
+            .pick(damaged, garrisoned)
+            .filter(|name| rules.has_anim_type(name))
+            .map(str::to_owned)
+            .unwrap_or_else(|| stock.anim_type.clone());
+        if name.is_empty() {
+            return false;
+        }
+        let stock_flags = self.building_anim_power_flags(id, 8, rules);
+        let flags = BuildingAnimPowerFlags {
+            powered: roof.powered.unwrap_or(stock_flags.powered),
+            powered_light: roof.powered_light.unwrap_or(stock_flags.powered_light),
+            powered_effect: roof.powered_effect.unwrap_or(stock_flags.powered_effect),
+            powered_special: roof.powered_special.unwrap_or(stock_flags.powered_special),
+        };
+        if self.powered_anim_blocked(id, flags, rules) {
+            return true;
+        }
+        let mut config = stock;
+        config.anim_type = name.clone();
+        config.x = roof.x.unwrap_or(config.x);
+        config.y = roof.y.unwrap_or(config.y);
+        config.z_adjust = roof.z_adjust.unwrap_or(config.z_adjust);
+        config.y_sort = roof.y_sort.unwrap_or(config.y_sort);
+        self.allocate_building_anim_slot(id, 8, &name, damaged, 0, Some(config), rules);
+        true
+    }
+
     /// Original451750. Empty selected names leave before451890 and therefore
     /// do not synchronize Building+6E6. Damaged takes precedence over garrison.
     pub fn set_building_anim_slot(
@@ -2283,5 +2350,76 @@ mod native_slot_tests {
             checked += 1;
         }
         assert_eq!(checked, 36);
+    }
+}
+
+#[cfg(all(test, feature = "phobos"))]
+mod roof_production_anim_tests {
+    use super::*;
+
+    fn scene(roof_name: &str) -> (Simulation, RuleSet, u64) {
+        use crate::rules::{art_data::ArtRegistry, ini_parser::IniFile};
+        let art_ini = IniFile::from_str(&format!(
+            "[B]\nProductionAnim=PROD\nProductionAnimX=2\nProductionAnimY=3\n\
+             RoofProductionAnim={roof_name}\nRoofProductionAnimX=7\nRoofProductionAnimY=9\n\
+             RoofProductionAnimZAdjust=4\nRoofProductionAnimYSort=5\n\
+             [PROD]\nLoopCount=-1\nRate=300\n[ROOF]\nLoopCount=-1\nRate=300\n"
+        ));
+        let mut rules = RuleSet::from_ini_with_fixed_art_for_test(
+            &IniFile::from_str(
+                "[BuildingTypes]\n0=B\n[B]\nStrength=100\n\
+                 [Animations]\n0=PROD\n1=ROOF\n",
+            ),
+            &art_ini,
+        )
+        .unwrap();
+        let mut art = ArtRegistry::from_ini(&art_ini);
+        for name in ["PROD", "ROOF"] {
+            art.bind_anim_frame_count_for_test(name, 10);
+        }
+        rules.install_art_data(art);
+        let mut sim = Simulation::new();
+        let id = sim.substrate.allocate_stable_id();
+        let mut entity = GameEntity::test_default_of_category(
+            id,
+            "B",
+            "A",
+            2,
+            2,
+            crate::map::entities::EntityCategory::Structure,
+        );
+        entity.set_type_ref_for_test(sim.interner.intern("B"));
+        entity.set_owner_for_test(sim.interner.intern("A"));
+        entity.health.set_for_test(100);
+        sim.substrate.entities.insert(entity);
+        sim.scenario_rng = crate::sim::rng::SimRng::new(0);
+        (sim, rules, id)
+    }
+
+    fn slot_name(sim: &Simulation, id: u64) -> &str {
+        let slot =
+            sim.entities().get(id).unwrap().building_art.anim_slots()[8].expect("production slot");
+        sim.resolve(sim.anim(slot).unwrap().type_id())
+    }
+
+    /// Phobos `PlayRoofProductionAnim` (`Ext/Building/Hooks.cpp:1091-1165`):
+    /// the roof pick replaces slot 8, an unknown AnimType falls back to the
+    /// plain ProductionAnim, and the stock key remains the control.
+    #[test]
+    fn roof_production_anim_plays_the_override_and_falls_back() {
+        let (mut sim, rules, id) = scene("ROOF");
+        assert!(sim.play_roof_production_anim(id, false, false, &rules));
+        assert_eq!(slot_name(&sim, id), "ROOF");
+        sim.clear_building_anim_slot(id, 8);
+        sim.set_building_anim_slot(id, 8, false, false, 0, &rules);
+        assert_eq!(slot_name(&sim, id), "PROD", "stock control");
+
+        let (mut sim, rules, id) = scene("UNKNOWN");
+        assert!(sim.play_roof_production_anim(id, false, false, &rules));
+        assert_eq!(
+            slot_name(&sim, id),
+            "PROD",
+            "an unresolved roof AnimType falls back to the plain ProductionAnim"
+        );
     }
 }

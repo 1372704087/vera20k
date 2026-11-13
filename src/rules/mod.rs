@@ -263,6 +263,8 @@ pub mod phobos_return_weapon;
 #[cfg(feature = "phobos")]
 pub mod phobos_revenge_weapon;
 #[cfg(feature = "phobos")]
+pub mod phobos_roof_production_anim;
+#[cfg(feature = "phobos")]
 pub mod phobos_selection_flash;
 #[cfg(feature = "phobos")]
 pub mod phobos_self_heal;

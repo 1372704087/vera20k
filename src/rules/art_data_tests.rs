@@ -1420,6 +1420,29 @@ fn extra_shadow_is_an_art_bool_defaulting_true() {
     assert!(reg.anim_runtime_config("C").unwrap().extra_shadow);
 }
 
+/// Phobos `DetachedReport=` (`Ext/AnimType/Body.h:63`, constructed `{}`
+/// `Body.h:115`, read `Body.cpp:108`) is an ART sound name read with the same
+/// reader as `Report=`, unset by default.
+#[cfg(feature = "phobos")]
+#[test]
+fn detached_report_reads_its_art_sound_name() {
+    let ini = IniFile::from_str("[A]\nDetachedReport=TestCue\n[B]\nStart=1\n");
+    let reg = ArtRegistry::from_ini(&ini);
+    assert_eq!(
+        reg.anim_runtime_config("A")
+            .unwrap()
+            .detached_report
+            .as_deref(),
+        Some("TESTCUE")
+    );
+    assert!(
+        reg.anim_runtime_config("B")
+            .unwrap()
+            .detached_report
+            .is_none()
+    );
+}
+
 /// Phobos `Refinery.UseNormalActiveAnim=` (`Ext/BuildingType/Body.cpp:309`,
 /// `Body.h:227`) is an ART ReadBool from the ImageFile's section, default
 /// false.

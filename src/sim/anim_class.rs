@@ -39,7 +39,7 @@ use crate::rules::house_colors::HouseColorIndex;
 use crate::rules::overlay_types::TiberiumImageError;
 use crate::rules::ruleset::RuleSet;
 use crate::sim::bounce::{BounceOutcome, BounceState};
-use crate::sim::components::AnimClassSpawnDescriptor;
+use crate::sim::components::{AnimClassSpawnDescriptor, DriveCoord};
 use crate::sim::intern::InternedId;
 use crate::sim::movement::locomotor::MovementLayer;
 use crate::sim::occupancy::{RawCellKey, RawCellOccupationGrid, infantry_raw_occupation_mask};
@@ -4315,6 +4315,22 @@ impl Simulation {
                 .expect("restarting animation remains present")
                 .start_sound_active = false;
         }
+        // Phobos `DetachedReport=` (`0x424CF1`, `Ext/Anim/Hooks.cpp:269-280`):
+        // `VocClass::PlayAt` at the animation's own coordinate, with no
+        // NoEffects gate in the hook.
+        if let Some(sound_id) = config.detached_report.clone()
+            && let Some(world) = self.anim_absolute_coord(id)
+        {
+            self.sound_events.emit(SimSoundEvent::VocAtCoord {
+                sound_id,
+                coordinate: DriveCoord {
+                    x: world.x,
+                    y: world.y,
+                    z: world.z,
+                },
+                flags: 0,
+            });
+        }
         if middle_frame(config).is_none() {
             self.anim_middle(id, config, rules, overlay_registry);
         }
@@ -6437,6 +6453,64 @@ mod tests {
         sim.visit_anim(id, &rules, None, crate::sim::world::FrameEffects::default())
             .unwrap();
         assert_eq!(starts(&sim), 1, "Start runs once per delay");
+    }
+
+    /// Phobos `DetachedReport=` (`Ext/AnimType/Body.h:63,115`,
+    /// `Ext/AnimType/Body.cpp:108`): `AnimClass::Start`'s hook `0x424CF1`
+    /// (`Ext/Anim/Hooks.cpp:269-280`) plays a positional `VocClass::PlayAt` cue
+    /// at the animation itself, alongside its own `Report=`.
+    #[test]
+    fn detached_report_plays_a_positional_cue_from_start() {
+        let rules = runtime_rules(
+            "[CUE]\nRate=900\nEnd=1\nReport=OwnCue\nDetachedReport=TestCue\n",
+            &[("CUE", 1)],
+        );
+        let mut sim = Simulation::with_seed(0);
+        let type_id = sim.interner.intern("CUE");
+        let id = sim
+            .spawn_anim_object(
+                &rules,
+                AnimClassSpawnDescriptor::new(
+                    type_id,
+                    7,
+                    9,
+                    crate::util::lepton::CELL_CENTER_LEPTON,
+                    crate::util::lepton::CELL_CENTER_LEPTON,
+                    0,
+                ),
+            )
+            .expect("bound art constructs");
+        let cues = sim
+            .sound_events
+            .iter()
+            .filter_map(|event| match event {
+                SimSoundEvent::VocAtCoord {
+                    sound_id,
+                    coordinate,
+                    ..
+                } => Some((sound_id.clone(), *coordinate)),
+                _ => None,
+            })
+            .collect::<Vec<_>>();
+        let world = sim.anim_absolute_coord(id).unwrap();
+        assert_eq!(
+            cues,
+            [(
+                "TESTCUE".to_owned(),
+                DriveCoord {
+                    x: world.x,
+                    y: world.y,
+                    z: world.z
+                }
+            )],
+            "the detached cue plays at the animation, next to its own Report="
+        );
+        assert!(
+            sim.sound_events
+                .iter()
+                .any(|event| matches!(event, SimSoundEvent::AnimationStarted { anim_id, .. } if *anim_id == id)),
+            "the ordinary Report= still plays"
+        );
     }
 
     #[test]

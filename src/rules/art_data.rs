@@ -612,6 +612,11 @@ pub struct AnimTypeRuntimeConfig {
     pub ping_pong: bool,
     pub reverse: bool,
     pub report: Option<String>,
+    /// Phobos `DetachedReport=` (`Ext/AnimType/Body.h:63`,
+    /// `ValueableIdx<VocClass>` constructed `{}` `Body.h:115`, read
+    /// `Body.cpp:108`): a positional cue `AnimClass::Start` plays while the
+    /// animation runs detached (`0x424CF1`, hook `Ext/Anim/Hooks.cpp:269-280`).
+    pub detached_report: Option<String>,
     pub start_sound: Option<String>,
     pub stop_sound: Option<String>,
 }
@@ -1023,6 +1028,9 @@ fn parse_anim_runtime_config(section: &IniSection) -> AnimTypeRuntimeConfig {
         reverse: section.read_bool("Reverse", false),
         report: section
             .read_name("Report", 0x80)
+            .map(str::to_ascii_uppercase),
+        detached_report: section
+            .read_name("DetachedReport", 0x80)
             .map(str::to_ascii_uppercase),
         start_sound: section
             .read_name("StartSound", 0x80)

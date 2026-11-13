@@ -130,6 +130,7 @@ Supported extensions:
 - [Cylinder rangefinding](phobos-cylinder-rangefinding.md) (`CylinderRangefinding` per weapon and globally: direct range uses `dx²+dy²`)
 - [Ambient damage warhead](phobos-ambient-damage.md) (`AmbientDamage.Warhead` / `.IgnoreTarget` per weapon plus the `[General]` fallback: railgun and blast-wave ambient damage use an override warhead and can skip the primary target; 3 keys)
 - [Warhead decloaking](phobos-decloak-damaged-targets.md) (`DecloakDamagedTargets` per warhead and globally)
+- [ShowBriefing keys](phobos-show-briefing.md) (`[Phobos] ShowBriefing` plus the two `uimd.ini [UISettings]` briefing-dialog labels: native reader defaults landed; the scenario-start dialog pass is escalated, not faked onto the stock F2 restate shell; 3 keys)
 - [Warhead remove disguise](phobos-warhead-remove-disguise.md) (`RemoveDisguise=yes` strips a hit target's disguise)
 - [Warhead ammo](phobos-warhead-ammo.md) (`Ammo=N` adjusts each hit target's ammo with the native clamp)
 - [Warhead taunt](phobos-warhead-taunt.md) (`Taunt=yes` forces each hit target onto Attack against the firer)

@@ -143,6 +143,8 @@ pub mod phobos_attack_move;
 #[cfg(feature = "phobos")]
 pub mod phobos_auto_death;
 #[cfg(feature = "phobos")]
+pub mod phobos_briefing_ui;
+#[cfg(feature = "phobos")]
 pub mod phobos_build_limit_group;
 #[cfg(feature = "phobos")]
 pub mod phobos_bullet_terrain;

@@ -65,6 +65,12 @@ pub(crate) struct PhobosClientSettings {
     /// (`Phobos.INI.cpp:106`): a campaign/mission start writes a save before
     /// play begins.
     pub(crate) save_game_on_scenario_start: bool,
+    /// `[Phobos] ShowBriefing=`, default `yes` (`Phobos.INI.cpp:107`,
+    /// static `:68`): the client gate of the scenario-start briefing dialog
+    /// (`DEFINE_HOOK(0x683E41, ScenarioClass_Start_ShowBriefing, 0x6)`).
+    /// VERA has no scenario-start briefing dialog pass yet; see
+    /// `docs/phobos-show-briefing.md`.
+    pub(crate) show_briefing: bool,
     /// `[Phobos] HideLaserTrailEffects=`, default `no`
     /// (`Phobos.INI.cpp:73` static, read `:112`): suppresses laser-trail
     /// drawing; the read default overrides the static `true`.
@@ -109,6 +115,7 @@ impl Default for PhobosClientSettings {
             type_select_use_ifv_mode: true,
             message_display_in_center: false,
             save_game_on_scenario_start: true,
+            show_briefing: true,
             hide_laser_trail_effects: false,
             hide_light_flash_effects: false,
             hide_shake_effects: false,
@@ -171,6 +178,7 @@ pub(crate) fn read(settings_dir: &Path) -> PhobosClientSettings {
             "SaveGameOnScenarioStart",
             defaults.save_game_on_scenario_start,
         ),
+        show_briefing: section.read_bool("ShowBriefing", defaults.show_briefing),
         hide_laser_trail_effects: section
             .read_bool("HideLaserTrailEffects", defaults.hide_laser_trail_effects),
         hide_light_flash_effects: section
@@ -220,7 +228,7 @@ mod tests {
              SuperWeaponSidebar.RequiredSignificance=2\nShowFlashOnSelecting=yes\n\
              ShowPowerPlantEnhancerRange=yes\nShowDesignatorRange=yes\nShowPowerDelta=no\nShowHarvesterCounter=no\n\
              ShowWeedsCounter=no\nPriorityDeployFiltering=no\nPrioritySelectionFiltering=no\nTypeSelectUseIFVMode=no\n\
-             MessageDisplayInCenter=yes\nSaveGameOnScenarioStart=no\n\
+             MessageDisplayInCenter=yes\nSaveGameOnScenarioStart=no\nShowBriefing=no\n\
              HideLaserTrailEffects=yes\nShowGameTime=yes\nEnableSelectBox=yes\n\
              CampaignDefaultGameSpeed=4\n\
              HideLightFlashEffects=yes\nHideShakeEffects=yes\n",
@@ -242,6 +250,7 @@ mod tests {
                 type_select_use_ifv_mode: false,
                 message_display_in_center: true,
                 save_game_on_scenario_start: false,
+                show_briefing: false,
                 hide_laser_trail_effects: true,
                 hide_light_flash_effects: true,
                 hide_shake_effects: true,
@@ -262,6 +271,17 @@ mod tests {
         std::fs::remove_dir_all(dir).unwrap();
         let dir = profile_with("[Phobos]\nCampaignDefaultGameSpeed=7\n");
         assert_eq!(read(&dir).campaign_default_game_speed, 2);
+        std::fs::remove_dir_all(dir).unwrap();
+    }
+
+    /// `Phobos.INI.cpp:107` reads `[Phobos] ShowBriefing` with a `true`
+    /// default (static `:68`); `0x683E41` refuses the scenario-start briefing
+    /// dialog when the client switch is off.
+    #[test]
+    fn show_briefing_defaults_to_yes_and_reads_an_explicit_no() {
+        assert!(PhobosClientSettings::default().show_briefing);
+        let dir = profile_with("[Phobos]\nShowBriefing=no\n");
+        assert!(!read(&dir).show_briefing);
         std::fs::remove_dir_all(dir).unwrap();
     }
 }

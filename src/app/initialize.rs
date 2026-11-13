@@ -1101,6 +1101,12 @@ impl App {
                     #[cfg(feature = "phobos")]
                     show_designator_range: phobos_client.show_designator_range,
                     #[cfg(feature = "phobos")]
+                    briefing_dialog: Default::default(),
+                    #[cfg(feature = "phobos")]
+                    briefing_at_start: false,
+                    #[cfg(feature = "phobos")]
+                    show_briefing: phobos_client.show_briefing,
+                    #[cfg(feature = "phobos")]
                     placement_preview_art: Default::default(),
                     #[cfg(feature = "phobos")]
                     sw_sidebar: crate::app::presentation::sw_sidebar::SwSidebarState {

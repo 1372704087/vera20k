@@ -960,17 +960,6 @@ pub struct ObjectType {
     /// (`InfantryClass_UpdatePosition_EngineerRepair @ 0x519FEC`).
     #[cfg(feature = "phobos")]
     pub phobos_engineer_repair_amount: i32,
-    /// Phobos `CrushOverlayExtraForwardTilt` (`Valueable<double>`, 0.02;
-    /// `Ext/UnitType/Body.h:57,120`): added to the forward rocking velocity
-    /// when crushing an overlay (`UnitClass_PerCellProcess_TiltWhenCrushes
-    /// @ 0x73B05B`).
-    #[cfg(feature = "phobos")]
-    pub phobos_crush_overlay_extra_forward_tilt: f64,
-    /// Phobos `DeployFireDelay` (`Nullable<int>`, unset;
-    /// `Ext/BuildingType/Body.cpp:309`, `Body.h:130`): a building's Unload
-    /// dispatch delay, replacing `RandomRanged(0, 2) + 14`.
-    #[cfg(feature = "phobos")]
-    pub phobos_deploy_fire_delay: Option<i32>,
     /// Phobos `LandingDir` (`Nullable<int>`, unset; `Ext/AircraftType/
     /// Body.cpp:28`, `Body.h:19`): the type's landing direction. An
     /// AirportBound aircraft always uses `value & 0xFF`; otherwise a
@@ -6533,11 +6522,6 @@ impl ObjectType {
                 }),
             #[cfg(feature = "phobos")]
             phobos_engineer_repair_amount: section.read_int("EngineerRepairAmount", 0),
-            #[cfg(feature = "phobos")]
-            phobos_crush_overlay_extra_forward_tilt: section
-                .read_double("CrushOverlayExtraForwardTilt", 0.02),
-            #[cfg(feature = "phobos")]
-            phobos_deploy_fire_delay: section.read_phobos_nullable_int("DeployFireDelay", None),
             #[cfg(feature = "phobos")]
             phobos_paradrop_mission: section
                 .read_string_with("ParadropMission", 2048, None, |current, value| {

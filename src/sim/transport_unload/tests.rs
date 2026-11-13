@@ -2842,9 +2842,18 @@ fn phobos_deploy_fire_delay_replaces_the_unload_epilogue_draw() {
          [REACTOR]\nStrength=500\nDeployFireDelay=7\n\
          [REACT2]\nStrength=500\n",
     );
-    let mut fx = Fixture::from_rules(rules, |_| false);
-    let reactor = fx.spawn("REACTOR", 10, 10, 0);
-    let react2 = fx.spawn("REACT2", 12, 10, 0);
+    let mut fx = Fixture::from_rules(rules, |_, _| false);
+    // The fixture's terrain carries no building foundation flags, so place the
+    // two probe buildings in limbo: the delay reader only needs the entity's
+    // type and the stock epilogue's RNG.
+    let reactor = fx
+        .sim
+        .spawn_object_limbo_at_height("REACTOR", OWNER, 10, 10, 0, 0, &fx.rules)
+        .expect("REACTOR constructs");
+    let react2 = fx
+        .sim
+        .spawn_object_limbo_at_height("REACT2", OWNER, 12, 10, 0, 0, &fx.rules)
+        .expect("REACT2 constructs");
     let before = fx.sim.scenario_rng.native_state_hex();
     assert_eq!(
         super::building_unload_delay(&mut fx.sim, &fx.rules, reactor),

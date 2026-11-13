@@ -73,11 +73,11 @@ impl Edge {
 /// `RandomRanged(-5, 5)` draws (`:95-109`), which [`Edge`]'s four values cannot
 /// express (RESIDUAL: such a type keeps its `Owner` pick).
 pub(crate) fn edge_for_mode(
-    mode: crate::rules::phobos_aircraft_edge::PhobosEdgeType,
+    mode: crate::rules::ini_value::PhobosEdgeType,
     owned: Edge,
     scenario_rng: &mut SimRng,
 ) -> Edge {
-    use crate::rules::phobos_aircraft_edge::PhobosEdgeType;
+    use crate::rules::ini_value::PhobosEdgeType;
     match mode {
         PhobosEdgeType::Random => {
             let index = scenario_rng.next_range_i32_inclusive(0, 3).max(0);

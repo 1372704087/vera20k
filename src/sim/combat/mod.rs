@@ -201,7 +201,6 @@ pub(crate) use attack_target::{object_distance_to, resolve_target_coords, target
 pub(crate) use combat_targeting::build_attacker_snapshot;
 pub(crate) use detonation_anim::projectile_impact_cell;
 pub(crate) use effects::DeathEffects;
-#[cfg(feature = "phobos")]
 pub(crate) use effects::combat_light_chance_admits;
 pub use effects::{
     CombatLightRequest, ExplosionEffect, ScreenShakeUpdate, SmudgeSpawnRequest,

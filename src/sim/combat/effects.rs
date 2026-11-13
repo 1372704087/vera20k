@@ -257,6 +257,15 @@ impl DeathEffects {
 /// that the original-execution fixtures compare against while changing no
 /// visible flash; a rule set that authors the key keeps native draw count and
 /// order.
+#[cfg(not(feature = "phobos"))]
+pub(crate) fn combat_light_chance_admits(
+    _world: &crate::sim::world::Simulation,
+    _rules: &crate::rules::ruleset::RuleSet,
+    _warhead: crate::sim::intern::InternedId,
+) -> bool {
+    true
+}
+
 #[cfg(feature = "phobos")]
 pub(crate) fn combat_light_chance_admits(
     sim: &crate::sim::world::Simulation,

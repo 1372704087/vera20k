@@ -11,6 +11,7 @@ use crate::map::resolved_terrain::NativeCellQuery;
 use crate::rules::ini_parser::IniFile;
 use crate::rules::ruleset::RuleSet;
 use crate::sim::aircraft::drop_payload::{OBSERVED, Observed, drop_payload};
+#[cfg(feature = "phobos")]
 use crate::sim::aircraft::paradrop_mission::paradrop_end_delay;
 use crate::sim::combat::TargetKind;
 use crate::sim::components::NavTargetRef;

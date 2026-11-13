@@ -130,6 +130,9 @@ pub(crate) struct MatchPresentationState {
     /// profile.
     #[cfg(feature = "phobos")]
     pub(crate) digital_display_enabled: bool,
+    /// Phobos `[Phobos] EnableSelectBox` from the imported client profile.
+    #[cfg(feature = "phobos")]
+    pub(crate) enable_select_box: bool,
     /// Phobos `[Phobos] ShowPlacementPreview` (source default true).
     #[cfg(feature = "phobos")]
     pub(crate) show_placement_preview: bool,

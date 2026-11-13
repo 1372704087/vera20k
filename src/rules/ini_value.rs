@@ -950,6 +950,50 @@ impl IniSection {
         self.read_phobos_nullable_with(key, current, parse_phobos_color)
     }
 
+    /// Phobos `Nullable<Vector3D<int>>` (`Utilities/TemplateDef.h:249-254`,
+    /// `read<CoordStruct>` -> `INI_EX::Read3Integers`, `Parser<int,3>`): the
+    /// nullable clearing tokens, then the same in-place `Read3Integers` scan
+    /// [`Self::read_phobos_nullable_int_pair`] uses. Only a read that converts
+    /// all three tokens sets the value; a partial read updates a value that is
+    /// already set (the `Nullable` keeps its presence).
+    #[cfg(feature = "phobos")]
+    pub fn read_phobos_nullable_vector3(
+        &self,
+        key: &str,
+        current: Option<[i32; 3]>,
+    ) -> Option<[i32; 3]> {
+        self.read_string_with(key, 2048, current, |current, raw| {
+            if raw.eq_ignore_ascii_case("<default>") || is_native_none_type_name(raw) {
+                return None;
+            }
+            let mut fields = current.unwrap_or_default();
+            let values = scan_partial_int_fields(raw, &mut fields);
+            (values == 3 || current.is_some()).then_some(fields)
+        })
+    }
+
+    /// Phobos `Damageable<ColorStruct>::Read` (`Utilities/TemplateDef.h:2227-2244`):
+    /// the base key then `<base>.ConditionYellow` and `<base>.ConditionRed`,
+    /// each retaining the current value when absent.
+    #[cfg(feature = "phobos")]
+    pub fn read_phobos_damageable_color(
+        &self,
+        base_key: &str,
+        current: PhobosDamageableColor,
+    ) -> PhobosDamageableColor {
+        PhobosDamageableColor {
+            base: self.read_phobos_color(base_key, current.base),
+            condition_yellow: self.read_phobos_nullable_color(
+                &format!("{base_key}.ConditionYellow"),
+                current.condition_yellow,
+            ),
+            condition_red: self.read_phobos_nullable_color(
+                &format!("{base_key}.ConditionRed"),
+                current.condition_red,
+            ),
+        }
+    }
+
     pub fn read_phobos_nullable_bool(&self, key: &str, current: Option<bool>) -> Option<bool> {
         self.read_phobos_nullable_with(key, current, read_bool_decision)
     }
@@ -2365,10 +2409,101 @@ fn leading_float_token(s: &str) -> Option<&str> {
     Some(&s[..end])
 }
 
+/// Phobos `Damageable<ColorStruct>` (`Utilities/Template.h:408-478`): a base
+/// color plus optional yellow/red health-band overrides. `Read` fills the base
+/// then `<base>.ConditionYellow`/`.ConditionRed`; `Get` picks the red override
+/// at or below the red threshold, then yellow, else the base.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash, serde::Serialize, serde::Deserialize)]
+pub struct PhobosDamageableColor {
+    pub base: [u8; 3],
+    pub condition_yellow: Option<[u8; 3]>,
+    pub condition_red: Option<[u8; 3]>,
+}
+
+impl Default for PhobosDamageableColor {
+    fn default() -> Self {
+        Self {
+            base: [0, 0, 0],
+            condition_yellow: None,
+            condition_red: None,
+        }
+    }
+}
+
+impl PhobosDamageableColor {
+    /// `Damageable<T>::Get` (`Utilities/Template.h:449-463`): a set red
+    /// override wins at or below `condition_red`, then a set yellow override at
+    /// or below `condition_yellow`, else the base color.
+    pub fn get(&self, ratio: f64, condition_yellow: f64, condition_red: f64) -> [u8; 3] {
+        if let Some(red) = self.condition_red
+            && ratio <= condition_red
+        {
+            return red;
+        }
+        if let Some(yellow) = self.condition_yellow
+            && ratio <= condition_yellow
+        {
+            return yellow;
+        }
+        self.base
+    }
+}
+
 #[cfg(test)]
 mod tests {
     use super::{crt_atoi, parse_leading_f32, strtok, truncate_native_bytes};
     use crate::rules::ini_parser::{IniFile, IniSection};
+
+    #[cfg(feature = "phobos")]
+    #[test]
+    fn phobos_nullable_vector3_reads_three_ints_and_clears_on_default() {
+        let ini = IniFile::from_str("[S]\nF=1,2,3\nP=4,5\nD=<default>\n");
+        let s = ini.section("S").expect("section");
+        assert_eq!(s.read_phobos_nullable_vector3("F", None), Some([1, 2, 3]));
+        assert_eq!(
+            s.read_phobos_nullable_vector3("P", Some([9, 9, 9])),
+            Some([4, 5, 9]),
+            "a partial scan updates the leading slots of a set value"
+        );
+        assert_eq!(
+            s.read_phobos_nullable_vector3("P", None),
+            None,
+            "a partial scan does not set an unset nullable"
+        );
+        assert_eq!(
+            s.read_phobos_nullable_vector3("D", Some([1, 1, 1])),
+            None,
+            "<default> clears the nullable"
+        );
+        assert_eq!(
+            s.read_phobos_nullable_vector3("Absent", Some([7, 7, 7])),
+            Some([7, 7, 7])
+        );
+    }
+
+    #[cfg(feature = "phobos")]
+    #[test]
+    fn phobos_damageable_color_reads_three_keys_and_picks_by_threshold() {
+        let ini = IniFile::from_str(
+            "[S]\nC=0,255,0\nC.ConditionYellow=255,255,0\nC.ConditionRed=255,0,0\n",
+        );
+        let s = ini.section("S").expect("section");
+        let color = s.read_phobos_damageable_color("C", super::PhobosDamageableColor::default());
+        assert_eq!(color.base, [0, 255, 0]);
+        assert_eq!(color.condition_yellow, Some([255, 255, 0]));
+        assert_eq!(color.condition_red, Some([255, 0, 0]));
+        assert_eq!(
+            color.get(1.0, 0.5, 0.25),
+            [0, 255, 0],
+            "healthy keeps the base"
+        );
+        assert_eq!(
+            color.get(0.5, 0.5, 0.25),
+            [255, 255, 0],
+            "at or below yellow"
+        );
+        assert_eq!(color.get(0.25, 0.5, 0.25), [255, 0, 0], "at or below red");
+    }
 
     #[cfg(feature = "ares")]
     #[test]

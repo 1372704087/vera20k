@@ -2503,6 +2503,10 @@ fn native_status_controls(fixture: &'static str, type_name: &str, category: Enti
                             group_text: 0..0,
                             digital_text: Vec::new(),
                             digital_shapes: Vec::new(),
+                            #[cfg(feature = "phobos")]
+                            select_box: None,
+                            #[cfg(feature = "phobos")]
+                            select_box_ground: None,
                             talk_bubble: None,
                             self_heal: None,
                         });

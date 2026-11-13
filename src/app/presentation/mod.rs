@@ -28,6 +28,8 @@ pub(crate) mod radial_indicators;
 pub(crate) mod radiation_beams;
 pub(crate) mod render;
 pub(crate) mod screen_shake;
+#[cfg(feature = "phobos")]
+pub(crate) mod select_box;
 pub(crate) mod selection_brackets;
 pub(crate) mod sidebar_build;
 pub(crate) mod sidebar_gadgets;

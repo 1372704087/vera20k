@@ -1069,6 +1069,8 @@ impl App {
                     #[cfg(feature = "phobos")]
                     digital_display_enabled: phobos_client.digital_display_enabled,
                     #[cfg(feature = "phobos")]
+                    enable_select_box: phobos_client.enable_select_box,
+                    #[cfg(feature = "phobos")]
                     show_placement_preview: phobos_client.show_placement_preview,
                     #[cfg(feature = "phobos")]
                     show_flash_on_selecting: phobos_client.show_flash_on_selecting,

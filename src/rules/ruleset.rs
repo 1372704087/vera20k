@@ -5062,6 +5062,13 @@ pub struct RuleSet {
     /// default lists and `DigitalDisplay.Health.FakeAtDisguise`.
     #[cfg(feature = "phobos")]
     pub(crate) digital_display_globals: crate::rules::digital_display::DigitalDisplayGlobals,
+    /// Phobos `[SelectBoxTypes]` catalog (`New/Type/SelectBoxTypeClass.cpp`).
+    #[cfg(feature = "phobos")]
+    pub(crate) select_box_types: crate::rules::select_box_type::SelectBoxTypeCatalog,
+    /// Phobos `[AudioVisual] DefaultInfantrySelectBox=` /
+    /// `DefaultUnitSelectBox=` (`Ext/Rules/Body.cpp:333-334`).
+    #[cfg(feature = "phobos")]
+    pub(crate) select_box_globals: crate::rules::select_box_type::SelectBoxGlobals,
     /// Phobos `[AttachEffectTypes]` catalog, retained across Rules passes.
     #[cfg(feature = "phobos")]
     pub(crate) attach_effect_types: crate::rules::attach_effect::AttachEffectTypeCatalog,
@@ -6981,6 +6988,11 @@ impl RuleSet {
             )
         };
         #[cfg(feature = "phobos")]
+        let select_box_types = crate::rules::select_box_type::SelectBoxTypeCatalog::from_ini(ini);
+        #[cfg(feature = "phobos")]
+        let select_box_globals =
+            crate::rules::select_box_type::SelectBoxGlobals::from_ini(ini, &select_box_types);
+        #[cfg(feature = "phobos")]
         let (attach_effect_types, attach_effect_globals) = {
             let attach_effect_types = processed.attach_effect_types().cloned().unwrap_or_default();
             log::info!(
@@ -7564,6 +7576,10 @@ impl RuleSet {
             digital_display_types,
             #[cfg(feature = "phobos")]
             digital_display_globals,
+            #[cfg(feature = "phobos")]
+            select_box_types,
+            #[cfg(feature = "phobos")]
+            select_box_globals,
             #[cfg(feature = "phobos")]
             attach_effect_types,
             #[cfg(feature = "phobos")]
@@ -8349,6 +8365,40 @@ impl RuleSet {
         &self.digital_display_types
     }
 
+    /// Phobos `[SelectBoxTypes]` catalog.
+    #[cfg(feature = "phobos")]
+    pub fn select_box_types(&self) -> &crate::rules::select_box_type::SelectBoxTypeCatalog {
+        &self.select_box_types
+    }
+
+    /// Phobos `[AudioVisual]` select-box defaults.
+    #[cfg(feature = "phobos")]
+    pub fn select_box_globals(&self) -> &crate::rules::select_box_type::SelectBoxGlobals {
+        &self.select_box_globals
+    }
+
+    /// `TechnoExt::DrawSelectBox`'s resolution (`Ext/Techno/Body.Visuals.cpp:340-345`):
+    /// the type's own `SelectBox=`, else the infantry default for infantry,
+    /// else the unit default for any non-building.
+    #[cfg(feature = "phobos")]
+    pub fn select_box_index_for(
+        &self,
+        object: &crate::rules::object_type::ObjectType,
+    ) -> Option<usize> {
+        let catalog = &self.select_box_types;
+        if let Some(name) = object.phobos_techno_extras.select_box.as_deref() {
+            return catalog.index_of(name);
+        }
+        let fallback = match object.category {
+            crate::rules::object_type::ObjectCategory::Infantry => {
+                self.select_box_globals.default_infantry.as_deref()
+            }
+            crate::rules::object_type::ObjectCategory::Building => None,
+            _ => self.select_box_globals.default_unit.as_deref(),
+        };
+        fallback.and_then(|name| catalog.index_of(name))
+    }
+
     /// Phobos `[AttachEffectTypes]` catalog.
     #[cfg(feature = "phobos")]
     pub fn attach_effect_types(&self) -> &crate::rules::attach_effect::AttachEffectTypeCatalog {
@@ -8858,6 +8908,21 @@ impl RuleSet {
             b"phobos-digital-display-v1".hash(&mut hasher);
             self.digital_display_types.hash(&mut hasher);
             self.digital_display_globals.hash(&mut hasher);
+            b"phobos-select-box-v1".hash(&mut hasher);
+            self.select_box_types.hash(&mut hasher);
+            self.select_box_globals.hash(&mut hasher);
+            // Bound techno `SelectBox=` / `HideSelectBox=`, in registry order.
+            self.object_list
+                .iter()
+                .map(|object| {
+                    (
+                        &object.id,
+                        object.phobos_techno_extras.select_box.as_deref(),
+                        object.phobos_techno_extras.hide_select_box,
+                    )
+                })
+                .collect::<Vec<_>>()
+                .hash(&mut hasher);
             b"phobos-placement-preview-v1".hash(&mut hasher);
             self.placement_preview_globals.hash(&mut hasher);
             b"phobos-skirmish-colors-v1".hash(&mut hasher);

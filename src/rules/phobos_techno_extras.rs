@@ -64,7 +64,7 @@
 use crate::rules::ini_parser::IniSection;
 use crate::rules::phobos_shields::AffectedHouse;
 
-/// The twenty-three `TechnoTypeExt` keys owned here.
+/// The twenty-five `TechnoTypeExt` keys owned here.
 #[derive(Debug, Clone, PartialEq)]
 pub struct PhobosTechnoExtras {
     /// `RadarJamHouses=` (`:780`), `Nullable`: which Houses a
@@ -152,6 +152,14 @@ pub struct PhobosTechnoExtras {
     /// weapon-range multiplier at veteran rank and above, on top of the
     /// hard-coded `VeteranAbilities` range bonus.
     pub veteran_range: Option<f64>,
+    /// `SelectBox=` (`Ext/TechnoType/Body.cpp:999`,
+    /// `Nullable<SelectBoxTypeClass*>`, ctor `Body.h:663`): the
+    /// `[SelectBoxTypes]` entry a selected object draws.
+    pub select_box: Option<String>,
+    /// `HideSelectBox=` (`Ext/TechnoType/Body.cpp:1000`,
+    /// `Valueable<bool>`, ctor `Body.h:664`): suppresses the custom select
+    /// box for every object of this type.
+    pub hide_select_box: bool,
 }
 
 /// Phobos `TargetZoneScanType` (`Utilities/Enum.h:251-256`).
@@ -211,6 +219,8 @@ impl Default for PhobosTechnoExtras {
             subterranean_speed: -1,
             subterranean_height: None,
             veteran_range: None,
+            select_box: None,
+            hide_select_box: false,
         }
     }
 }
@@ -282,6 +292,11 @@ impl PhobosTechnoExtras {
             ),
             subterranean_height: section.read_phobos_nullable_int("SubterraneanHeight", None),
             veteran_range: section.read_phobos_nullable_double("VeteranRange", None),
+            // `Nullable<SelectBoxTypeClass*>::Read<false,false>` clears on the
+            // nullable tokens; a catalog lookup happens at draw time.
+            select_box: section
+                .read_phobos_nullable_with("SelectBox", None, |raw| Some(raw.to_owned())),
+            hide_select_box: section.read_bool("HideSelectBox", false),
         }
     }
 

@@ -123,6 +123,8 @@ pub mod building_select_bracket;
 pub mod digital_display;
 pub mod insignia_type;
 #[cfg(feature = "phobos")]
+pub mod select_box_type;
+#[cfg(feature = "phobos")]
 pub mod invulnerability_rules;
 #[cfg(feature = "phobos")]
 pub mod phobos_adjacent;

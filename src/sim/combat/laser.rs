@@ -316,15 +316,14 @@ pub(crate) fn create<'w>(
                 ),
             )
         };
-    // Phobos `TechnoClass_LaserZap_ZAdjust` (`0x6FD3FD`,
-    // `Misc/Hooks.LaserDraw.cpp:51-58`): the weapon's LaserZAdjust else
-    // `[AudioVisual] LaserZAdjust` adds to the native zAdjust.
+    // Phobos `Misc/Hooks.LaserDraw.cpp:49-57`: the draw adds
+    // `LaserZAdjust.Get(RulesExt::Global()->LaserZAdjust)`. VERA stores that
+    // value on the beam, which is the same depth the draw reads.
     #[cfg(feature = "phobos")]
-    let z_adjust = z_adjust.wrapping_add(
-        weapon
-            .phobos_laser_z_adjust
-            .unwrap_or(rules.phobos_globals.laser_z_adjust),
-    );
+    let z_adjust = z_adjust.wrapping_add(crate::rules::phobos_beam_z_adjust::resolved(
+        weapon.phobos_laser_z_adjust,
+        rules.phobos_beam_z_adjust.laser,
+    ));
     let to = super::fire_coord::effect_target_coordinate(world, rules, target)?;
     #[cfg(feature = "phobos")]
     let (follow, stop_on_firer_convert) = (

@@ -199,6 +199,8 @@ pub mod phobos_hover_drown;
 mod phobos_infantry_deploy_tests;
 #[cfg(feature = "phobos")]
 pub mod phobos_interceptor;
+#[cfg(feature = "phobos")]
+pub mod phobos_beam_z_adjust;
 pub mod phobos_jumpjet_tilt;
 #[cfg(feature = "phobos")]
 pub mod phobos_keep_target;

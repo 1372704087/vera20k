@@ -207,7 +207,10 @@ pub(crate) fn create_effect(
     weapon: &crate::rules::weapon_type::WeaponType,
     owner: Option<ElectricBoltOwner>,
 ) {
-    emit(world, rules, from, to, 0, weapon, owner, false);
+    // The birth (`emit`) adds `EBoltZAdjust` once; a simulated bolt starts
+    // from zero depth (`Ext/Bullet/Body.cpp:268-280`).
+    let z_adjust = 0;
+    emit(world, rules, from, to, z_adjust, weapon, owner, false);
 }
 
 /// `ares_ext` is whether the bolt carries the weapon's Ares WeaponTypeExt.
@@ -227,11 +230,10 @@ fn emit(
     // EBoltZAdjust else `[AudioVisual] EBoltZAdjust` adds to the bolt's
     // zAdjust before the birth is retained.
     #[cfg(feature = "phobos")]
-    let z_adjust = z_adjust.wrapping_add(
-        weapon
-            .phobos_ebolt_z_adjust
-            .unwrap_or(rules.phobos_globals.ebolt_z_adjust),
-    );
+    let z_adjust = z_adjust.wrapping_add(crate::rules::phobos_beam_z_adjust::resolved(
+        weapon.phobos_ebolt_z_adjust,
+        rules.phobos_beam_z_adjust.ebolt,
+    ));
     #[cfg(feature = "ares")]
     let visuals = ares_ext.then_some(&weapon.ares_visuals);
     #[cfg(not(feature = "ares"))]

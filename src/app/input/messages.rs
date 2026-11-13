@@ -1113,12 +1113,48 @@ pub(crate) fn update(state: &mut AppState, main_tick_admitted: bool) -> Option<u
     }
     sync_view(state);
     let now = message_now_ms(state);
-    state
+    // Phobos `MainLoop_FrameStep_NewMessageListManage` (`0x55DDA0`,
+    // `Misc/MessageColumn.cpp:1078-1085`): `OnOldMessages` holds
+    // `MessageListClass::Manage`, so the label stack stops expiring while
+    // the pointer rests on it.
+    #[cfg(feature = "phobos")]
+    let on_old_messages = mouse_over_message_lists(state);
+    #[cfg(not(feature = "phobos"))]
+    let on_old_messages = false;
+    if !on_old_messages {
+        state
+            .match_state
+            .match_presentation
+            .message_list
+            .manage(now);
+    }
+    Some(now)
+}
+
+/// Phobos `MouseOverMessageLists` through `0x4F43BE
+/// GScreenClass_GetInputAndUpdate_CheckHoverState`
+/// (`Misc/MessageColumn.cpp:1057-1060, 1043-1056`): with
+/// `MessageApplyHoverState` on, the pointer above the label stack's bottom
+/// (list top + a line per label, the open edit included, +2) holds
+/// `OnOldMessages`; the switch off keeps it false. The cursor is already in
+/// the match frame's pixels, the space the stack's geometry uses. The
+/// MessageColumn scroll-board arms (`:291`, `:1106`) are its only other
+/// consumers and have no VERA owner; see the settings residual.
+#[cfg(feature = "phobos")]
+fn mouse_over_message_lists(state: &AppState) -> bool {
+    if !state
         .match_state
         .match_presentation
-        .message_list
-        .manage(now);
-    Some(now)
+        .message_apply_hover_state
+    {
+        return false;
+    }
+    let list = &state.match_state.match_presentation.message_list;
+    if list.messages().is_empty() && list.edit_line().is_none() {
+        return false;
+    }
+    let (_, cursor_y) = state.cursor_position();
+    (cursor_y as i32) < list.hover_bottom_frame_y() + 2
 }
 
 /// A hold created by an already-admitted Logic cannot revoke this pass's

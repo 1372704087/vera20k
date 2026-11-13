@@ -59,6 +59,116 @@ pub(crate) struct TimerLine {
     pub(crate) seconds: i32,
 }
 
+/// The clock a timer line's seconds come from. Stock native divides the
+/// frames it prints by 15 (`0x88888889`, `sar 3`); Phobos
+/// `PrintTimerOnTactical_Start` (`0x006D4B50`, `Misc/Hooks.Timers.cpp:12-90`)
+/// replaces that dividend with a wall-clock one.
+#[derive(Debug, Clone, Copy, PartialEq)]
+pub(crate) struct TimerClock {
+    /// Phobos `[Phobos] RealTimeTimers=` (`Phobos.INI.cpp:102`).
+    pub real_time: bool,
+    /// Phobos `[Phobos] RealTimeTimers.Adaptive=` (`Phobos.INI.cpp:103`).
+    pub adaptive: bool,
+    /// `GameOptionsClass::Instance.GameSpeed`: the engine speed index, 0..=6.
+    pub game_speed: i32,
+    /// `SessionClass::IsMultiplayer()` (`0x006D4B50`'s `SessionClass::IsMultiplayer`).
+    pub multiplayer: bool,
+    /// Phobos `Phobos::Misc::CustomGS`. VERA has no custom game speed, so every
+    /// caller passes `false`; the `[Phobos]` custom-speed feature is not ported.
+    pub custom_game_speed: bool,
+    /// `FPSCounter::CurrentFrameRate`'s stand-in, the adaptive path's divisor
+    /// base. VERA publishes the Logic rate at `ABCD44`, not a rendered-frame
+    /// counter, so adaptive seconds follow the sim's measured rate.
+    pub frame_rate: f64,
+}
+
+impl TimerClock {
+    /// The stock clock: no Phobos switch, so `frames / 15`.
+    pub(crate) const STOCK: Self = Self {
+        real_time: false,
+        adaptive: false,
+        game_speed: 4,
+        multiplayer: false,
+        custom_game_speed: false,
+        frame_rate: 15.0,
+    };
+}
+
+/// `0x006D4B50`'s time in seconds from the frames it prints, with Phobos'
+/// dividend (`Misc/Hooks.Timers.cpp:12-90`). The stock path divides by 15
+/// (`0x88888889`, `sar 3`); the Phobos path first replaces the dividend, then
+/// the native tail divides that by 15 again, which is why both truncations
+/// stay.
+fn timer_seconds(frames: i32, clock: &TimerClock) -> i32 {
+    if !clock.real_time {
+        return frames / FRAMES_PER_SECOND;
+    }
+    let is_mp = clock.multiplayer;
+    // `Misc/Hooks.Timers.cpp:22-31`: adaptive, unlimited SP speed and custom
+    // speed all scale by the measured frame rate (`max(rate, 1) / 15`).
+    let scaled = if clock.adaptive
+        || (!is_mp && clock.game_speed == 0)
+        || (clock.custom_game_speed && !is_mp)
+    {
+        (f64::from(frames) / (clock.frame_rate.max(1.0) / 15.0)) as i32
+    } else if is_mp {
+        // `:40-73`: multiplayer speed indices 0..=6 are 60/45/30/20/15/12/10.
+        match clock.game_speed {
+            0 => frames / 4,
+            1 => frames / 3,
+            2 => frames / 2,
+            3 => (frames * 3) / 4,
+            4 => frames,
+            5 => (frames * 5) / 4,
+            6 => (frames * 3) / 2,
+            _ => frames,
+        }
+    } else {
+        // `:77-99`: SP/skirmish indices 1..=6 are 60/30/20/15/12/10; index 0
+        // took the adaptive arm above.
+        match clock.game_speed {
+            1 => frames / 4,
+            2 => frames / 2,
+            3 => (frames * 3) / 4,
+            4 => frames,
+            5 => (frames * 5) / 4,
+            6 => (frames * 3) / 2,
+            _ => frames,
+        }
+    };
+    scaled / FRAMES_PER_SECOND
+}
+
+/// The clock for this frame's timer lines: the `[Phobos]` switches, the
+/// engine speed index, the session's mode and the published frame rate.
+fn timer_clock(state: &AppState, sim: &crate::sim::world::Simulation) -> TimerClock {
+    #[cfg(feature = "phobos")]
+    let (real_time, adaptive) = {
+        let presentation = &state.match_state.match_presentation;
+        (
+            presentation.real_time_timers,
+            presentation.real_time_timers_adaptive,
+        )
+    };
+    #[cfg(not(feature = "phobos"))]
+    let (real_time, adaptive) = (false, false);
+    TimerClock {
+        real_time,
+        adaptive,
+        game_speed: sim.session().game_options().game_speed,
+        multiplayer: sim.session().multiplayer_mode_class().is_some(),
+        custom_game_speed: false,
+        frame_rate: f64::from(
+            state
+                .match_state
+                .match_presentation
+                .detail
+                .borrow()
+                .frame_rate(),
+        ),
+    }
+}
+
 /// TacticalClass::Draw's timer lines from the bottom up
 /// (`0x006D4941..0x006D4B25`): the Scenario timer while it runs
 /// (`scenario_left`, None while its start is -1), each Super of the list in
@@ -70,10 +180,11 @@ pub(crate) fn timer_lines(
     supers: &[SuperTimerView],
     blackouts: impl IntoIterator<Item = (InternedId, i32)>,
     campaign: bool,
+    clock: &TimerClock,
 ) -> Vec<TimerLine> {
     let line = |source, frames: i32| TimerLine {
         source,
-        seconds: frames / FRAMES_PER_SECOND,
+        seconds: timer_seconds(frames, clock),
     };
     let scenario = scenario_left.map(|left| line(TimerSource::Scenario, left));
     let supers = supers
@@ -401,11 +512,13 @@ pub(crate) fn build_super_timer_instances(
         (house, left)
     });
     let scenario = sim.session().scenario_timer_view();
+    let clock = timer_clock(state, sim);
     let lines = timer_lines(
         scenario.map(|(left, _)| left),
         &supers,
         blackouts,
         !sim.session().game_mode_nonzero(),
+        &clock,
     );
     if lines.is_empty() {
         return (Vec::new(), Vec::new());

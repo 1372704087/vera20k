@@ -69,6 +69,7 @@ fn the_lines_match_native() {
             &views,
             blackouts,
             int(&row["game_mode"]) == 0,
+            &TimerClock::STOCK,
         );
 
         // The fixture's labels: the Scenario's "Mission", each Super's name
@@ -313,4 +314,111 @@ fn sixty_supers_fold_page_and_shrink_without_losing_local_or_mission_rows() {
     assert!(end.contains(&DockRow::Line(58)));
     dock.rows(&lines[..7], Some(house(0)), [800, 600], 12);
     assert!(!dock.expanded && dock.offset == 0 && dock.toggle_rect().is_none());
+}
+
+/// Phobos `PrintTimerOnTactical_Start` (`0x006D4B50`, `Misc/Hooks.Timers.cpp:12-90`):
+/// the printed dividend stops being the stock `frames / 15` and becomes a
+/// wall-clock one, chosen by the `[Phobos]` switches and the engine speed.
+#[test]
+fn real_time_timers_scale_the_printed_dividend() {
+    let view = |frames: i32| {
+        timer_lines(
+            Some(frames),
+            &[],
+            std::iter::empty::<(InternedId, i32)>(),
+            false,
+            &TimerClock::STOCK,
+        )[0]
+        .seconds
+    };
+    assert_eq!(view(900), 60, "stock: frames over 15");
+
+    let clock = |game_speed, multiplayer| TimerClock {
+        real_time: true,
+        adaptive: false,
+        game_speed,
+        multiplayer,
+        custom_game_speed: false,
+        frame_rate: 15.0,
+    };
+    // Multiplayer indices 0..=6 are 60/45/30/20/15/12/10 frames a second, so
+    // 900 frames are 15/20/30/45/60/75/90 seconds. `:40-73`.
+    for (speed, seconds) in [
+        (0, 15),
+        (1, 20),
+        (2, 30),
+        (3, 45),
+        (4, 60),
+        (5, 75),
+        (6, 90),
+    ] {
+        let line = timer_lines(
+            Some(900),
+            &[],
+            std::iter::empty::<(InternedId, i32)>(),
+            false,
+            &clock(speed, true),
+        )[0];
+        assert_eq!(line.seconds, seconds, "multiplayer speed {speed}");
+    }
+    // SP/skirmish indices 1..=6 are 60/30/20/15/12/10; `:77-99`.
+    for (speed, seconds) in [(1, 15), (2, 30), (3, 45), (4, 60), (5, 75), (6, 90)] {
+        let line = timer_lines(
+            Some(900),
+            &[],
+            std::iter::empty::<(InternedId, i32)>(),
+            false,
+            &clock(speed, false),
+        )[0];
+        assert_eq!(line.seconds, seconds, "single-player speed {speed}");
+    }
+
+    // `:22-31`: adaptive (or unlimited SP speed 0) divides by
+    // `max(rate, 1) / 15`, so a 60 fps engine turns 900 frames into 15 s.
+    let adaptive = TimerClock {
+        real_time: true,
+        adaptive: true,
+        game_speed: 4,
+        multiplayer: false,
+        custom_game_speed: false,
+        frame_rate: 60.0,
+    };
+    let line = timer_lines(
+        Some(900),
+        &[],
+        std::iter::empty::<(InternedId, i32)>(),
+        false,
+        &adaptive,
+    )[0];
+    assert_eq!(line.seconds, 15);
+    // The native tail divides by 15 again after the scaled dividend truncates,
+    // so a rate that does not divide evenly keeps both truncations.
+    let odd = TimerClock {
+        frame_rate: 20.0,
+        ..adaptive
+    };
+    let line = timer_lines(
+        Some(45),
+        &[],
+        std::iter::empty::<(InternedId, i32)>(),
+        false,
+        &odd,
+    )[0];
+    assert_eq!(line.seconds, 2, "45 frames at 20 fps is 2 s, not 2.25");
+    // Unlimited single-player speed 0 takes the same adaptive arm.
+    let unlimited = TimerClock {
+        adaptive: false,
+        game_speed: 0,
+        multiplayer: false,
+        frame_rate: 60.0,
+        ..adaptive
+    };
+    let line = timer_lines(
+        Some(900),
+        &[],
+        std::iter::empty::<(InternedId, i32)>(),
+        false,
+        &unlimited,
+    )[0];
+    assert_eq!(line.seconds, 15);
 }

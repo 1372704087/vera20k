@@ -200,6 +200,21 @@ pub(crate) struct MatchPresentationState {
     /// (`Misc/Selection.cpp:169`, `:92`).
     #[cfg(feature = "phobos")]
     pub(crate) priority_selection_filtering: bool,
+    /// Phobos `[Phobos] RealTimeTimers=` (source default `no`): the tactical
+    /// timer lines print wall-clock seconds (`PrintTimerOnTactical_Start`
+    /// at `0x006D4B50`).
+    #[cfg(feature = "phobos")]
+    pub(crate) real_time_timers: bool,
+    /// Phobos `[Phobos] MessageApplyHoverState=` (source default `no`): the
+    /// pointer over the message stack holds `OnOldMessages`, which stops
+    /// `MessageListClass::Manage` expiring the labels (`0x55DDA0`).
+    #[cfg(feature = "phobos")]
+    pub(crate) message_apply_hover_state: bool,
+    /// Phobos `[Phobos] RealTimeTimers.Adaptive=` (source default `no`): the
+    /// wall-clock divisor follows the measured frame rate instead of the
+    /// GameSpeed table.
+    #[cfg(feature = "phobos")]
+    pub(crate) real_time_timers_adaptive: bool,
     /// Phobos placement preview SHP cache for the current placing type.
     #[cfg(feature = "phobos")]
     pub(crate) placement_preview_art:

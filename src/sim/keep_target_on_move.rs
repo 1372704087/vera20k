@@ -84,7 +84,6 @@ pub(crate) fn is_close_enough_with_weapon(
 ) -> bool {
     in_range_with(sim, id, target, rules, registry, weapon_index, 0)
 }
-
 /// `IsCloseEnoughToAttack @ 0x6F7780` (`CanFireAtTarget`): the selected
 /// weapon with no key overrides. The Move-order hook uses this plain form.
 #[cfg(feature = "phobos")]

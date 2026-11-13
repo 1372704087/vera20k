@@ -316,6 +316,15 @@ pub(crate) fn create<'w>(
                 ),
             )
         };
+    // Phobos `TechnoClass_LaserZap_ZAdjust` (`0x6FD3FD`,
+    // `Misc/Hooks.LaserDraw.cpp:51-58`): the weapon's LaserZAdjust else
+    // `[AudioVisual] LaserZAdjust` adds to the native zAdjust.
+    #[cfg(feature = "phobos")]
+    let z_adjust = z_adjust.wrapping_add(
+        weapon
+            .phobos_laser_z_adjust
+            .unwrap_or(rules.phobos_globals.laser_z_adjust),
+    );
     let to = super::fire_coord::effect_target_coordinate(world, rules, target)?;
     #[cfg(feature = "phobos")]
     let (follow, stop_on_firer_convert) = (

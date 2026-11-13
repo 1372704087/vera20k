@@ -90,14 +90,20 @@ fn assert_rng(sim: &Simulation, expected: &Value, name: &str) {
 fn controlled_rules(retail: &RetailBattleRules, input: &Value) -> RuleSet {
     let mut ini = (*retail.processed_rules).clone();
     let mut art = (*retail.fixed_art).clone();
+    let ebolt_z = input["ebolt_z_adjust"]
+        .as_i64()
+        .map_or_else(String::new, |value| format!("EBoltZAdjust={value}\n"));
     let mut controls = format!(
-        "[CoilBolt]\nIsLaser={}\nIsElectricBolt={}\nIsAlternateColor={}\n\
+        "[CoilBolt]\nIsLaser={}\nIsElectricBolt={}\nIsAlternateColor={}\n{ebolt_z}\
          [TESLA]\nTurretCount={}\n",
         input["is_laser"].as_bool().unwrap(),
         input["is_electric_bolt"].as_bool().unwrap(),
         input["alternate"].as_bool().unwrap(),
         int(&input["selector_turret_count"]),
     );
+    if let Some(global) = input["global_ebolt_z_adjust"].as_i64() {
+        controls.push_str(&format!("[AudioVisual]\nEBoltZAdjust={global}\n"));
+    }
     if input["secondary_weapon_present"] == true {
         controls.push_str(&format!(
             "WeaponCount=2\nWeapon1=CoilBolt\nWeapon2=OPCoilBolt\n\
@@ -376,6 +382,58 @@ fn direct_bolt_uses_explicit_weapon_source_and_existing_rng_constructor() {
         int(&spark["birth"]["state"]["systems"][0]["native_id"])
     );
     assert_eq!(systems[0].1.coords().to_array(), xyz(&expected["target"]));
+}
+
+/// Phobos `EBolt_Draw` (`Ext/EBolt/Hooks.cpp:215`): the weapon's
+/// `EBoltZAdjust=` else `[AudioVisual] EBoltZAdjust` adds to the retained
+/// bolt zAdjust.
+#[cfg(feature = "phobos")]
+#[test]
+fn ebolt_z_adjust_adds_the_weapon_value_else_the_global() {
+    let Some(retail) = retail_battle_rules_for_map("XMP03T4.MAP") else {
+        return;
+    };
+    let row = ordinary_birth();
+    let base_input = row["input"].clone();
+    let z = |weapon: Option<i64>, global: Option<i64>| {
+        let mut input = base_input.clone();
+        input["is_laser"] = Value::Bool(true);
+        if let Some(value) = weapon {
+            input["ebolt_z_adjust"] = json!(value);
+        }
+        if let Some(value) = global {
+            input["global_ebolt_z_adjust"] = json!(value);
+        }
+        let rules = controlled_rules(&retail, &input);
+        let (mut sim, source, target) = scene(&rules, &input);
+        let expected = &row["bolts"][0];
+        let from = coord(&expected["source"]);
+        electric_bolt::create(
+            &mut sim,
+            &rules,
+            source,
+            crate::sim::projectile::ProjectileTarget::Entity(target),
+            rules.weapon("CoilBolt").unwrap(),
+            from,
+            None,
+            false,
+        );
+        sim.lifecycle_outputs
+            .iter()
+            .find_map(|output| match output {
+                LifecycleOutput::ElectricBoltCreated(birth) => Some(birth.z_adjust),
+                _ => None,
+            })
+            .expect("the admitted bolt retains a birth")
+    };
+    let base = z(None, None);
+    assert_eq!(z(Some(10), None), base + 10);
+    assert_eq!(z(None, Some(5)), base + 5);
+    assert_eq!(
+        z(Some(10), Some(5)),
+        base + 10,
+        "the weapon key overrides the global"
+    );
 }
 
 #[test]

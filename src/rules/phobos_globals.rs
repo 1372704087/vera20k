@@ -295,6 +295,13 @@ pub struct PhobosGlobals {
     /// `[AudioVisual] DrainMoneyDisplay.Houses=`, default `All`
     /// (`Ext/Rules/Body.h:730`): the label's House filter.
     pub drain_money_display_houses: AffectedHouse,
+    /// `[AudioVisual] LaserZAdjust=`, default 0 (`Ext/Rules/Body.cpp:277`):
+    /// the fallback for a weapon's `LaserZAdjust=` (`Misc/Hooks.LaserDraw.cpp:51-58`).
+    #[serde(default)]
+    pub laser_z_adjust: i32,
+    /// `[AudioVisual] EBoltZAdjust=`, default 0 (`Ext/Rules/Body.cpp:278`).
+    #[serde(default)]
+    pub ebolt_z_adjust: i32,
     /// `[AudioVisual] DrainMoneyDisplay.OnTarget=`, default `no`
     /// (`Ext/Rules/Body.h:731`): the drained object's own label.
     pub drain_money_display_on_target: bool,
@@ -1115,6 +1122,8 @@ impl Default for PhobosGlobals {
     fn default() -> Self {
         Self {
             shrapnel_affects_ground: false,
+            laser_z_adjust: 0,
+            ebolt_z_adjust: 0,
             shrapnel_affects_buildings: false,
             auto_death_technos_exist_allow_limboed: false,
             auto_death_technos_dont_exist_allow_limboed: false,
@@ -1341,6 +1350,8 @@ impl PhobosGlobals {
             .read_phobos_nullable_int("PoseDir.Production", globals.pose_dir_production);
         globals.pose_dir_field =
             audio_visual.read_phobos_nullable_int("PoseDir.Field", globals.pose_dir_field);
+        globals.laser_z_adjust = audio_visual.read_int("LaserZAdjust", globals.laser_z_adjust);
+        globals.ebolt_z_adjust = audio_visual.read_int("EBoltZAdjust", globals.ebolt_z_adjust);
         globals.drain_money_display_houses = crate::rules::phobos_shields::read_affected_house(
             audio_visual,
             "DrainMoneyDisplay.Houses",

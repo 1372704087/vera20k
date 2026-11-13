@@ -68,17 +68,23 @@ caller's team removal, target clear and Hunt arm
 
 - `src/rules/phobos_stacking_mode.rs` — `every_mode_combines_like_calc_value_with_stacking_mode`
   (all modes plus the wrap/clamp/divide-by-zero boundaries),
-  `the_global_key_reads_case_insensitively_and_keeps_on_rejection` and
-  `the_warhead_key_is_nullable_and_override_needs_a_prior_value`.
+  `the_global_key_reads_case_insensitively_and_keeps_on_rejection`,
+  `the_warhead_key_is_nullable_and_override_needs_a_prior_value` and
+  `ordered_layers_fold_like_the_native_readers` (add → rejected keeps add;
+  add → `override` replaces it; `<default>` clears only the nullable key).
 - `src/sim/combat/combat_aoe.rs` —
   `psychedelic_stacking_combines_the_time_and_stops_a_non_positive_one`: two
   gas hits stack `100 + 100` under the global `add`; a `subtract` warhead
   overrides it and StopBerzerk leaves a fresh target's flag clear, its target
   set and no Hunt; on an already-berserk target the flag stays and the next
   countdown clears the expired time.
+- `src/sim/combat/combat_tests.rs` —
+  `stop_berzerk_leaves_a_team_member_where_a_positive_stack_liberates_it`: a
+  team-member victim is liberated by a positive stack and stays in its team
+  when StopBerzerk skips the removal.
 
-The flag write, the warhead-over-global resolution and the caller's
-`starts_berserk` gate were each mutated red and restored.
+The flag write, the warhead-over-global resolution, the team liberation and
+the caller's `starts_berserk` gate were each mutated red and restored.
 
 ## Residuals
 

@@ -1630,6 +1630,95 @@ fn retail_gassed_infantry_drops_its_fire_and_path() {
     );
 }
 
+/// Phobos' `StopBerzerk` (`0x701DBA`) versus the stock arm's team removal
+/// (`0x00701D96`): a positive combined time liberates the victim from its
+/// team through the receiver's starts-berserk gate; a non-positive one
+/// leaves membership untouched.
+#[cfg(feature = "phobos")]
+#[test]
+fn stop_berzerk_leaves_a_team_member_where_a_positive_stack_liberates_it() {
+    use crate::rules::ini_parser::IniFile;
+    use crate::rules::team_ai_ini::TeamAiIniRegistry;
+    use crate::sim::team_script_vm::TeamScriptVm;
+
+    let ini = IniFile::from_str(
+        "[CombatDamage]\nPsychedelic.StackingMode=add\n\
+         [VehicleTypes]\n0=CAOS\n1=TARGET\n\
+         [Warheads]\n0=PsychGas\n1=PsychGasSub\n\
+         [CAOS]\nStrength=100\nArmor=heavy\n\
+         [TARGET]\nStrength=1000\nArmor=heavy\nImmuneToPsionics=no\n\
+         [PsychGas]\nCellSpread=0\nPercentAtMax=1\nPsychedelic=yes\n\
+         Verses=100%,100%,100%,100%,100%,100%,100%,100%,100%,100%,100%\n\
+         [PsychGasSub]\nCellSpread=0\nPercentAtMax=1\nPsychedelic=yes\n\
+         Psychedelic.StackingMode=subtract\n\
+         Verses=100%,100%,100%,100%,100%,100%,100%,100%,100%,100%,100%\n",
+    );
+    let rules = RuleSet::from_ini(&ini).expect("Psychedelic team fixture");
+    let member_after = |warhead: &str, damage: i32| {
+        let mut sim = Simulation::with_seed(0x5CA7);
+        crate::sim::arena_fixture::flat_ground(&mut sim, &rules);
+        let soviet = sim.interner.intern("SovietHouse");
+        let yuri = sim.interner.intern("YuriHouse");
+        for house in [soviet, yuri] {
+            sim.houses
+                .get_or_register_for_test(house, || HouseState::new(house, 0, None, false, 0, 10));
+        }
+        let victim = sim
+            .spawn_object("TARGET", "SovietHouse", 10, 10, 0, &rules)
+            .expect("victim");
+        let source = sim
+            .spawn_object("CAOS", "YuriHouse", 14, 10, 0, &rules)
+            .expect("source");
+        let aimd = IniFile::from_str(
+            "[TeamTypes]\n0=TEAM\n[TEAM]\nScript=GUARD\nTaskForce=TANK\n\
+             [ScriptTypes]\n0=GUARD\n[GUARD]\n0=0,0\n\
+             [TaskForces]\n0=TANK\n[TANK]\n0=1,TARGET\n",
+        );
+        let team_registry = TeamAiIniRegistry::from_sources(&aimd, &IniFile::from_str(""), true);
+        let (vm, diagnostics) =
+            TeamScriptVm::from_ini_registry(&team_registry, &mut sim.interner, &rules);
+        assert!(diagnostics.is_empty(), "{diagnostics:?}");
+        sim.team_script_vm = vm;
+        let team_type = sim.interner.get("TEAM").expect("team type");
+        let team = sim
+            .create_team(team_type, Some(soviet), &rules)
+            .expect("team");
+        assert!(sim.team_add_member(
+            team,
+            victim,
+            false,
+            &rules,
+            None,
+            crate::sim::world::FrameEffects::default()
+        ));
+        let warhead_ref = sim.interner.intern(warhead);
+        crate::sim::combat::world_receiver::commit_entities(
+            &mut sim,
+            &mut crate::sim::combat::world_receiver::ReceiverRun::default(),
+            &[EntityDamageEvent::area(
+                victim,
+                damage,
+                0,
+                source,
+                Some(yuri),
+                warhead_ref,
+            )],
+            None,
+            &rules,
+            None,
+        );
+        sim.team_script_vm.team_for_member(victim).is_some()
+    };
+    assert!(
+        !member_after("PsychGas", 100),
+        "a positive stack liberates the target"
+    );
+    assert!(
+        member_after("PsychGasSub", 300),
+        "StopBerzerk leaves it in its team"
+    );
+}
+
 /// Through the frame's object AI: a berserk computer GI's time runs down one
 /// per frame (`0x006F9F0D`), and in the frame it ends the GI calms down and
 /// queues Hunt.
@@ -1775,12 +1864,8 @@ fn retail_berserk_gi_shoots_its_own_house() {
         .spawn_object("E1", "Russians", 12, 10, 0, &rules)
         .unwrap();
     let strength = rules.object("E1").unwrap().strength;
-    sim.substrate
-        .entities
-        .get_mut(gi)
-        .unwrap()
-        .berserk
-        .start(900);
+    sim.substrate.entities.get_mut(gi).unwrap().berserk =
+        crate::sim::combat::BerserkState::for_test(true, 900);
     let _ = sim.mission_queue_exact(
         gi,
         MissionId::from_known(MissionType::Hunt),

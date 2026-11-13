@@ -206,4 +206,52 @@ mod tests {
         assert_eq!(warhead("override"), None, "the template rejects override");
         assert_eq!(warhead("bogus"), None);
     }
+
+    /// Ordered rules layers fold per key like the native per-pass reads: a
+    /// rejected later token keeps the earlier accepted value, `override`
+    /// after an accepted value replaces it, and `<default>` clears only the
+    /// `Nullable` warhead key (the `Valueable` global has no reset arm).
+    #[test]
+    fn ordered_layers_fold_like_the_native_readers() {
+        let mut ini = IniFile::from_str("");
+        ini.merge_rules_projection(&IniFile::from_str(
+            "[CombatDamage]\nPsychedelic.StackingMode=add\n\
+             [WH]\nPsychedelic=yes\nPsychedelic.StackingMode=add\n",
+        ));
+        let read = |ini: &IniFile| {
+            (
+                CombatDamageDefaults::from_ini_section(ini.section("CombatDamage").unwrap())
+                    .phobos_psychedelic_stacking_mode,
+                WarheadType::from_ini_section("WH", ini.section("WH").unwrap())
+                    .phobos_psychedelic_stacking_mode,
+            )
+        };
+        assert_eq!(read(&ini), (StackingMode::Add, Some(StackingMode::Add)));
+        ini.merge_rules_projection(&IniFile::from_str(
+            "[CombatDamage]\nPsychedelic.StackingMode=bogus\n[WH]\nPsychedelic.StackingMode=bogus\n",
+        ));
+        assert_eq!(
+            read(&ini),
+            (StackingMode::Add, Some(StackingMode::Add)),
+            "a rejected later token keeps the earlier accepted value"
+        );
+        ini.merge_rules_projection(&IniFile::from_str(
+            "[CombatDamage]\nPsychedelic.StackingMode=override\n\
+             [WH]\nPsychedelic.StackingMode=override\n",
+        ));
+        assert_eq!(
+            read(&ini),
+            (StackingMode::Override, Some(StackingMode::Override)),
+            "override after an accepted value replaces it despite the parser's false answer"
+        );
+        ini.merge_rules_projection(&IniFile::from_str(
+            "[CombatDamage]\nPsychedelic.StackingMode=<default>\n\
+             [WH]\nPsychedelic.StackingMode=<default>\n",
+        ));
+        assert_eq!(
+            read(&ini),
+            (StackingMode::Override, None),
+            "Valueable keeps on <default>; Nullable resets"
+        );
+    }
 }

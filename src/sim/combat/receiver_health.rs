@@ -527,6 +527,7 @@ impl BerserkState {
 
     /// The time left. The Psychedelic arm and the countdown use the field;
     /// tests read it through this.
+    #[cfg(any(test, feature = "test-support", feature = "phobos"))]
     pub(crate) const fn timer(self) -> i32 {
         self.timer
     }
@@ -549,9 +550,11 @@ impl BerserkState {
         self.timer = timer;
     }
 
-    /// The Psychedelic arm's writes (`0x00701D6B..0x00701D7D`): the time,
-    /// then the flag. Answers whether this hit turned the object berserk; a
-    /// berserk object only has its time refreshed.
+    /// The stock Psychedelic arm's writes (`0x00701D6B..0x00701D7D`): the
+    /// time, then the flag. Answers whether this hit turned the object
+    /// berserk; a berserk object only has its time refreshed. Phobos' hook
+    /// replaces this arm with [`Self::psychedelic_stack`].
+    #[cfg(not(feature = "phobos"))]
     pub fn start(&mut self, time: i32) -> bool {
         self.timer = time;
         !std::mem::replace(&mut self.active, true)

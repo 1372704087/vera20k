@@ -170,6 +170,13 @@ const LEVEL_HEIGHT_LEPTONS: i32 = crate::util::lepton::GROUND_LEVEL_HEIGHT_LEPTO
 const TRAILER_DRAW_FLAGS: u32 = 0x600;
 const DAMAGE_FIRE_SLOT_COUNT: usize = 8;
 
+/// `static_cast<int>(cells * Unsorted::LeptonsPerCell)`, the fire-spawn
+/// distance conversion (`Ext/Anim/Body.cpp:369,371`): truncation toward zero.
+#[cfg(feature = "phobos")]
+fn leptons_of_cells(cells: f64) -> i32 {
+    (cells * f64::from(crate::util::lepton::LEPTONS_PER_CELL_I32)) as i32
+}
+
 /// `AnimClass_Update` @ 0x00423f37: landing consumes two inclusive rolls.
 pub(crate) fn bounce_spawn_count(
     has_spawns: bool,
@@ -2675,6 +2682,8 @@ impl Simulation {
         match action {
             VisitAction::None => {}
             VisitAction::Destroy => {
+                #[cfg(feature = "phobos")]
+                self.anim_spawn_fire_anims(id, &config, rules);
                 if let Some(anim) = self.substrate.anims.get_mut(id) {
                     anim.completed = true;
                 }
@@ -2688,6 +2697,8 @@ impl Simulation {
                     overlay_registry,
                     frame_effects,
                 ) {
+                    #[cfg(feature = "phobos")]
+                    self.anim_spawn_fire_anims(id, &config, rules);
                     if let Some(anim) = self.substrate.anims.get_mut(id) {
                         anim.completed = true;
                     }
@@ -4290,6 +4301,224 @@ impl Simulation {
                 false
             }
         }
+    }
+
+    /// Phobos `AnimExt::SpawnFireAnims` (`Ext/Anim/Body.cpp:309-405`), the body
+    /// of `DEFINE_HOOK(0x425060, AnimClass_Expire_ScorchFlamer, 0x6)`
+    /// (`Ext/Anim/Hooks.cpp:693-703`): a `Flamer=` or `Scorch=` anim that
+    /// completes runs its small fire loop, and a `Flamer=` one its large loop.
+    ///
+    /// Per iteration the native order is `RandomDouble()` for the chance,
+    /// `RandomRanged(0, n-1)` when the anim vector holds more than one entry,
+    /// then the spawned anim's constructor `RandomRanged(1, 2)` loop count.
+    /// Chances and distances fall back to the last authored entry, then to the
+    /// per-arm defaults; distances are cells scaled by 256 leptons.
+    ///
+    /// RESIDUAL: `MapClass::GetRandomCoordsNear` is not ported; the point
+    /// reuses the recorded single-angle form (`sim::projectile::launch`). The
+    /// `Chances`/`Distances` shorter-than-count arm reads past its vector in
+    /// gamemd (a native bug); VERA reads the last entry instead.
+    #[cfg(feature = "phobos")]
+    fn anim_spawn_fire_anims(
+        &mut self,
+        id: AnimId,
+        config: &crate::rules::art_data::AnimTypeRuntimeConfig,
+        rules: &RuleSet,
+    ) {
+        use crate::rules::phobos_anim_type_ext::LandTypeFlags;
+
+        if !(config.flamer || config.scorch) {
+            return;
+        }
+        let Some(coord) = self.anim(id).map(|anim| anim.world_coord()) else {
+            return;
+        };
+        let land = self.resolved_terrain.as_ref().map(|terrain| {
+            let cells = crate::map::resolved_terrain::NativeCellQuery::canonical(terrain);
+            cells.land_type(cells.lookup_world(coord.x, coord.y))
+        });
+        let disallowed =
+            config
+                .phobos_fire_anim_disallowed_land_types
+                .unwrap_or(if config.scorch {
+                    LandTypeFlags::DEFAULT_DISALLOWED
+                } else {
+                    LandTypeFlags::NONE
+                });
+        if land
+            .and_then(|index| crate::rules::terrain_rules::LandType::from_index(index as u8))
+            .is_some_and(|land| disallowed.contains(land))
+        {
+            return;
+        }
+        let constrain = config.phobos_constrain_fire_anims_to_cell_spots;
+        let attach = config
+            .phobos_attach_fire_anims_to_parent
+            .unwrap_or(config.scorch);
+        // `SpawnAnim`'s `attach && pThis->OwnerObject` arm is the anim's
+        // `SetOwnerObject`; VERA's spawned anims take the default owner.
+        let _ = attach;
+        let small_count = config
+            .phobos_small_fire_count
+            .unwrap_or(1 + i32::from(config.flamer));
+        if config.flamer {
+            self.fire_anim_loop(
+                rules,
+                coord,
+                &config.phobos_small_fire_anims,
+                &config.phobos_small_fire_chances,
+                &config.phobos_small_fire_distances,
+                small_count.clamp(0, i32::MAX as i32),
+                rules.general.small_fire_anim.as_str(),
+                (0.5, 1.0),
+                (64, 160),
+                constrain,
+            );
+            self.fire_anim_loop(
+                rules,
+                coord,
+                &config.phobos_large_fire_anims,
+                &config.phobos_large_fire_chances,
+                &config.phobos_large_fire_distances,
+                config.phobos_large_fire_count.clamp(0, i32::MAX as i32),
+                rules.general.large_fire_anim.as_str(),
+                (0.5, 0.5),
+                (112, 112),
+                constrain,
+            );
+        } else if config.scorch {
+            self.fire_anim_loop(
+                rules,
+                coord,
+                &config.phobos_small_fire_anims,
+                &config.phobos_small_fire_chances,
+                &config.phobos_small_fire_distances,
+                small_count.clamp(0, i32::MAX as i32),
+                rules.general.small_fire_anim.as_str(),
+                (1.0, 1.0),
+                (0, 0),
+                constrain,
+            );
+        }
+    }
+
+    /// `AnimExt::SpawnFireAnims`'s `LoopAnims` lambda
+    /// (`Ext/Anim/Body.cpp:342-377`).
+    #[cfg(feature = "phobos")]
+    #[allow(clippy::too_many_arguments)]
+    fn fire_anim_loop(
+        &mut self,
+        rules: &RuleSet,
+        coord: AnimWorldCoord,
+        anims: &[String],
+        chances: &[crate::util::native_x87::NativeF64Bits],
+        distances: &[crate::util::native_x87::NativeF64Bits],
+        count: i32,
+        default_anim: &str,
+        default_chances: (f64, f64),
+        default_distances: (i32, i32),
+        constrain: bool,
+    ) {
+        for index in 0..count {
+            let i = index as usize;
+            let chance = if chances.len() > i {
+                f64::from_bits(chances[i].bits())
+            } else if let Some(last) = chances.last() {
+                f64::from_bits(last.bits())
+            } else if index == 0 {
+                default_chances.0
+            } else {
+                default_chances.1
+            };
+            // `if (chance < random.RandomDouble()) continue;`
+            if chance < self.scenario_rng.random_double() {
+                continue;
+            }
+            let anim_type = if anims.len() > 1 {
+                let pick = self
+                    .scenario_rng
+                    .next_range_i32_inclusive(0, anims.len() as i32 - 1)
+                    as usize;
+                anims[pick].clone()
+            } else if let Some(first) = anims.first() {
+                first.clone()
+            } else {
+                default_anim.to_owned()
+            };
+            if anim_type.is_empty() {
+                continue;
+            }
+            let distance = if distances.len() > i {
+                leptons_of_cells(f64::from_bits(distances[i].bits()))
+            } else if let Some(last) = distances.last() {
+                leptons_of_cells(f64::from_bits(last.bits()))
+            } else if index == 0 {
+                default_distances.0
+            } else {
+                default_distances.1
+            };
+            self.spawn_fire_anim(rules, &anim_type, coord, distance, constrain);
+        }
+    }
+
+    /// `AnimExt::SpawnFireAnims`'s `SpawnAnim` lambda
+    /// (`Ext/Anim/Body.cpp:317-340`).
+    #[cfg(feature = "phobos")]
+    fn spawn_fire_anim(
+        &mut self,
+        rules: &RuleSet,
+        type_name: &str,
+        coord: AnimWorldCoord,
+        distance: i32,
+        constrain: bool,
+    ) {
+        let mut target = coord;
+        if distance > 0 {
+            let jittered = crate::sim::projectile::launch::random_coords_near(
+                crate::sim::projectile::ProjectileCoord {
+                    x: coord.x,
+                    y: coord.y,
+                    z: coord.z,
+                },
+                distance,
+                &mut self.scenario_rng,
+            );
+            target = AnimWorldCoord::from(jittered);
+            if constrain {
+                let (rx, ry, _, _, z) = target.to_cell_sub_z();
+                let spot = crate::sim::movement::bump_crush::pick_infantry_sublocation(
+                    self.resolved_terrain.as_ref(),
+                    &self.substrate.raw_cell_occupation,
+                    &self.substrate.occupancy,
+                    &self.substrate.entities,
+                    rules,
+                    &self.interner,
+                    &mut self.scenario_rng,
+                    crate::sim::components::DriveCoord {
+                        x: target.x,
+                        y: target.y,
+                        z: target.z,
+                    },
+                )
+                .map(|(spot, _)| spot);
+                let (sub_x, sub_y) = crate::util::lepton::subcell_lepton_offset(spot);
+                target = AnimWorldCoord::from_cell_sub_z(rx, ry, sub_x, sub_y, z);
+            }
+        }
+        let loop_count = self.scenario_rng.next_range_i32_inclusive(1, 2);
+        let type_id = self.interner.intern(type_name);
+        let (rx, ry, sub_x, sub_y, z) = target.to_cell_sub_z();
+        let descriptor = crate::sim::components::AnimClassSpawnDescriptor {
+            delay: 0,
+            loop_count,
+            draw_flags: 0x600,
+            z_adjust: 0,
+            reverse: false,
+            ..crate::sim::components::AnimClassSpawnDescriptor::new(
+                type_id, rx, ry, sub_x, sub_y, z,
+            )
+        };
+        let _ = self.spawn_anim_at_world(rules, descriptor, target);
     }
 
     /// Native `AnimClass::Start @ 0x00424CE0` — the anim's sound emitter.
@@ -7928,6 +8157,104 @@ Verses=100%,100%,100%,100%,100%,100%,100%,100%,100%,100%,100%
 
     fn marks_placed(sim: &Simulation) -> usize {
         sim.smudge_grid.as_ref().unwrap().iter_occupied().count()
+    }
+
+    /// Phobos `AnimExt::SpawnFireAnims` (`Ext/Anim/Body.cpp:309-405`, hook
+    /// `0x425060`): a completing `Scorch=` anim runs `SmallFireCount` iterations
+    /// over its `SmallFireAnims=` vector, and `SmallFireChances=0` keeps every
+    /// iteration's anim unspawned while still drawing.
+    #[cfg(feature = "phobos")]
+    #[test]
+    fn a_scorch_anim_spawns_its_small_fire_anims_when_it_completes() {
+        fn spawned_fire_anims(count: i32, chances: &str) -> usize {
+            let art = format!(
+                "[MARK]\nRate=900\nScorch=yes\nSmallFireCount={count}\n\
+                 SmallFireAnims=FIREFX\nSmallFireChances={chances}\nSmallFireDistances=0\n\
+                 [FIREFX]\nRate=900\n"
+            );
+            let (mut rules, mut sim) = middle_world(&art, 13);
+            // The spawned child needs a bound frame count, else
+            // `spawn_anim_at_world` refuses to construct it.
+            let mut art_registry = ArtRegistry::from_ini(&IniFile::from_str(&art));
+            art_registry.bind_anim_frame_count_for_test("MARK", 13);
+            art_registry.bind_anim_frame_count_for_test("FIREFX", 3);
+            rules.install_art_fixture(art_registry);
+            let mark = spawn_mark(&mut sim, &rules, 0);
+            for frame in 1..60 {
+                sim.session.set_binary_frame_for_test(frame);
+                sim.visit_anim(
+                    mark,
+                    &rules,
+                    None,
+                    crate::sim::world::FrameEffects::default(),
+                )
+                .unwrap();
+                if sim.substrate.pending_delete.contains_object(&mark) {
+                    break;
+                }
+            }
+            let mut spawned = 0;
+            for (_, anim) in sim.anims() {
+                if sim
+                    .interner
+                    .resolve(anim.type_id)
+                    .eq_ignore_ascii_case("FIREFX")
+                {
+                    spawned += 1;
+                }
+            }
+            spawned
+        }
+
+        // `SmallFireDistances=0` keeps every spawn at the scorch's own point,
+        // so the only draws are the chance and the constructor loop count.
+        assert_eq!(spawned_fire_anims(2, "1,1"), 2);
+        assert_eq!(spawned_fire_anims(2, "0,0"), 0);
+        assert_eq!(spawned_fire_anims(3, "1"), 3);
+    }
+
+    /// A `Flamer=` type runs the small loop `1 + Flamer` times (here the
+    /// authored `SmallFireCount=1`) and then the large loop
+    /// `LargeFireCount` times (`Ext/Anim/Body.cpp:391-399`).
+    #[cfg(feature = "phobos")]
+    #[test]
+    fn a_flamer_anim_runs_both_its_fire_loops() {
+        let art = "[MARK]\nRate=900\nFlamer=yes\nSmallFireCount=1\n\
+                   SmallFireAnims=FIREFX\nSmallFireChances=1\nSmallFireDistances=0\n\
+                   LargeFireCount=2\nLargeFireAnims=FIRELG\nLargeFireChances=1,1\n\
+                   LargeFireDistances=0\n\
+                   [FIREFX]\nRate=900\n[FIRELG]\nRate=900\n";
+        let (mut rules, mut sim) = middle_world(art, 13);
+        let mut art_registry = ArtRegistry::from_ini(&IniFile::from_str(art));
+        for (name, frames) in [("MARK", 13), ("FIREFX", 3), ("FIRELG", 3)] {
+            art_registry.bind_anim_frame_count_for_test(name, frames);
+        }
+        rules.install_art_fixture(art_registry);
+        let mark = spawn_mark(&mut sim, &rules, 0);
+        for frame in 1..60 {
+            sim.session.set_binary_frame_for_test(frame);
+            sim.visit_anim(
+                mark,
+                &rules,
+                None,
+                crate::sim::world::FrameEffects::default(),
+            )
+            .unwrap();
+            if sim.substrate.pending_delete.contains_object(&mark) {
+                break;
+            }
+        }
+        let mut small = 0;
+        let mut large = 0;
+        for (_, anim) in sim.anims() {
+            let name = sim.interner.resolve(anim.type_id);
+            if name.eq_ignore_ascii_case("FIREFX") {
+                small += 1;
+            } else if name.eq_ignore_ascii_case("FIRELG") {
+                large += 1;
+            }
+        }
+        assert_eq!((small, large), (1, 2));
     }
 
     /// `AnimClass::AI 0x0042465D`: a 13-frame crater anim (S_CLSN22, the

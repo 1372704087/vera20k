@@ -6,6 +6,7 @@
 //! ```ini
 //! RemoveMindControl=            ; Valueable<bool>, no
 //! RemoveMindControl.Silent=     ; Nullable<bool>, unset
+//! ShakeIsLocal=                 ; Nullable<bool>, unset
 //! BuildingSell=                 ; Valueable<bool>, no
 //! BuildingSell.IgnoreUnsellable=; Valueable<bool>, no
 //! BuildingUndeploy=             ; Valueable<bool>, no
@@ -18,24 +19,28 @@
 //!
 //! Read order is `LoadFromINI`'s: `RemoveMindControl` and its `.Silent`
 //! (`Body.cpp:178-179`, declarations `Body.h:49-50`, constructor
-//! `Body.h:328-329`), `MergeBuildingDamage` (`:339`, `Body.h:184`, constructor
+//! `Body.h:328-329`), `ShakeIsLocal` (`:184`, `Body.h:55`, constructor
+//! `Body.h:334`), `MergeBuildingDamage` (`:339`, `Body.h:184`, constructor
 //! `:463`) and the four sell/undeploy keys (`:362-365`, `Body.h:207-210`,
 //! constructor `:486-489`).
 //!
-//! Two keys have `[Rules]` fallbacks:
+//! Three keys have `[Rules]` fallbacks:
 //! - `MergeBuildingDamage` falls back to `[CombatDamage] MergeBuildingDamage`
 //!   (`Ext/Rules/Body.cpp:503`, constructor `Ext/Rules/Body.h:918`, default
 //!   `no`).
 //! - `RemoveMindControl.Silent` falls back to
 //!   `[AudioVisual] RemoveMindControl.Silent` (`Ext/Rules/Body.cpp:597`,
 //!   constructor `Ext/Rules/Body.h:998`, default `no`).
+//! - `ShakeIsLocal` falls back to `[General] ShakeIsLocal`
+//!   (`Ext/Rules/Body.cpp:491`, constructor `Ext/Rules/Body.h:906`,
+//!   default `no`).
 //!
 //! ## Dependency rules
 //! - Part of rules/ — no dependency on sim/, render/, ui/, etc.
 
 use crate::rules::ini_parser::IniSection;
 
-/// The seven keys owned here.
+/// The eight keys owned here.
 #[derive(Debug, Clone, PartialEq, Eq, Default)]
 pub struct PhobosWarheadExtras {
     /// `RemoveMindControl=` (`Body.cpp:178`), default `no`: a target this
@@ -46,6 +51,10 @@ pub struct PhobosWarheadExtras {
     /// target without its `MindClearedSound`. `None` reads the
     /// `[AudioVisual]` global.
     pub remove_mind_control_silent: Option<bool>,
+    /// `ShakeIsLocal=` (`Body.cpp:184`), `Nullable<bool>`: a detonation
+    /// outside the local tactical view skips its screen-shake writes.
+    /// `None` reads the `[General]` global (`Ext/Rules/Body.cpp:491`).
+    pub shake_is_local: Option<bool>,
     /// `MergeBuildingDamage=` (`Body.cpp:339`), `Nullable`: one building hit
     /// by several cells of the same area damage takes a single receiver call
     /// carrying the summed distance multipliers. `None` reads the
@@ -73,6 +82,7 @@ impl PhobosWarheadExtras {
             remove_mind_control: section.read_bool("RemoveMindControl", false),
             remove_mind_control_silent: section
                 .read_phobos_nullable_bool("RemoveMindControl.Silent", None),
+            shake_is_local: section.read_phobos_nullable_bool("ShakeIsLocal", None),
             merge_building_damage: section.read_phobos_nullable_bool("MergeBuildingDamage", None),
             building_sell: section.read_bool("BuildingSell", false),
             building_sell_ignore_unsellable: section
@@ -98,6 +108,12 @@ impl PhobosWarheadExtras {
     /// (`Ext/WarheadType/Hooks.cpp:414`).
     pub fn merges_building_damage(&self, global: bool) -> bool {
         self.merge_building_damage.unwrap_or(global)
+    }
+
+    /// `ShakeIsLocal.Get(RulesExt::Global()->ShakeIsLocal)`
+    /// (`Ext/Bullet/Hooks.DetonateLogics.cpp:38`).
+    pub fn shake_is_local(&self, global: bool) -> bool {
+        self.shake_is_local.unwrap_or(global)
     }
 }
 

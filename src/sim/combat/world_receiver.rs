@@ -5168,11 +5168,23 @@ pub(crate) fn commit_projectile_detonations_inline(
                         .next_range_i32_inclusive(warhead.shake_y_lo, warhead.shake_y_hi)
                 });
             if shake_x.is_some() || shake_y.is_some() {
+                // Phobos `[Warhead] ShakeIsLocal=` falls back to
+                // `[General] ShakeIsLocal` (`Ext/Bullet/Hooks.DetonateLogics.cpp:38`).
+                // The visibility decision belongs to the client; carry the flag
+                // and the impact point to the presentation owner.
+                #[cfg(feature = "phobos")]
+                let local_only = warhead
+                    .phobos_extras
+                    .shake_is_local(rules.phobos_globals.shake_is_local);
+                #[cfg(not(feature = "phobos"))]
+                let local_only = false;
                 world
                     .screen_shake_updates
                     .emit(crate::sim::combat::ScreenShakeUpdate {
                         x: shake_x,
                         y: shake_y,
+                        local_only,
+                        coord: clustered.impact,
                     });
             }
             let damage_start = emit.damage_events.len();

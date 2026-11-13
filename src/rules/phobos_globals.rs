@@ -935,6 +935,13 @@ pub struct PhobosGlobals {
     /// multipliers summed (`Ext/WarheadType/Hooks.cpp:412-487`).
     #[serde(default)]
     pub merge_building_damage: bool,
+    /// `[General] ShakeIsLocal=`, `Valueable<bool>` default `no`
+    /// (`Ext/Rules/Body.cpp:491`, constructor `Ext/Rules/Body.h:401,906`):
+    /// the fallback for a warhead that leaves `ShakeIsLocal=` unset. When on,
+    /// a detonation outside the local tactical view skips its screen-shake
+    /// writes (`Ext/Bullet/Hooks.DetonateLogics.cpp:36-39`).
+    #[serde(default)]
+    pub shake_is_local: bool,
     /// `[General] RadarJamHouses=`, `Nullable<AffectedHouse>` default
     /// **`Enemies`** (`Ext/Rules/Body.cpp:213`, constructor
     /// `Ext/Rules/Body.h:657`): which Houses a `RadarJamRadius=` jammer may
@@ -1368,6 +1375,7 @@ impl Default for PhobosGlobals {
             damage_enemies_multiplier_berzerk: None,
             remove_mind_control_silent: false,
             merge_building_damage: false,
+            shake_is_local: false,
             radar_jam_houses: radar_jam_houses_default(),
             radar_jam_delay: radar_jam_delay_default(),
             no_queue_up_to_enter: false,
@@ -1576,6 +1584,10 @@ impl PhobosGlobals {
         );
         globals.bunker_state_update_delay =
             general.read_int("BunkerStateUpdateDelay", globals.bunker_state_update_delay);
+        // `Ext/Rules/Body.cpp:491`: `[General] ShakeIsLocal=`, a
+        // `Valueable<bool>` default `no` (constructor `Ext/Rules/Body.h:906`).
+        // It is the fallback for a warhead's own `ShakeIsLocal=`.
+        globals.shake_is_local = general.read_bool("ShakeIsLocal", globals.shake_is_local);
         // `Ext/Rules/Body.cpp:521`: `Valueable<Mission>`; a named mission
         // replaces the constructor's `Hunt`, any other text keeps it
         // (`Utilities/TemplateDef.h:510-528`).

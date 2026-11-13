@@ -1595,6 +1595,21 @@ fn advance_one_simulation_frame(
         // Carried out of the sim borrow so the census can read `state` freely below.
         let mut census_tick: Option<u64> = None;
         let fps_panel_shown = state.renderer.performance_overlay.is_visible();
+        // Phobos `[Warhead] ShakeIsLocal=` asks this client's view
+        // (`Ext/Bullet/Hooks.DetonateLogics.cpp:36-39`). The camera and the
+        // tactical rectangle cannot move during a simulation frame, so read
+        // them before borrowing `sim_runtime` mutably.
+        #[cfg(feature = "phobos")]
+        let (view_camera, view_size) = {
+            let (width, height) = crate::app::input::camera::tactical_viewport_size(state);
+            (
+                [
+                    state.match_state.input.camera_x,
+                    state.match_state.input.camera_y,
+                ],
+                [width as f32, height as f32],
+            )
+        };
         if let Some(rt) = state.match_state.sim_runtime.as_mut() {
             let sim = &mut rt.simulation;
             let native_frame = sim.session().binary_frame();
@@ -1804,11 +1819,29 @@ fn advance_one_simulation_frame(
             let hide_shake_effects = state.match_state.match_presentation.hide_shake_effects;
             #[cfg(not(feature = "phobos"))]
             let hide_shake_effects = false;
+            // Phobos `[Warhead] ShakeIsLocal=` (`Ext/WarheadType/Body.cpp:184`,
+            // `[General]` fallback `Ext/Rules/Body.cpp:491`): native asks
+            // `TacticalClass::CoordsToClient` about this client's view
+            // (`Ext/Bullet/Hooks.DetonateLogics.cpp:36-39`).
             state
                 .match_state
                 .match_presentation
                 .screen_shake
-                .apply_updates_with_hide(&output.screen_shake_updates, hide_shake_effects);
+                .apply_updates_with_hide(&output.screen_shake_updates, hide_shake_effects, |update| {
+                    #[cfg(feature = "phobos")]
+                    {
+                        crate::app::presentation::screen_shake::update_is_on_screen(
+                            update,
+                            view_camera,
+                            view_size,
+                        )
+                    }
+                    #[cfg(not(feature = "phobos"))]
+                    {
+                        let _ = update;
+                        true
+                    }
+                });
             if output.outcome_waiting {
                 // The simulation retains this frame's non-sound facts until
                 // the same House suffix finishes. Its sound prefix has already

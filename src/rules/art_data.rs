@@ -578,6 +578,12 @@ pub struct AnimTypeRuntimeConfig {
     /// damage's attacker becomes the stored invoker (`Ext/Anim/Hooks.cpp:102`).
     #[cfg(feature = "phobos")]
     pub(crate) damage_dealt_by_invoker: Option<bool>,
+    /// Phobos `Damage.ApplyFirepowerMult=` (`Ext/AnimType/Body.cpp:98`,
+    /// `Nullable<bool>`; global `[CombatDamage] AnimDamage.ApplyFirepowerMult`
+    /// defaults false): the anim-loop damage is scaled by the invoker's
+    /// current firepower multiplier (`Ext/Anim/Hooks.cpp:119-128`).
+    #[cfg(feature = "phobos")]
+    pub(crate) damage_apply_firepower_mult: Option<bool>,
     /// Phobos `Damage.ApplyOncePerLoop=` (`Ext/AnimType/Body.cpp:97`,
     /// `Valueable<bool>`, constructor `false`): damage lands only on the
     /// loop's first frame, `max(Damage.Delay-1, 1)`
@@ -1008,6 +1014,9 @@ fn parse_anim_runtime_config(section: &IniSection) -> AnimTypeRuntimeConfig {
         ares_weapon: None,
         #[cfg(feature = "phobos")]
         damage_dealt_by_invoker: section.read_phobos_nullable_bool("Damage.DealtByInvoker", None),
+        #[cfg(feature = "phobos")]
+        damage_apply_firepower_mult: section
+            .read_phobos_nullable_bool("Damage.ApplyFirepowerMult", None),
         #[cfg(feature = "phobos")]
         damage_apply_once_per_loop: section.read_bool("Damage.ApplyOncePerLoop", false),
         // Both constructor defaults are 1, not 0.

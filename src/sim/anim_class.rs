@@ -363,6 +363,11 @@ pub enum AnimRemap {
     },
 }
 
+#[cfg(feature = "phobos")]
+fn one_f64_bits() -> NativeF64Bits {
+    NativeF64Bits::ONE
+}
+
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 pub struct AnimObject {
     stable_id: AnimId,
@@ -412,6 +417,13 @@ pub struct AnimObject {
     /// Precision residual: round-to-nearest replaces native PC53/chop. Near
     /// an integer threshold a long-running fire can emit on a different visit.
     damage_accumulator: NativeF64Bits,
+    /// Phobos `AnimExt::FirepowerMult` (`Ext/Anim/Body.h:41,62`, constructed
+    /// 1.0): the invoker's firepower multiplier cached on the first damage
+    /// round (`Ext/Anim/Hooks.cpp:119-128`); `Damage.ApplyFirepowerMult`
+    /// scales each damage application by it.
+    #[cfg(feature = "phobos")]
+    #[serde(default = "one_f64_bits")]
+    phobos_firepower_mult: NativeF64Bits,
     /// LogicClass membership is reconstructed from the serialized vector.
     /// ObjectClass::Save does not persist its local membership byte.
     #[serde(skip)]
@@ -789,6 +801,8 @@ impl AnimObject {
             terrain_attached: false,
             no_effects: false,
             damage_accumulator: NativeF64Bits::POSITIVE_ZERO,
+            #[cfg(feature = "phobos")]
+            phobos_firepower_mult: NativeF64Bits::ONE,
             in_logic_vector: false,
             owner_entity: None,
             building_slot: None,
@@ -931,6 +945,11 @@ impl AnimObject {
         if self.damage_accumulator != NativeF64Bits::ONE {
             b"anim-damage-accumulator-v1".hash(hasher);
             self.damage_accumulator.hash(hasher);
+        }
+        #[cfg(feature = "phobos")]
+        if self.phobos_firepower_mult != NativeF64Bits::ONE {
+            b"anim-phobos-firepower-mult-v1".hash(hasher);
+            self.phobos_firepower_mult.hash(hasher);
         }
         // Unset links add no bytes, preserving earlier streams.
         if self.owner_house.is_some() || self.attached_bullet.is_some() {
@@ -2189,6 +2208,8 @@ impl Simulation {
             terrain_attached: descriptor.terrain_attached,
             no_effects: false,
             damage_accumulator: NativeF64Bits::ONE,
+            #[cfg(feature = "phobos")]
+            phobos_firepower_mult: NativeF64Bits::ONE,
             in_logic_vector: false,
             owner_entity: None,
             building_slot: None,
@@ -2829,8 +2850,7 @@ impl Simulation {
         // global, the attacker becomes the stored invoker (a techno
         // `OwnerObject` when unset) and the damage house the invoker house or
         // the invoker's owner. RESIDUAL: the hook's `IsBuildingAnim ->
-        // ParentBuilding` fallback has no VERA model, and the
-        // `Damage.ApplyFirepowerMult` fold inside the same block is unported.
+        // ParentBuilding` fallback has no VERA model.
         #[cfg(feature = "phobos")]
         let dealt_by_invoker = config
             .damage_dealt_by_invoker
@@ -2874,6 +2894,44 @@ impl Simulation {
         };
         #[cfg(not(feature = "phobos"))]
         let anim_source_house = source_house;
+        // Phobos `Damage.ApplyFirepowerMult` (`Ext/Anim/Hooks.cpp:119-128`):
+        // with the type key or the `[CombatDamage] AnimDamage.ApplyFirepowerMult`
+        // global, the invoker's current firepower multiplier is cached on the
+        // first damage round (`Animation.Value == max(Damage.Delay-1, 1)`) and
+        // every applied damage is scaled by it.
+        #[cfg(feature = "phobos")]
+        let fold_firepower = {
+            let apply = config
+                .damage_apply_firepower_mult
+                .unwrap_or(rules.combat_damage.anim_damage_apply_firepower_mult);
+            if apply
+                && dealt_by_invoker
+                && anim_frame == std::cmp::max(config.ares_damage_delay.wrapping_sub(1), 1)
+                && let Some(invoker) = self.substrate.entities.get(anim_attacker)
+            {
+                let multiplier =
+                    crate::sim::combat::crit::current_firepower_multiplier(self, rules, invoker);
+                if let Some(anim) = self.substrate.anims.get_mut(id) {
+                    anim.phobos_firepower_mult = NativeF64Bits::from_bits(multiplier.to_bits());
+                }
+            }
+            let cached = f64::from_bits(
+                self.substrate
+                    .anims
+                    .get(id)
+                    .map_or(NativeF64Bits::ONE, |anim| anim.phobos_firepower_mult)
+                    .bits(),
+            );
+            move |value: i32| -> i32 {
+                if apply {
+                    crate::sim::attach_effect::scale_i32(value, cached)
+                } else {
+                    value
+                }
+            }
+        };
+        #[cfg(not(feature = "phobos"))]
+        let fold_firepower = |value: i32| -> i32 { value };
         // Phobos `Damage.ApplyOncePerLoop` (`Ext/Anim/Hooks.cpp:56-66`): the
         // damage lands only on the loop's first frame —
         // `Animation.Value == max(Damage.Delay-1, 1)` — as
@@ -2900,7 +2958,7 @@ impl Simulation {
                 return self.ares_anim_weapon_detonation(
                     id,
                     weapon,
-                    applied,
+                    fold_firepower(applied),
                     anim_attacker,
                     rules,
                     overlay_registry,
@@ -2974,7 +3032,7 @@ impl Simulation {
                     return self.ares_anim_weapon_detonation(
                         id,
                         weapon,
-                        whole,
+                        fold_firepower(whole),
                         crate::sim::combat::RAD_NO_ATTACKER,
                         rules,
                         overlay_registry,
@@ -2984,6 +3042,7 @@ impl Simulation {
                 whole
             }
         };
+        let whole = fold_firepower(whole);
         //4245C3..424630 compares the own stored ID exactly, not Image.
         let warhead_name = if self.interner.resolve(type_id) == "INVISO" {
             Some(rules.bridge_warheads.c4_name.as_str())

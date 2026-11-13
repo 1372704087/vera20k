@@ -123,6 +123,12 @@ pub struct CombatDamageDefaults {
     /// `Damage.DealtByInvoker=` key.
     #[cfg(feature = "phobos")]
     pub anim_damage_dealt_by_invoker: bool,
+    /// Phobos `[CombatDamage] AnimDamage.ApplyFirepowerMult=`
+    /// (`Ext/Rules/Body.cpp:571`, constructor `false`, `Ext/Rules/Body.h:482`,
+    /// `:983`): the global fallback of the AnimType
+    /// `Damage.ApplyFirepowerMult=` key.
+    #[cfg(feature = "phobos")]
+    pub anim_damage_apply_firepower_mult: bool,
     /// Phobos `[CombatDamage] FallingDownDamage=` (`Ext/Rules/Body.cpp:227`,
     /// constructor `1.0`, `Ext/Rules/Body.h:671`): the landing-damage ratio
     /// fallback of the TechnoType `FallingDownDamage=` key.
@@ -222,6 +228,9 @@ impl CombatDamageDefaults {
             #[cfg(feature = "phobos")]
             anim_damage_dealt_by_invoker: section.read_bool("AnimDamage.DealtByInvoker", false),
             #[cfg(feature = "phobos")]
+            anim_damage_apply_firepower_mult: section
+                .read_bool("AnimDamage.ApplyFirepowerMult", false),
+            #[cfg(feature = "phobos")]
             falling_down_damage: section.read_double("FallingDownDamage", 1.0),
             #[cfg(feature = "phobos")]
             falling_down_damage_allow_emp: section.read_bool("FallingDownDamage.AllowEMP", true),
@@ -268,6 +277,8 @@ impl Default for CombatDamageDefaults {
             current_strength_damage: true,
             #[cfg(feature = "phobos")]
             anim_damage_dealt_by_invoker: false,
+            #[cfg(feature = "phobos")]
+            anim_damage_apply_firepower_mult: false,
             #[cfg(feature = "phobos")]
             falling_down_damage: 1.0,
             #[cfg(feature = "phobos")]

@@ -474,6 +474,7 @@ mod tests {
     /// (`Ext/SWType/FireSuperWeapon.cpp:495-499`, `:516-520`): the Owner arm
     /// is the sim's `IsControlledByCurrentPlayer`, then the launching House's
     /// own `IsAlliedWith(CurrentPlayer)` bitfield, else the enemy column.
+    #[cfg(feature = "phobos")]
     #[test]
     fn activated_column_follows_the_launchers_relation_to_the_local_player() {
         use crate::map::houses::HouseAllianceMap;

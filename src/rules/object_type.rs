@@ -4020,12 +4020,12 @@ impl ObjectType {
     }
 
     #[cfg(feature = "ares")]
-    pub(crate) fn designator_range(&self) -> Option<i32> {
+    pub fn designator_range(&self) -> Option<i32> {
         self.designator_range
     }
 
     #[cfg(feature = "ares")]
-    pub(crate) fn inhibitor_range(&self) -> Option<i32> {
+    pub fn inhibitor_range(&self) -> Option<i32> {
         self.inhibitor_range
     }
 

@@ -328,9 +328,15 @@ fn push_designator_rings(
     let Some(player) = sim.session().current_house() else {
         return;
     };
-    let Some(influence) = rules
-        .super_weapon_metadata(&super_weapon.id)
-        .map(|metadata| metadata.influence())
+    // `SW.Influence` is an Ares SWType key; a Phobos-only build retains no
+    // designator or inhibitor list, so no ring is drawn.
+    #[cfg(not(feature = "ares"))]
+    let (designators, inhibitors) = {
+        let _ = (draws, sim, rules, super_weapon, colors, viewport);
+        return;
+    };
+    #[cfg(feature = "ares")]
+    let Some((designators, inhibitors)) = rules.super_weapon_influence_lists(&super_weapon.id)
     else {
         return;
     };
@@ -350,12 +356,12 @@ fn push_designator_rings(
             continue;
         };
         let owner = entity.owner();
-        let designator = owner == player && matches(&influence.designators, ty);
+        let designator = owner == player && matches(designators, ty);
         let inhibitor = owner != player
             && !sim
                 .house_alliances()
                 .is_allied(sim.interner(), player, owner)
-            && matches(&influence.inhibitors, ty);
+            && matches(inhibitors, ty);
         if !designator && !inhibitor {
             continue;
         }

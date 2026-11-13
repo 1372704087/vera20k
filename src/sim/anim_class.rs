@@ -822,7 +822,7 @@ impl AnimObject {
     }
 
     /// The owning House (`AnimClass+0x180`).
-    #[cfg(any(test, feature = "phobos"))]
+    #[cfg(any(test, feature = "test-support", feature = "phobos"))]
     pub fn owner_house(&self) -> Option<InternedId> {
         self.owner_house
     }

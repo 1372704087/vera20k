@@ -104,7 +104,7 @@ pub(crate) fn read_affected_house(
 /// alliance. Pure decision logic so the sim combat owner and the radar's
 /// `RadarInvisibleToHouse` test share one port instead of copying the ladder.
 #[cfg(feature = "phobos")]
-pub(crate) fn can_target_house_ladder(
+pub fn can_target_house_ladder(
     flags: AffectedHouse,
     is_owner: bool,
     is_neutral: bool,

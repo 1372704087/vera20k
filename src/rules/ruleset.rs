@@ -11760,6 +11760,26 @@ impl RuleSet {
             .get(&id.to_ascii_uppercase())
     }
 
+    /// Ares `SW.Influence` designator and inhibitor TechType lists for the
+    /// `ShowDesignatorRange` overlay; `None` for a type without influence
+    /// data. The nullable ranges themselves stay per-TechnoType keys.
+    #[cfg(feature = "ares")]
+    pub fn super_weapon_influence_lists(
+        &self,
+        id: &str,
+    ) -> Option<(
+        &[crate::rules::superweapon_type::TechnoTypeReference],
+        &[crate::rules::superweapon_type::TechnoTypeReference],
+    )> {
+        self.super_weapon_metadata(id).map(|metadata| {
+            let influence = metadata.influence();
+            (
+                influence.designators.as_slice(),
+                influence.inhibitors.as_slice(),
+            )
+        })
+    }
+
     /// The Phobos techno gates for a superweapon, if the capability is
     /// compiled in and the type was registered.
     #[cfg(feature = "phobos")]

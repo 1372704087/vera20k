@@ -773,7 +773,7 @@ impl crate::sim::world::Simulation {
                     world,
                 ));
         }
-        if let Some(anim) = &terrain_type.destroy_anim {
+        if let Some(anim) = self.resolve_random_anim_name(rules, &terrain_type.destroy_anim) {
             let (rx, ry, sub_x, sub_y, z) = world.to_cell_sub_z();
             let descriptor = crate::sim::components::AnimClassSpawnDescriptor::new(
                 self.interner.intern(anim),

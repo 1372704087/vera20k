@@ -595,6 +595,14 @@ impl Simulation {
                         bridge_deck: bridge_spawn,
                     },
                 );
+                // TechnoClass::Init (hook 0x6F42F7) runs before the map
+                // readers below (`BuildingClass::ReadFromINI 0x0044FB5B`).
+                #[cfg(feature = "phobos")]
+                sim.phobos_initialize_state(
+                    &mut ge,
+                    authored_health::map_object_type(map_ent.category, &map_ent.type_id, rules),
+                    rules,
+                );
                 // The line's AI Sellable and AI Repairable, written after the
                 // constructor and before the Unlimbo (`BuildingClass::ReadFromINI`
                 // `0x0044FB5B`, `0x0044FB70`).
@@ -603,6 +611,12 @@ impl Simulation {
                         map_ent.structure_ai_sellable,
                         map_ent.structure_ai_repairable,
                     );
+                    // Phobos `BuildingExt::IsCreatedFromMapFile` marks the
+                    // `CreateBuildingFromINIFile` origin; Unlimbo's
+                    // AI-repairable grant skips these preplaced structures
+                    // (`Ext/Building/Hooks.cpp:321-323`).
+                    #[cfg(feature = "phobos")]
+                    ge.set_created_from_map_file(true);
                 }
                 // The map readers apply optional signed percentages after the
                 // class constructor (including Init_Managers) and before Unlimbo:

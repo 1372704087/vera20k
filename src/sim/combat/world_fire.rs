@@ -2605,6 +2605,20 @@ pub(super) fn emit_admitted_fire(
                     .wrapping_mul(200)
                     .wrapping_sub(pivot_z)
             });
+        // 0x6FED2F..0x6FED8F: the target-Z pitch arm's gate — vanilla reads
+        // ObjectType+0x236 (Voxel); Phobos replaces it with the resolved
+        // `VerticalInitialFacing` (`Misc/Hooks.BugFixes.cpp:2435`), so a
+        // `Vertical=` shot gains the arm.
+        #[cfg(feature = "phobos")]
+        let voxel_downward = (!ballistic
+            && super::projectile_delivery::vertical_initial_facing(projectile_type))
+        .then(|| {
+            target_location(snap.target)
+                .expect("live native FireAt target")
+                .z
+                < raw_source.z
+        });
+        #[cfg(not(feature = "phobos"))]
         let voxel_downward = (!ballistic && voxel).then(|| {
             target_location(snap.target)
                 .expect("live native FireAt target")

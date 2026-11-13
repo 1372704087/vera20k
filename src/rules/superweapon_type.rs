@@ -655,6 +655,12 @@ pub struct SuperWeaponType {
     /// is what the sidebar cameo tooltip shows for a superweapon slot — the
     /// section name is an internal identifier and never reaches the player.
     pub ui_name: Option<String>,
+    /// Phobos `UIDescription=` (`Valueable<CSFText>`, `Ext/SWType/Body.cpp:157`,
+    /// `Body.h:63,162`, empty default): the CSF label of the tooltip
+    /// description line appended under the superweapon tip's cost/time when
+    /// `ToolTipDescriptions` is on (`Misc/PhobosToolTip.cpp:22-32,205`).
+    #[cfg(feature = "phobos")]
+    pub ui_description: Option<String>,
     /// Launch dispatch type (determines what happens on fire).
     pub kind: SuperWeaponKind,
     /// `Range=` (`SuperWeaponTypeClass+0xF8`), a stored native float. The
@@ -873,6 +879,8 @@ impl SuperWeaponType {
             id: id.to_string(),
             // AbstractTypeClass `UIName=`, ReadString 0x20 (`0x00410AFB`).
             ui_name: section.read_name("UIName", 0x20).map(str::to_string),
+            #[cfg(feature = "phobos")]
+            ui_description: section.read_name("UIDescription", 0x20).map(str::to_string),
             kind,
             range,
             line_multiplier,

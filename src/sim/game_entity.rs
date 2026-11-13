@@ -181,6 +181,20 @@ pub struct GameEntity {
     #[cfg(feature = "phobos")]
     #[serde(default)]
     phobos_keep_target_on_move: bool,
+    /// Phobos `TechnoExt::RandomFactor` (`Ext/Techno/Body.h:33`): the
+    /// per-object `RandomRanged(0, 15)` drawn once at `TechnoClass::Init`
+    /// (`Ext/Techno/Hooks.cpp:292`); feeds the `DistributeTargetingFrame`
+    /// timer re-arm (`:323-326`) and the interceptor phase (`Body.Update.cpp:37`).
+    #[cfg(feature = "phobos")]
+    #[serde(default)]
+    phobos_random_factor: i32,
+    /// Phobos `BuildingExt::IsCreatedFromMapFile`: the map's `[Structures]`
+    /// reader built this building. `BuildingClass_Unlimbo_SetShouldRebuild`
+    /// (`Ext/Building/Hooks.cpp:321-323`) skips the AI-repairable grant for
+    /// one — preplaced structures keep the map line's own AI Repairable.
+    #[cfg(feature = "phobos")]
+    #[serde(default)]
+    created_from_map_file: bool,
     /// Phobos `InfantryExt::HasUndeployConverted` (`Ext/Infantry/Body.h`):
     /// this Undeploy sequence already converted the infantryman; the DoingAI
     /// reset clears it outside the Deploy/Undeploy sequences (`0x520E75`).
@@ -2341,6 +2355,30 @@ impl GameEntity {
         self.phobos_keep_target_on_move = keep;
     }
 
+    /// Phobos `TechnoExt::RandomFactor`: the per-object `RandomRanged(0, 15)`
+    /// drawn once at init (`Ext/Techno/Hooks.cpp:292`).
+    #[cfg(feature = "phobos")]
+    pub(crate) const fn phobos_random_factor(&self) -> i32 {
+        self.phobos_random_factor
+    }
+
+    #[cfg(feature = "phobos")]
+    pub(crate) fn set_phobos_random_factor(&mut self, factor: i32) {
+        self.phobos_random_factor = factor;
+    }
+
+    /// Phobos `BuildingExt::IsCreatedFromMapFile`: set by the map's
+    /// `[Structures]` spawn (`CreateBuildingFromINIFile`).
+    #[cfg(feature = "phobos")]
+    pub(crate) const fn created_from_map_file(&self) -> bool {
+        self.created_from_map_file
+    }
+
+    #[cfg(feature = "phobos")]
+    pub(crate) fn set_created_from_map_file(&mut self, value: bool) {
+        self.created_from_map_file = value;
+    }
+
     #[cfg(feature = "phobos")]
     pub(crate) const fn phobos_infantry_undeploy_converted(&self) -> bool {
         self.phobos_infantry_undeploy_converted
@@ -2698,6 +2736,10 @@ impl GameEntity {
             phobos_skip_target_change_reset_sequence: false,
             #[cfg(feature = "phobos")]
             phobos_keep_target_on_move: false,
+            #[cfg(feature = "phobos")]
+            phobos_random_factor: 0,
+            #[cfg(feature = "phobos")]
+            created_from_map_file: false,
             #[cfg(feature = "phobos")]
             phobos_infantry_undeploy_converted: false,
             #[cfg(feature = "phobos")]

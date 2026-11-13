@@ -128,7 +128,40 @@ impl Simulation {
         if self.object_placement_scope_active() && self.session.binary_frame() != 0 {
             ge.ares_initial_payload.mark_created();
         }
+        #[cfg(feature = "phobos")]
+        self.phobos_initialize_state(&mut ge, Some(obj), rules);
         Ok(Some(ge))
+    }
+
+    /// Phobos `TechnoExt::InitializeState` (`Ext/Techno/Hooks.cpp:286-327`,
+    /// hook `0x6F42F7` `TechnoClass_Init`): every techno init draws its
+    /// per-object `RandomFactor` (`:292`, `RandomRanged(0, 15)`), and when the
+    /// `DistributeTargetingFrame` gate allows it (`:323-326`,
+    /// `!(IsControlledByHuman && DistributeTargetingFrame.AIOnly) &&
+    /// type.Get(global)`) re-arms the construction-anchored targeting timer at
+    /// `45 + RandomFactor` — vanilla arms 45 at the constructor
+    /// (`0x006F2C33`, `0x006F2C39`, the `PassiveScan::new` anchor).
+    #[cfg(feature = "phobos")]
+    pub(in crate::sim) fn phobos_initialize_state(
+        &mut self,
+        ge: &mut GameEntity,
+        obj: Option<&ObjectType>,
+        rules: &RuleSet,
+    ) {
+        // `ScenarioClass::Instance->Random.RandomRanged(0, 15)` (`:292`).
+        let factor = self.scenario_rng.next_range_i32_inclusive(0, 15);
+        ge.set_phobos_random_factor(factor);
+        let globals = &rules.phobos_globals;
+        let distribute = obj
+            .and_then(|obj| obj.phobos_distribute_targeting_frame)
+            .unwrap_or(globals.distribute_targeting_frame);
+        let owner_human = self.owner_is_human(ge.owner());
+        if !(owner_human && globals.distribute_targeting_frame_ai_only) && distribute {
+            // `TargetingTimer.Start(45 + RandomFactor)` (`:326`): the same
+            // frame the constructor armed, duration 45 + factor.
+            ge.passive_scan
+                .arm_timer(self.session.binary_frame(), (45 + factor) as u32);
+        }
     }
 
     pub(super) fn install_techno_components(

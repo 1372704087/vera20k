@@ -108,6 +108,15 @@ pub struct ProjectileType {
     pub scalable: bool,
     /// Launches vertically before turning toward target. (+0x2C0)
     pub vertical: bool,
+    /// Phobos `VerticalInitialFacing=` (`Nullable<bool>`,
+    /// `Ext/BulletType/Body.cpp:37`, `Body.h:37`, constructor empty
+    /// `Body.h:104`): `None` falls back to `Voxel || Vertical` at the
+    /// consumer. The resolved flag decides whether a fired bullet takes the
+    /// target-Z initial pitch arm in `TechnoClass::FireAt`
+    /// (`Misc/Hooks.BugFixes.cpp:2429`, hook `0x6FED2F`
+    /// `TechnoClass_FireAt_VerticalInitialFacing`).
+    #[cfg(feature = "phobos")]
+    pub phobos_vertical_initial_facing: Option<bool>,
     /// Phobos `Vertical.AircraftFix=` (`Ext/BulletType/Body.cpp:36`,
     /// `Body.h:36`, `Nullable`): `None` takes `[General]
     /// Vertical.AircraftFix` (constructing **yes**, `Ext/Rules/Body.h:990`).
@@ -569,6 +578,9 @@ impl ProjectileType {
             firers_palette: section.read_bool("FirersPalette", false),
             scalable: section.read_bool("Scalable", false),
             vertical: section.read_bool("Vertical", false),
+            #[cfg(feature = "phobos")]
+            phobos_vertical_initial_facing: section
+                .read_phobos_nullable_bool("VerticalInitialFacing", None),
             #[cfg(feature = "phobos")]
             vertical_aircraft_fix: section.read_phobos_nullable_bool("Vertical.AircraftFix", None),
             #[cfg(feature = "phobos")]

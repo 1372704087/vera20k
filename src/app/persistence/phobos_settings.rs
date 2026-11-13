@@ -97,6 +97,12 @@ pub(crate) struct PhobosClientSettings {
     /// the wall-clock divisor follows the measured frame rate instead of the
     /// GameSpeed table.
     pub(crate) real_time_timers_adaptive: bool,
+    /// `[Phobos] ToolTipDescriptions=`, default `yes` (`Phobos.INI.cpp:91`):
+    /// the gate of the extended tooltip's `UIDescription` line
+    /// (`Misc/PhobosToolTip.cpp:22-32`, reached from `0x6A9316` and
+    /// `0x4AE51E`); a techno or superweapon type with a non-empty
+    /// `UIDescription=` appends it as the tip's last line.
+    pub(crate) tool_tip_descriptions: bool,
     /// `[Phobos] ToolTipBlur=`, default `no` (`Phobos.INI.cpp:92`): the gate
     /// of `SurfaceExt::BlurRect` behind the tooltip background
     /// (`Misc/PhobosToolTip.cpp:439`, hook `0x478FDC`). RESIDUAL: the blur
@@ -145,6 +151,7 @@ impl Default for PhobosClientSettings {
             enable_select_box: false,
             real_time_timers: false,
             real_time_timers_adaptive: false,
+            tool_tip_descriptions: true,
             tool_tip_blur: false,
             message_apply_hover_state: false,
             campaign_default_game_speed: 2,
@@ -218,6 +225,9 @@ pub(crate) fn read(settings_dir: &Path) -> PhobosClientSettings {
             "RealTimeTimers.Adaptive",
             defaults.real_time_timers_adaptive,
         ),
+        // `Phobos.INI.cpp:91`: `ReadBool(..., "ToolTipDescriptions", true)`.
+        tool_tip_descriptions: section
+            .read_bool("ToolTipDescriptions", defaults.tool_tip_descriptions),
         tool_tip_blur: section.read_bool("ToolTipBlur", defaults.tool_tip_blur),
         message_apply_hover_state: section
             .read_bool("MessageApplyHoverState", defaults.message_apply_hover_state),
@@ -267,7 +277,8 @@ mod tests {
              HideLaserTrailEffects=yes\nShowGameTime=yes\nEnableSelectBox=yes\n\
              CampaignDefaultGameSpeed=4\n\
              HideLightFlashEffects=yes\nHideShakeEffects=yes\n\
-             ToolTipBlur=yes\nMessageApplyHoverState=yes\n",
+             ToolTipBlur=yes\nMessageApplyHoverState=yes\n\
+             ToolTipDescriptions=no\n",
         );
         assert_eq!(
             read(&dir),
@@ -294,6 +305,7 @@ mod tests {
                 enable_select_box: true,
                 real_time_timers: false,
                 real_time_timers_adaptive: false,
+                tool_tip_descriptions: false,
                 tool_tip_blur: true,
                 message_apply_hover_state: true,
                 campaign_default_game_speed: 2,

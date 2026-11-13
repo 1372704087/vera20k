@@ -353,6 +353,15 @@ impl MessageList {
         self.x
     }
 
+    /// The bottom edge of the label stack in frame pixels: the list top plus
+    /// one line per label, the open edit included. `MouseOverMessageLists`
+    /// (`Misc/MessageColumn.cpp:1043-1060`) holds the pointer above this
+    /// edge (+2) while any label exists.
+    pub fn hover_bottom_frame_y(&self) -> i32 {
+        let labels = self.messages.len() + usize::from(self.edit.is_some());
+        self.y + labels as i32 * MESSAGE_LINE_HEIGHT_PX
+    }
+
     /// Rows in walk order = insertion order = top-to-bottom (G20 analogue on
     /// the list's own walk).
     pub fn messages(&self) -> &[Message] {
@@ -954,6 +963,25 @@ mod tests {
             l.messages()[0].text.chars().count(),
             MESSAGE_LINE_FIT_CHARS,
             "first row capped at 111 chars"
+        );
+    }
+
+    /// `MouseOverMessageLists` (`Misc/MessageColumn.cpp:1043-1056`) holds the
+    /// pointer above the stack bottom: list top plus one 19 px line per
+    /// label, the open edit included.
+    #[test]
+    fn hover_bottom_counts_a_line_per_label_plus_the_edit() {
+        let mut l = list(6, 500);
+        assert_eq!(l.hover_bottom_frame_y(), 0, "no labels, no region");
+        l.add_message(&post(Some("Boris"), "attack", None, false), 0, &mono);
+        assert_eq!(l.hover_bottom_frame_y(), MESSAGE_LINE_HEIGHT_PX);
+        l.add_message(&post(None, "second", None, true), 0, &mono);
+        assert_eq!(l.hover_bottom_frame_y(), 2 * MESSAGE_LINE_HEIGHT_PX);
+        l.add_edit("Boris", WHITE, false);
+        assert_eq!(
+            l.hover_bottom_frame_y(),
+            3 * MESSAGE_LINE_HEIGHT_PX,
+            "the open edit is one more label"
         );
     }
 }

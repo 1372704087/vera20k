@@ -97,6 +97,20 @@ pub(crate) struct PhobosClientSettings {
     /// the wall-clock divisor follows the measured frame rate instead of the
     /// GameSpeed table.
     pub(crate) real_time_timers_adaptive: bool,
+    /// `[Phobos] ToolTipBlur=`, default `no` (`Phobos.INI.cpp:92`): the gate
+    /// of `SurfaceExt::BlurRect` behind the tooltip background
+    /// (`Misc/PhobosToolTip.cpp:439`, hook `0x478FDC`). RESIDUAL: the blur
+    /// itself needs a new GPU pass (native blurs the composited surface
+    /// pixels, `Ext/Surface/Body.cpp:9`), and its size comes from the
+    /// `ToolTip.Background.BlurSize` family this package leaves unported —
+    /// the rules global defaults `0.0`, which native early-returns on, so
+    /// the switch alone changes no pixels.
+    pub(crate) tool_tip_blur: bool,
+    /// `[Phobos] MessageApplyHoverState=`, default `no` (`Phobos.INI.cpp:97`):
+    /// the pointer over the in-game message stack holds `OnOldMessages`,
+    /// which stops `MessageListClass::Manage` expiring the labels
+    /// (`0x4F43BE`, `0x55DDA0`).
+    pub(crate) message_apply_hover_state: bool,
     /// `[Phobos] CampaignDefaultGameSpeed=`, engine speed index
     /// (`6 - ReadInteger(4)` at `Phobos.INI.cpp:120`): 2 when the computed
     /// index leaves 0..=6 (`:121-124`), i.e. the stock `GS4` forced when speed
@@ -131,6 +145,8 @@ impl Default for PhobosClientSettings {
             enable_select_box: false,
             real_time_timers: false,
             real_time_timers_adaptive: false,
+            tool_tip_blur: false,
+            message_apply_hover_state: false,
             campaign_default_game_speed: 2,
         }
     }
@@ -202,6 +218,9 @@ pub(crate) fn read(settings_dir: &Path) -> PhobosClientSettings {
             "RealTimeTimers.Adaptive",
             defaults.real_time_timers_adaptive,
         ),
+        tool_tip_blur: section.read_bool("ToolTipBlur", defaults.tool_tip_blur),
+        message_apply_hover_state: section
+            .read_bool("MessageApplyHoverState", defaults.message_apply_hover_state),
         // `Phobos.INI.cpp:120-124`: index `6 - key`, then the same 0..=6 guard
         // that forces the stock `GS4` speed 2 when the read leaves the range.
         campaign_default_game_speed: {
@@ -247,7 +266,8 @@ mod tests {
              MessageDisplayInCenter=yes\nSaveGameOnScenarioStart=no\nShowBriefing=no\n\
              HideLaserTrailEffects=yes\nShowGameTime=yes\nEnableSelectBox=yes\n\
              CampaignDefaultGameSpeed=4\n\
-             HideLightFlashEffects=yes\nHideShakeEffects=yes\n",
+             HideLightFlashEffects=yes\nHideShakeEffects=yes\n\
+             ToolTipBlur=yes\nMessageApplyHoverState=yes\n",
         );
         assert_eq!(
             read(&dir),
@@ -274,6 +294,8 @@ mod tests {
                 enable_select_box: true,
                 real_time_timers: false,
                 real_time_timers_adaptive: false,
+                tool_tip_blur: true,
+                message_apply_hover_state: true,
                 campaign_default_game_speed: 2,
             }
         );

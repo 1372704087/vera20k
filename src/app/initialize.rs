@@ -1100,6 +1100,8 @@ impl App {
                     #[cfg(feature = "phobos")]
                     real_time_timers_adaptive: phobos_client.real_time_timers_adaptive,
                     #[cfg(feature = "phobos")]
+                    message_apply_hover_state: phobos_client.message_apply_hover_state,
+                    #[cfg(feature = "phobos")]
                     show_power_plant_enhancer_range: phobos_client
                         .show_power_plant_enhancer_range,
                     #[cfg(feature = "phobos")]

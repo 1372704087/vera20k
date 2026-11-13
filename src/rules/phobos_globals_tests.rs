@@ -708,6 +708,22 @@ fn the_buildup_alpha_and_paradrop_delay_globals_read() {
     assert_eq!(wrong.paradrop_delay, 5);
 }
 
+/// `[General] BunkerStateUpdateDelay=` (`Ext/Rules/Body.cpp:617`,
+/// constructor **15** `Body.h:1012`).
+#[test]
+fn the_bunker_state_update_delay_defaults_to_fifteen() {
+    assert_eq!(PhobosGlobals::default().bunker_state_update_delay, 15);
+    assert_eq!(
+        read("[General]\nBunkerStateUpdateDelay=33\n").bunker_state_update_delay,
+        33
+    );
+    // `[General]` only.
+    assert_eq!(
+        read("[AudioVisual]\nBunkerStateUpdateDelay=33\n").bunker_state_update_delay,
+        15
+    );
+}
+
 /// `[General] AircraftFiringForceScatter=` (`Ext/Rules/Body.cpp:473`,
 /// constructor **true** `Body.h:888`).
 #[test]

@@ -1394,6 +1394,19 @@ fn splash_anims_reads_the_type_list_and_pick_random() {
     assert!(!c.splash_anims_pick_random);
 }
 
+/// Phobos `ExplodeOnWater=` (`Ext/AnimType/Body.cpp:99`, `Body.h:54`,
+/// constructed false `Body.h:106`) is an ART `ReadBool`, so an absent key and a
+/// section with other keys both stay false.
+#[cfg(feature = "phobos")]
+#[test]
+fn explode_on_water_is_an_art_bool_defaulting_false() {
+    let ini = IniFile::from_str("[A]\nExplodeOnWater=yes\n[B]\nExplodeOnWater=no\n[C]\nStart=1\n");
+    let reg = ArtRegistry::from_ini(&ini);
+    assert!(reg.anim_runtime_config("A").unwrap().explode_on_water);
+    assert!(!reg.anim_runtime_config("B").unwrap().explode_on_water);
+    assert!(!reg.anim_runtime_config("C").unwrap().explode_on_water);
+}
+
 /// Phobos `Refinery.UseNormalActiveAnim=` (`Ext/BuildingType/Body.cpp:309`,
 /// `Body.h:227`) is an ART ReadBool from the ImageFile's section, default
 /// false.

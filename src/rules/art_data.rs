@@ -481,11 +481,13 @@ pub struct AnimTypeRuntimeConfig {
     /// `RandomRanged(0, last)` instead of the meteor/first default.
     #[cfg(feature = "phobos")]
     pub splash_anims_pick_random: bool,
-    /// Phobos `AnimTypeExt::ExplodeOnWater` (`Ext/AnimType/Body.cpp:99`,
-    /// `Body.h:54`, constructor `Body.h:106` false): a water landing below
-    /// the bridge deck takes the explosion arm (Warhead/ExpireAnim) instead
-    /// of the stock Wake and SplashList. Consumer: `HandleDebrisImpact`
-    /// (`Ext/Anim/Body.cpp:252`, `Ext/Anim/Hooks.cpp:236-241`).
+    /// Phobos `ExplodeOnWater=` (`Ext/AnimType/Body.cpp:99`, `Body.h:54`,
+    /// `Valueable<bool>` constructed **false** `Body.h:106`): a water impact
+    /// takes the explosion arm — the warhead and `ExpireAnim=` — instead of the
+    /// wake/splash arm (`Ext/Anim/Body.cpp:252`, `:273-290`).
+    /// The VoxelAnimType twin (`Ext/VoxelAnimType/Body.cpp:13`,
+    /// `Ext/VoxelAnim/Hooks.cpp:42`) is not ported: that class has no Phobos
+    /// extension in VERA yet.
     #[cfg(feature = "phobos")]
     pub explode_on_water: bool,
     /// Phobos `Crater.DestroyTiberium=` (`Ext/AnimType/Body.cpp:126`,

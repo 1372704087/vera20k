@@ -123,6 +123,7 @@ Supported extensions:
 - [MakesWake](phobos-makes-wake.md) (`MakesWake` per type over the four `[AudioVisual] *LocomotorMakesWake=` globals skips a moving hull's water wake; 5 keys)
 - [MindControl.ThreatDelay](phobos-mind-control-threat-delay.md) (a warhead's capture shields the new pawn from its former allies' retaliation and auto-targeting for the warhead or `[General]` delay; 2 keys)
 - [Bolt.Duration / Bolt.FollowFLH](phobos-bolt-duration-follow-flh.md) (a weapon sets an electric bolt's lifetime exponent and whether its bolt follows a non-Unit firer; 2 keys)
+- [TeamMember.ConsideredAs](phobos-team-member-considered-as.md) (a TechnoType fills a TaskForce entry for the types it lists in the team add/liberate/recruit matches; 1 key)
 - [AreaFire.Target](phobos-area-fire-target.md) (`AreaFire=` weapons pick the firer (`self`) or one drawn eligible adjacent cell (`random`) instead of the stock cell under the firer; 1 key)
 - [Wall weapon selection](phobos-wall-weapon-select.md) (`AllowWeaponSelectAgainstWalls` per type and globally lets the wall checks at `0x51C1F1`/`0x73F495`/`0x70095A` fall back to a secondary wall-breaker; 2 keys)
 - [Projectile gravity](phobos-projectile-gravity.md) (`[Projectile] Gravity=` per projectile type)

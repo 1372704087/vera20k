@@ -1310,6 +1310,13 @@ pub struct ObjectType {
     /// for a UnitType.
     #[cfg(feature = "phobos")]
     pub phobos_no_turret_track_target: Option<bool>,
+    /// Phobos `TeamMember.ConsideredAs` (`ValueableVector<TechnoTypeClass*>`
+    /// read at `Ext/TechnoType/Body.cpp:1160`): TaskForce entry types this
+    /// type may fill in the team add, liberate and recruit matches
+    /// (`Ext/Team/Hooks.cpp:61-127`). Names stay unresolved until the match,
+    /// where an unknown token can never equal an entry type.
+    #[cfg(feature = "phobos")]
+    pub phobos_team_member_considered_as: Vec<String>,
     /// Phobos `TurretResponse=` (`Ext/UnitType/Body.cpp:83`,
     /// `Nullable<bool>`, constructor `Body.h:68`): unset falls back to
     /// `UnitExt::CannotMove`; `yes` returns the idle turret even for a unit
@@ -6179,6 +6186,14 @@ impl ObjectType {
             phobos_no_turret_track_target: (category == ObjectCategory::Vehicle)
                 .then(|| section.read_phobos_nullable_bool("NoTurret.TrackTarget", None))
                 .flatten(),
+            #[cfg(feature = "phobos")]
+            phobos_team_member_considered_as:
+                crate::rules::native_processing::read_valueable_type_vector(
+                    section,
+                    "TeamMember.ConsideredAs",
+                    &[],
+                    |name| Some(name.to_owned()),
+                ),
             #[cfg(feature = "phobos")]
             phobos_turret_response: (category == ObjectCategory::Vehicle)
                 .then(|| section.read_phobos_nullable_bool("TurretResponse", None))

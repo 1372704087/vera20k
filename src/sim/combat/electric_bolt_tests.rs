@@ -1031,6 +1031,64 @@ fn a_tesla_tank_bolt_names_its_firer_and_follows_its_flh() {
     assert_eq!(electric_bolt::owner_source(&sim, &rules, owner), None);
 }
 
+/// Phobos `EBoltZAdjust` (`Ext/WeaponType/Body.cpp:131`, nullable): the
+/// `FireEBolt` hook adds it after the clamped depth
+/// (`Ext/EBolt/Hooks.cpp:208-220`), while the simulated bolt passes it alone
+/// (`Ext/Bullet/Body.cpp:268-280`). An unset key takes
+/// `[AudioVisual] EBoltZAdjust` (`Ext/Rules/Body.cpp:278`).
+#[cfg(feature = "phobos")]
+#[test]
+fn ebolt_z_adjust_reads_the_weapon_then_the_audio_visual_global() {
+    let produce = |global: &str, weapon: &str, simulated: bool| {
+        let rules = RuleSet::from_ini(&crate::rules::ini_parser::IniFile::from_str(&format!(
+            "[AudioVisual]\n{global}\
+             [InfantryTypes]\n0=ZAPPER\n1=MARK\n[ZAPPER]\nPrimary=ZAP\n[MARK]\n\
+             [ZAP]\nIsElectricBolt=yes\n{weapon}"
+        )))
+        .unwrap();
+        let mut sim = crate::sim::arena_fixture::rival_arena(&rules, 11);
+        sim.intern_rule_type_ids(&rules);
+        sim.resolve_type_handles(&rules);
+        let source = sim
+            .spawn_object("ZAPPER", "Americans", 16, 16, 64, &rules)
+            .unwrap();
+        let target = sim
+            .spawn_object("MARK", "Russians", 18, 16, 0, &rules)
+            .unwrap();
+        sim.lifecycle_outputs.clear_for_test();
+        if simulated {
+            electric_bolt::create_effect(
+                &mut sim,
+                &rules,
+                ProjectileCoord::new(4096, 4096, 0),
+                ProjectileCoord::new(4096 * 19, 4096 * 16, 0),
+                rules.weapon("ZAP").unwrap(),
+                None,
+            );
+        } else {
+            electric_bolt::create(
+                &mut sim,
+                &rules,
+                source,
+                crate::sim::projectile::ProjectileTarget::Entity(target),
+                rules.weapon("ZAP").unwrap(),
+                ProjectileCoord::new(4096, 4096, 0),
+                None,
+                false,
+            );
+        }
+        let [LifecycleOutput::ElectricBoltCreated(birth)] = sim.lifecycle_outputs.as_slice() else {
+            panic!("one bolt");
+        };
+        birth.z_adjust
+    };
+    assert_eq!(produce("", "", false), 0);
+    assert_eq!(produce("EBoltZAdjust=9\n", "", false), 9);
+    assert_eq!(produce("EBoltZAdjust=9\n", "EBoltZAdjust=-2\n", false), -2);
+    assert_eq!(produce("EBoltZAdjust=4\n", "", true), 4);
+    assert_eq!(produce("", "EBoltZAdjust=6\n", true), 6);
+}
+
 /// Ares TechnoClass_FireEBolt (Ares.dll 10056350) and EBolt_Fire_Particles
 /// (100562C0): a 6FD460 bolt carries its weapon's Bolt.Color1..3 and spawns
 /// Bolt.ParticleSystem instead of DefaultSparkSystem; `none` spawns nothing.

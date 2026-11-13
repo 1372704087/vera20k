@@ -116,6 +116,44 @@ fn place(sim: &mut Simulation, id: u64, kind: &str, category: EntityCategory, at
     sim.substrate.entities.insert(entity);
 }
 
+/// Phobos `LaserZAdjust` (`Ext/WeaponType/Body.cpp:130`, nullable) with the
+/// `[AudioVisual]` default (`Ext/Rules/Body.cpp:277`), applied by the LaserDraw
+/// hook (`Misc/Hooks.LaserDraw.cpp:49-57`): the created beam carries the sum.
+#[test]
+fn laser_z_adjust_reads_the_weapon_then_the_audio_visual_global() {
+    let produce = |global: &str, weapon: &str| {
+        let rules_ini = crate::sim::arena_fixture::clear_ground_ini(&format!(
+            "[AudioVisual]\n{global}\
+             [VehicleTypes]\n0=UNIT\n1=TARGET\n\
+             [UNIT]\nImage=UNITART\nStrength=600\nPrimary=LaserProbe\n\
+             [TARGET]\nStrength=1000\n\
+             [LaserProbe]\nIsLaser=yes\nIsHouseColor=yes\nLaserDuration=10\n{weapon}"
+        ));
+        let art = IniFile::from_str("[UNITART]\nPrimaryFireFLH=0,0,0\n");
+        let mut rules = RuleSet::from_ini_with_fixed_art_for_test(&rules_ini, &art).unwrap();
+        rules.install_art_data(ArtRegistry::from_ini(&art));
+        let mut sim = Simulation::with_seed(0);
+        place(&mut sim, 1, "UNIT", EntityCategory::Unit, [1280, 1280, 0]);
+        place(&mut sim, 2, "TARGET", EntityCategory::Unit, [1536, 1280, 0]);
+        laser::create(
+            &mut sim,
+            &rules,
+            1,
+            crate::sim::projectile::ProjectileTarget::Entity(2),
+            0,
+            rules.weapon("LaserProbe").unwrap(),
+            None,
+            false,
+        )
+        .unwrap()
+        .z_adjust
+    };
+    assert_eq!(produce("", ""), 0);
+    assert_eq!(produce("LaserZAdjust=7\n", ""), 7);
+    assert_eq!(produce("LaserZAdjust=7\n", "LaserZAdjust=5\n"), 5);
+    assert_eq!(produce("", "LaserZAdjust=-4\n"), -4);
+}
+
 fn assert_birth(actual: LaserBirth, expected: &Value, name: &str) {
     assert_eq!(
         actual.frame,

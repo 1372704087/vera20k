@@ -167,6 +167,13 @@ pub(crate) fn create(
         from,
         super::fire_coord::EffectDepthProjection::ClampedBuilding,
     );
+    // Phobos `Ext/EBolt/Hooks.cpp:208-220`: the clamped depth then adds
+    // `EBoltZAdjust.Get(RulesExt::Global()->EBoltZAdjust)`.
+    #[cfg(feature = "phobos")]
+    let z_adjust = z_adjust.wrapping_add(crate::rules::phobos_beam_z_adjust::resolved(
+        weapon.phobos_ebolt_z_adjust,
+        rules.phobos_beam_z_adjust.ebolt,
+    ));
     let Some(mut to) = super::fire_coord::effect_target_coordinate(world, rules, target) else {
         return;
     };
@@ -207,7 +214,16 @@ pub(crate) fn create_effect(
     weapon: &crate::rules::weapon_type::WeaponType,
     owner: Option<ElectricBoltOwner>,
 ) {
-    emit(world, rules, from, to, 0, weapon, owner, false);
+    // Phobos `Ext/Bullet/Body.cpp:268-280`: the simulated bolt passes the
+    // weapon's `EBoltZAdjust` (else the global) instead of a computed depth.
+    #[cfg(feature = "phobos")]
+    let z_adjust = crate::rules::phobos_beam_z_adjust::resolved(
+        weapon.phobos_ebolt_z_adjust,
+        rules.phobos_beam_z_adjust.ebolt,
+    );
+    #[cfg(not(feature = "phobos"))]
+    let z_adjust = 0;
+    emit(world, rules, from, to, z_adjust, weapon, owner, false);
 }
 
 /// `ares_ext` is whether the bolt carries the weapon's Ares WeaponTypeExt.

@@ -405,6 +405,16 @@ pub struct WeaponType {
     /// `[AudioVisual]`.
     #[cfg(feature = "phobos")]
     pub laser_position_update_stop_on_firer_convert: Option<bool>,
+    /// Phobos `LaserZAdjust` (`Nullable<int>`, `Ext/WeaponType/Body.cpp:130`):
+    /// the initial draw depth of this weapon's laser; `None` inherits
+    /// `[AudioVisual]`.
+    #[cfg(feature = "phobos")]
+    pub phobos_laser_z_adjust: Option<i32>,
+    /// Phobos `EBoltZAdjust` (`Nullable<int>`, `Ext/WeaponType/Body.cpp:131`):
+    /// the initial draw depth of this weapon's electric bolt; `None` inherits
+    /// `[AudioVisual]`.
+    #[cfg(feature = "phobos")]
+    pub phobos_ebolt_z_adjust: Option<i32>,
     /// Phobos `WeaponTypeExt` ExtraWarheads (`Ext/WeaponType/Body.cpp:139-166`):
     /// warheads detonated after this weapon's own at the same impact.
     #[cfg(feature = "phobos")]
@@ -888,6 +898,10 @@ impl WeaponType {
             #[cfg(feature = "phobos")]
             laser_position_update_stop_on_firer_convert: section
                 .read_phobos_nullable_bool("LaserPositionUpdate.StopOnFirerConvert", None),
+            #[cfg(feature = "phobos")]
+            phobos_laser_z_adjust: section.read_phobos_nullable_int("LaserZAdjust", None),
+            #[cfg(feature = "phobos")]
+            phobos_ebolt_z_adjust: section.read_phobos_nullable_int("EBoltZAdjust", None),
             #[cfg(feature = "phobos")]
             phobos_extra_warheads:
                 crate::rules::phobos_extra_warheads::PhobosExtraWarheads::from_section(section),

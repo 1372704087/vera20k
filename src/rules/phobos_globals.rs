@@ -221,6 +221,13 @@ pub struct PhobosGlobals {
     /// waits (`0x007197DF`, `Ext/TechnoType/Hooks.Teleport.cpp:154-163`).
     #[serde(default = "sixty")]
     pub chrono_sphere_pre_delay: i32,
+    /// `[General] ChronoSphereDelay=` (`Valueable<int>`, default **0**;
+    /// `Ext/Rules/Body.cpp:121`, `Body.h:40,580`): the fallback for a
+    /// TechnoType's nullable; the extra frames a chrono-sphered object stays
+    /// warped out after the warp-in (`Ext/TechnoType/Hooks.Teleport.cpp:165-188`,
+    /// decremented by `Ext/Foot/Body.cpp:149-164`).
+    #[serde(default)]
+    pub chrono_sphere_delay: i32,
     /// `[JumpjetControls] RotateOnCrash=` (`Valueable<bool>`, default **true**;
     /// `Ext/Rules/Body.cpp:1355`, `Body.h:56,596`): the fallback for a
     /// TechnoType's nullable `JumpjetRotateOnCrash=`; the Jumpjet crash's
@@ -1140,6 +1147,7 @@ impl Default for PhobosGlobals {
             aircraft_firing_force_scatter: aircraft_firing_force_scatter_default(),
             bunker_state_update_delay: fifteen(),
             chrono_sphere_pre_delay: sixty(),
+            chrono_sphere_delay: 0,
             jumpjet_rotate_on_crash: truth(),
             sinkable: None,
             sink_speed: 5,
@@ -1600,6 +1608,8 @@ impl PhobosGlobals {
             general.read_int("BunkerStateUpdateDelay", globals.bunker_state_update_delay);
         globals.chrono_sphere_pre_delay =
             general.read_int("ChronoSpherePreDelay", globals.chrono_sphere_pre_delay);
+        globals.chrono_sphere_delay =
+            general.read_int("ChronoSphereDelay", globals.chrono_sphere_delay);
         globals.jumpjet_rotate_on_crash = ini
             .section_or_empty("JumpjetControls")
             .read_bool("RotateOnCrash", globals.jumpjet_rotate_on_crash);

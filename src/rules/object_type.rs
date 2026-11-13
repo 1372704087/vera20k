@@ -998,6 +998,23 @@ pub struct ObjectType {
     /// Guard scan-delay override; unset keeps the `[General]` fallback.
     #[cfg(feature = "phobos")]
     pub phobos_ai_guard_area_targeting_delay: Option<i32>,
+    /// Phobos `AINormalTargetingDelay=` / `PlayerNormalTargetingDelay=` /
+    /// `PlayerGuardAreaTargetingDelay=` / `AIAttackMoveTargetingDelay=` /
+    /// `PlayerAttackMoveTargetingDelay=` (all `Nullable<int>`, unset;
+    /// `Ext/TechnoType/Body.cpp:1074-1079`, `Body.h:303-307`): the
+    /// `TechnoClass_TargetAndEstimateDamage_TargetingDelay @ 0x70982C`
+    /// per-mission overrides, each falling back to its `[General]` twin and
+    /// then to `RulesClass::NormalTargetingDelay`/`GuardAreaTargetingDelay`.
+    #[cfg(feature = "phobos")]
+    pub phobos_ai_normal_targeting_delay: Option<i32>,
+    #[cfg(feature = "phobos")]
+    pub phobos_player_normal_targeting_delay: Option<i32>,
+    #[cfg(feature = "phobos")]
+    pub phobos_player_guard_area_targeting_delay: Option<i32>,
+    #[cfg(feature = "phobos")]
+    pub phobos_ai_attack_move_targeting_delay: Option<i32>,
+    #[cfg(feature = "phobos")]
+    pub phobos_player_attack_move_targeting_delay: Option<i32>,
     /// Phobos `CrushSlowdownMultiplier` (`Nullable<double>`, unset;
     /// `Ext/UnitType/Body.cpp:73`, `Body.h:58`): the UnitType override for
     /// the Drive/Ship crush slowdown cap (`0x4B1150`, `0x6A0813`).
@@ -1588,14 +1605,6 @@ pub struct ObjectType {
     /// placement hooks. Only an AircraftType section reaches the reader.
     #[cfg(feature = "phobos")]
     pub phobos_spawn_distance_from_target: Option<i32>,
-    /// Phobos `TechnoTypeExt::MaxGuardRange` (`Ext/TechnoType/Body.cpp:975`,
-    /// `Valueable<Leptons>`, constructor `Body.h:647` = `Leptons(4096)`): the
-    /// hard cap `TechnoClass::GetGuardRange @ 0x00707E60` applies after it
-    /// doubles the radius (`Ext/Techno/Hooks.cpp:1967-1996`, hook `0x707E63`).
-    /// Consumer: `combat::threat_range::threat_range_leptons`. Every
-    /// TechnoType family reaches the reader.
-    #[cfg(feature = "phobos")]
-    phobos_max_guard_range: i32,
     /// Ares TechnoTypeExt `VoiceRepair` (ValueableIdx<VocClass>, unset -1):
     /// the attack voice of a repairing weapon (TechnoClass_SelectFiringVoice
     /// 1004B1D0, hook 0x7090A8).
@@ -1858,6 +1867,13 @@ pub struct ObjectType {
     /// (`TechnoClass_GetGuardRange` replacement, hook `0x707E63`).
     #[cfg(feature = "phobos")]
     pub phobos_area_guard_range: Option<SimFixed>,
+    /// Phobos `MaxGuardRange=` (`Valueable<Leptons>`, INI value in **cells**
+    /// via the Leptons reader; constructor default 4096 leptons = 16 cells;
+    /// `Ext/TechnoType/Body.h:218,647`, read `Body.cpp:975`): the clamp `TechnoClass::GetGuardRange` applies to the doubled range
+    /// (`Ext/Techno/Hooks.cpp:1923-2007`, hook `0x707E63`). `None` keeps the
+    /// constructor default.
+    #[cfg(feature = "phobos")]
+    pub phobos_max_guard_range: Option<SimFixed>,
     /// Range bonus (in cells) added to the weapon's max range when firing at
     /// high-flying targets. Read from `AirRangeBonus=` in the unit section.
     /// None means no bonus.
@@ -5091,6 +5107,7 @@ impl ObjectType {
     #[cfg(feature = "phobos")]
     pub(crate) fn phobos_max_guard_range(&self) -> i32 {
         self.phobos_max_guard_range
+            .map_or(4096, |range| range.to_bits() >> 8)
     }
 
     pub fn voice_attack(&self) -> &[String] {
@@ -6588,6 +6605,21 @@ impl ObjectType {
             phobos_ai_guard_area_targeting_delay: section
                 .read_phobos_nullable_int("AIGuardAreaTargetingDelay", None),
             #[cfg(feature = "phobos")]
+            phobos_ai_normal_targeting_delay: section
+                .read_phobos_nullable_int("AINormalTargetingDelay", None),
+            #[cfg(feature = "phobos")]
+            phobos_player_normal_targeting_delay: section
+                .read_phobos_nullable_int("PlayerNormalTargetingDelay", None),
+            #[cfg(feature = "phobos")]
+            phobos_player_guard_area_targeting_delay: section
+                .read_phobos_nullable_int("PlayerGuardAreaTargetingDelay", None),
+            #[cfg(feature = "phobos")]
+            phobos_ai_attack_move_targeting_delay: section
+                .read_phobos_nullable_int("AIAttackMoveTargetingDelay", None),
+            #[cfg(feature = "phobos")]
+            phobos_player_attack_move_targeting_delay: section
+                .read_phobos_nullable_int("PlayerAttackMoveTargetingDelay", None),
+            #[cfg(feature = "phobos")]
             phobos_crush_slowdown_multiplier: section
                 .read_phobos_nullable_double("CrushSlowdownMultiplier", None)
                 .map(|value| crate::util::native_x87::NativeF64Bits::from_bits(value.to_bits())),
@@ -6659,8 +6691,6 @@ impl ObjectType {
                 .flatten(),
             // `TechnoTypeExt::LoadFromINIFile` (`Ext/TechnoType/Body.cpp:975`),
             // a `read<Leptons>` (cells x 256) for every family.
-            #[cfg(feature = "phobos")]
-            phobos_max_guard_range: section.read_phobos_leptons("MaxGuardRange", 4096),
             voice_capture: None,
             prevent_attack_move: section.read_bool("PreventAttackMove", false),
             voice_die: section
@@ -6797,6 +6827,8 @@ impl ObjectType {
             guard_range: present_range("GuardRange"),
             #[cfg(feature = "phobos")]
             phobos_area_guard_range: present_range("AreaGuardRange"),
+            #[cfg(feature = "phobos")]
+            phobos_max_guard_range: present_range("MaxGuardRange"),
             air_range_bonus: present_range("AirRangeBonus"),
             // Default no (passive acquisition off unless the type opts in).
             opportunity_fire: section.read_bool("OpportunityFire", false),

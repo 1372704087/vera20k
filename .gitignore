@@ -187,7 +187,6 @@ Thumbs.db
 !/docs/phobos-factory-plant.md
 !/docs/phobos-combat-alert.md
 !/docs/phobos-select-box.md
-<<<<<<< HEAD
 !/docs/phobos-empulse.md
 !/docs/phobos-overpower.md
 !/docs/phobos-iron-curtain-targeting.md
@@ -248,10 +247,7 @@ Thumbs.db
 !/docs/phobos-amphibious-enter-unload.md
 !/docs/phobos-audit-unmapped-40.md
 !/docs/phobos-ammo-pips.md
-=======
 !/docs/phobos-deploy-gates.md
-!/docs/phobos-select-box.md
->>>>>>> feature/phobos-deploy-gates
 !/docs/ares-promotion-sounds.md
 !/docs/npatch.md
 !/docs/verax.md

@@ -534,6 +534,14 @@ pub struct ObjectType {
     /// `AutoFire.TargetSelf=`): target the object rather than its cell.
     #[cfg(feature = "phobos")]
     pub phobos_auto_target_own_position_self: bool,
+    /// Phobos `DistributeTargetingFrame=` (`Nullable<bool>`,
+    /// `Ext/TechnoType/Body.cpp:1080`, constructor empty): the per-type
+    /// override of the `[General] DistributeTargetingFrame` fallback; when the
+    /// consumer gate allows it, the techno's targeting timer is re-armed at
+    /// `45 + RandomFactor` at init (`Ext/Techno/Hooks.cpp:323-326`, hook
+    /// `0x6F42F7`).
+    #[cfg(feature = "phobos")]
+    pub phobos_distribute_targeting_frame: Option<bool>,
     /// `Trainable=` (TechnoType `+0xC8E`) — whether this object can gain
     /// veterancy from its kills.
     ///
@@ -6044,6 +6052,9 @@ impl ObjectType {
                 let value = section.read_bool("AutoFire.TargetSelf", false);
                 section.read_bool("AutoTargetOwnPosition.Self", value)
             },
+            #[cfg(feature = "phobos")]
+            phobos_distribute_targeting_frame: section
+                .read_phobos_nullable_bool("DistributeTargetingFrame", None),
             trainable: section.read_bool("Trainable", category != ObjectCategory::Building),
             burst_delays: std::array::from_fn(|index| {
                 if category == ObjectCategory::Vehicle {

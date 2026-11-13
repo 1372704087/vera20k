@@ -258,6 +258,21 @@ pub struct PhobosGlobals {
     /// attack-move override (`0x70982C`).
     #[serde(default)]
     pub player_attack_move_targeting_delay: Option<i32>,
+    /// `[General] DistributeTargetingFrame=` (`Valueable<bool>`, default
+    /// **false**; `Ext/Rules/Body.cpp:434`, `Body.h:319,830`): the global
+    /// fallback of the TechnoType `DistributeTargetingFrame` override
+    /// (`Ext/TechnoType/Body.cpp:1080`); when the consumer gate allows it, a
+    /// fresh techno's targeting timer is re-armed at `45 + RandomFactor`
+    /// (`Ext/Techno/Hooks.cpp:323-326`, hook `0x6F42F7`).
+    #[serde(default)]
+    pub distribute_targeting_frame: bool,
+    /// `[General] DistributeTargetingFrame.AIOnly=` (`Valueable<bool>`,
+    /// default **true**; `Ext/Rules/Body.cpp:435`, `Body.h:320,831`): with it
+    /// on, a human-controlled house keeps the vanilla 45-frame construction
+    /// anchor even when the distribute switch itself is on
+    /// (`Ext/Techno/Hooks.cpp:323-326`).
+    #[serde(default)]
+    pub distribute_targeting_frame_ai_only: bool,
     /// `[General] CrushSlowdownMultiplier=` (`Valueable<double>`, default
     /// 0.2; `Ext/Rules/Body.cpp:273`, `Body.h:191,715`): the cap for the
     /// Drive/Ship crush slowdown (`0x4B1150`, `0x6A0813`).
@@ -1282,6 +1297,8 @@ impl Default for PhobosGlobals {
             player_guard_area_targeting_delay: None,
             ai_attack_move_targeting_delay: None,
             player_attack_move_targeting_delay: None,
+            distribute_targeting_frame: false,
+            distribute_targeting_frame_ai_only: true,
             crush_slowdown_multiplier: crush_slowdown_default(),
             skip_crush_slowdown: false,
             aircraft_firing_force_scatter: aircraft_firing_force_scatter_default(),
@@ -1839,6 +1856,14 @@ impl PhobosGlobals {
         globals.player_attack_move_targeting_delay = general.read_phobos_nullable_int(
             "PlayerAttackMoveTargetingDelay",
             globals.player_attack_move_targeting_delay,
+        );
+        globals.distribute_targeting_frame = general.read_bool(
+            "DistributeTargetingFrame",
+            globals.distribute_targeting_frame,
+        );
+        globals.distribute_targeting_frame_ai_only = general.read_bool(
+            "DistributeTargetingFrame.AIOnly",
+            globals.distribute_targeting_frame_ai_only,
         );
         globals.crush_slowdown_multiplier = read_double_bits(
             &general,

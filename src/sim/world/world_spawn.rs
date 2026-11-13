@@ -595,6 +595,14 @@ impl Simulation {
                         bridge_deck: bridge_spawn,
                     },
                 );
+                // TechnoClass::Init (hook 0x6F42F7) runs before the map
+                // readers below (`BuildingClass::ReadFromINI 0x0044FB5B`).
+                #[cfg(feature = "phobos")]
+                sim.phobos_initialize_state(
+                    &mut ge,
+                    authored_health::map_object_type(map_ent.category, &map_ent.type_id, rules),
+                    rules,
+                );
                 // The line's AI Sellable and AI Repairable, written after the
                 // constructor and before the Unlimbo (`BuildingClass::ReadFromINI`
                 // `0x0044FB5B`, `0x0044FB70`).

@@ -823,7 +823,6 @@ fn make_enemy_alternate_reveal_restores_the_released_client_cache() {
     assert_eq!(counter(&sim, player, SITE), before);
 }
 
-
 /// Phobos `RevealToAll.Radius=` (`Ext/BuildingType/Body.cpp:284`,
 /// `0x446816`/`0x4ADE55`): the alternate sight circle uses the key, else the
 /// type's raw `Sight`.
@@ -839,12 +838,18 @@ fn world_with_reveal_radius(patch: &str) -> Option<(RuleSet, Simulation, Interne
 #[test]
 fn phobos_reveal_to_all_radius_overrides_the_alternate_sight_circle() {
     for (patch, expected) in [
-        ("[NAIRON]
+        (
+            "[NAIRON]
 RevealToAll.Radius=2
-", 2),
-        ("[NAIRON]
+",
+            2,
+        ),
+        (
+            "[NAIRON]
 RevealToAll.Radius=<default>
-", 4),
+",
+            4,
+        ),
         ("", 4),
     ] {
         let Some((rules, mut sim, americans)) = world_with_reveal_radius(patch) else {

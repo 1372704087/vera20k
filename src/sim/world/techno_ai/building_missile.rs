@@ -635,42 +635,43 @@ fn emp_shot(sim: &mut Simulation, rules: &RuleSet, id: u64, cell: (u16, u16)) ->
     // recomputed by `BulletExt::ApplyArcingFix` from the vt+0x300 source to
     // the target cell's ground coordinate before `MoveTo`.
     #[cfg(feature = "phobos")]
-    let velocity = {
-        let kind = weapon
-            .projectile
-            .as_deref()
-            .and_then(|name| rules.projectile(name));
-        let apply = kind.is_some_and(|kind| kind.arcing)
-            && !kind
-                .and_then(|kind| kind.phobos_arcing_allow_elevation_inaccuracy)
-                .unwrap_or(rules.phobos_globals.arcing_allow_elevation_inaccuracy);
-        if apply {
-            let target = cell_ground_coord(sim.resolved_terrain.as_ref(), cell.0, cell.1);
-            let delta = [
-                target.x.wrapping_sub(source.x),
-                target.y.wrapping_sub(source.y),
-                target.z.wrapping_sub(source.z),
-            ];
-            let gravity = crate::sim::projectile::projectile_gravity(
-                rules.general.gravity,
-                kind.and_then(|kind| kind.gravity()),
-                kind.is_some_and(|kind| kind.floater),
-            );
-            let fixed = crate::sim::projectile::launch::apply_arcing_fix(
+    let velocity =
+        {
+            let kind = weapon
+                .projectile
+                .as_deref()
+                .and_then(|name| rules.projectile(name));
+            let apply = kind.is_some_and(|kind| kind.arcing)
+                && !kind
+                    .and_then(|kind| kind.phobos_arcing_allow_elevation_inaccuracy)
+                    .unwrap_or(rules.phobos_globals.arcing_allow_elevation_inaccuracy);
+            if apply {
+                let target = cell_ground_coord(sim.resolved_terrain.as_ref(), cell.0, cell.1);
+                let delta = [
+                    target.x.wrapping_sub(source.x),
+                    target.y.wrapping_sub(source.y),
+                    target.z.wrapping_sub(source.z),
+                ];
+                let gravity = crate::sim::projectile::projectile_gravity(
+                    rules.general.gravity,
+                    kind.and_then(|kind| kind.gravity()),
+                    kind.is_some_and(|kind| kind.floater),
+                );
+                let fixed = crate::sim::projectile::launch::apply_arcing_fix(
+                    velocity
+                        .native()
+                        .map(|component| f64::from_bits(component.bits())),
+                    delta,
+                    f64::from_bits(gravity.bits()),
+                    weapon.lobber,
+                );
+                crate::sim::projectile::ProjectileVelocity::from_native(fixed.map(|value| {
+                    crate::util::native_x87::NativeF64Bits::from_bits(value.to_bits())
+                }))
+            } else {
                 velocity
-                    .native()
-                    .map(|component| f64::from_bits(component.bits())),
-                delta,
-                f64::from_bits(gravity.bits()),
-                weapon.lobber,
-            );
-            crate::sim::projectile::ProjectileVelocity::from_native(fixed.map(|value| {
-                crate::util::native_x87::NativeF64Bits::from_bits(value.to_bits())
-            }))
-        } else {
-            velocity
-        }
-    };
+            }
+        };
     let Some(warhead) = weapon
         .warhead
         .as_deref()

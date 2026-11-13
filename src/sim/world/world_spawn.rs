@@ -1789,9 +1789,7 @@ impl Simulation {
         loop {
             let mut next_entity = None;
             if let NativeCellIdentity::Real(_) = cell {
-                for member in
-                    self.cell_objects((at.0 as u16, at.1 as u16), MovementLayer::Ground)
-                {
+                for member in self.cell_objects((at.0 as u16, at.1 as u16), MovementLayer::Ground) {
                     match member {
                         CellObjectMember::Entity(id) => {
                             next_entity = Some(id);
@@ -1823,9 +1821,7 @@ impl Simulation {
                 .is_some_and(|entity| {
                     matches!(
                         entity.category(),
-                        EntityCategory::Unit
-                            | EntityCategory::Infantry
-                            | EntityCategory::Aircraft
+                        EntityCategory::Unit | EntityCategory::Infantry | EntityCategory::Aircraft
                     )
                 })
                 .then_some(id);

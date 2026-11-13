@@ -8417,10 +8417,37 @@ impl Simulation {
             .iter()
             .filter_map(|id| {
                 let entity = self.substrate.entities.get(*id)?;
-                let underwater = self
-                    .object_type(entity.type_ref(), rules)
-                    .is_some_and(|object| object.underwater);
-                wake_anchor_for(entity, rules_context, underwater, terrain, binary_frame)
+                let object = self.object_type(entity.type_ref(), rules);
+                let underwater = object.is_some_and(|object| object.underwater);
+                let kind = entity.locomotor.as_ref().map(|loco| loco.active_kind());
+                // Phobos `TechnoExt::TypeExtData->MakesWake` over each
+                // locomotor's `*MakesWake` global
+                // (`Ext/Techno/Hooks.Misc.cpp:357-392`).
+                #[cfg(feature = "phobos")]
+                let makes_wake = object
+                    .and_then(|object| object.phobos_makes_wake)
+                    .unwrap_or_else(|| match kind {
+                        Some(crate::rules::locomotor_type::LocomotorKind::Drive) => {
+                            rules.phobos_globals.drive_locomotor_makes_wake
+                        }
+                        Some(crate::rules::locomotor_type::LocomotorKind::Hover) => {
+                            rules.phobos_globals.hover_locomotor_makes_wake
+                        }
+                        Some(crate::rules::locomotor_type::LocomotorKind::Ship) => {
+                            rules.phobos_globals.ship_locomotor_makes_wake
+                        }
+                        _ => true,
+                    });
+                #[cfg(not(feature = "phobos"))]
+                let makes_wake = true;
+                wake_anchor_for(
+                    entity,
+                    rules_context,
+                    underwater,
+                    makes_wake,
+                    terrain,
+                    binary_frame,
+                )
             })
             .collect();
         if wake_positions.is_empty() {
@@ -8647,12 +8674,18 @@ pub(crate) fn wake_anchor_for(
     entity: &crate::sim::game_entity::GameEntity,
     rules: crate::sim::movement::SpeedRules<'_>,
     underwater: bool,
+    makes_wake: bool,
     terrain: Option<&ResolvedTerrainGrid>,
     binary_frame: u32,
 ) -> Option<crate::sim::anim_class::AnimWorldCoord> {
     // Foot4DA81A bypasses the locomotor (and its movement-wake producer)
     // while sinking. Unit AI owns that hull's separate jittered wake.
     if entity.sinking.is_active() {
+        return None;
+    }
+    // Phobos `MakesWake.Get(<locomotor>LocomotorMakesWake)`: a false answer
+    // never reaches the cadence.
+    if !makes_wake {
         return None;
     }
     let on_cadence = match entity.locomotor.as_ref().map(|loco| loco.active_kind()) {

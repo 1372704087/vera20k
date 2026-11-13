@@ -348,6 +348,20 @@ pub struct PhobosGlobals {
     /// flying credit label (`Ext/Rules/Body.cpp:301`, consumed at
     /// `Ext/Techno/Hooks.cpp:199`).
     pub drain_money_display: bool,
+    /// Phobos `[AudioVisual] WalkLocomotorMakesWake=` /
+    /// `DriveLocomotorMakesWake=` / `HoverLocomotionClassMakesWake=` /
+    /// `ShipLocomotionClassMakesWake=` (`Ext/Rules/Body.cpp:543-546`,
+    /// constructors `Ext/Rules/Body.h:960-963` = no/yes/yes/yes): the
+    /// per-locomotor fallback for a TechnoType's `MakesWake=`. The Walk arm's
+    /// consumer site is not ported (VERA spawns no infantry movement wakes).
+    #[serde(default)]
+    pub walk_locomotor_makes_wake: bool,
+    #[serde(default = "true_bool")]
+    pub drive_locomotor_makes_wake: bool,
+    #[serde(default = "true_bool")]
+    pub hover_locomotor_makes_wake: bool,
+    #[serde(default = "true_bool")]
+    pub ship_locomotor_makes_wake: bool,
     /// `[AudioVisual] DrainMoneyDisplay.Houses=`, default `All`
     /// (`Ext/Rules/Body.h:730`): the label's House filter.
     pub drain_money_display_houses: AffectedHouse,
@@ -1370,6 +1384,10 @@ impl Default for PhobosGlobals {
             display_income_delay: display_income_delay_default(),
             set_recruitable_on_liberate: -1,
             no_alpha_image_on_buildup: false,
+            walk_locomotor_makes_wake: false,
+            drive_locomotor_makes_wake: true,
+            hover_locomotor_makes_wake: true,
+            ship_locomotor_makes_wake: true,
             paradrop_delay: default_paradrop_delay(),
             aircraft_spawn_from_edge: crate::rules::phobos_aircraft_edge::PhobosEdgeType::Owner,
             aircraft_retreat_to_edge: crate::rules::phobos_aircraft_edge::PhobosEdgeType::Owner,
@@ -1416,6 +1434,20 @@ impl PhobosGlobals {
             .read_phobos_nullable_int("PoseDir.Production", globals.pose_dir_production);
         globals.pose_dir_field =
             audio_visual.read_phobos_nullable_int("PoseDir.Field", globals.pose_dir_field);
+        globals.walk_locomotor_makes_wake =
+            audio_visual.read_bool("WalkLocomotorMakesWake", globals.walk_locomotor_makes_wake);
+        globals.drive_locomotor_makes_wake = audio_visual.read_bool(
+            "DriveLocomotorMakesWake",
+            globals.drive_locomotor_makes_wake,
+        );
+        globals.hover_locomotor_makes_wake = audio_visual.read_bool(
+            "HoverLocomotionClassMakesWake",
+            globals.hover_locomotor_makes_wake,
+        );
+        globals.ship_locomotor_makes_wake = audio_visual.read_bool(
+            "ShipLocomotionClassMakesWake",
+            globals.ship_locomotor_makes_wake,
+        );
         globals.drain_money_display_houses = crate::rules::phobos_shields::read_affected_house(
             audio_visual,
             "DrainMoneyDisplay.Houses",
@@ -1700,10 +1732,8 @@ impl PhobosGlobals {
             "AIGuardAreaTargetingDelay",
             globals.ai_guard_area_targeting_delay,
         );
-        globals.ai_normal_targeting_delay = general.read_phobos_nullable_int(
-            "AINormalTargetingDelay",
-            globals.ai_normal_targeting_delay,
-        );
+        globals.ai_normal_targeting_delay = general
+            .read_phobos_nullable_int("AINormalTargetingDelay", globals.ai_normal_targeting_delay);
         globals.player_normal_targeting_delay = general.read_phobos_nullable_int(
             "PlayerNormalTargetingDelay",
             globals.player_normal_targeting_delay,

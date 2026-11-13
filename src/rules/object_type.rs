@@ -1310,6 +1310,13 @@ pub struct ObjectType {
     /// Read only for a UnitType.
     #[cfg(feature = "phobos")]
     pub phobos_turret_response: Option<bool>,
+    /// Phobos `MakesWake=` (`Ext/TechnoType/Body.cpp:1070`, `Nullable<bool>`
+    /// field `Body.h:301,733`): whether this type's moving hull spawns the
+    /// `[General] Wake=` animation on water; unset takes the matching
+    /// `[AudioVisual] *LocomotorMakesWake=` global
+    /// (`Ext/Techno/Hooks.Misc.cpp:357-392`).
+    #[cfg(feature = "phobos")]
+    pub phobos_makes_wake: Option<bool>,
     /// Phobos `SkipCrushSlowdown=` (`Ext/UnitType/Body.cpp:74`,
     /// `Nullable<bool>`, constructor `Body.h:122`): a crushing Unit keeps its
     /// speed instead of the Foot+6B5 0.2 cap; unset takes
@@ -6189,6 +6196,8 @@ impl ObjectType {
             #[cfg(feature = "phobos")]
             phobos_allow_weapon_select_against_walls: section
                 .read_phobos_nullable_bool("AllowWeaponSelectAgainstWalls", None),
+            #[cfg(feature = "phobos")]
+            phobos_makes_wake: section.read_phobos_nullable_bool("MakesWake", None),
             #[cfg(feature = "phobos")]
             phobos_amphibious_enter: section.read_phobos_nullable_bool("AmphibiousEnter", None),
             #[cfg(feature = "phobos")]

@@ -694,13 +694,146 @@ fn a_jumpjet_cruising_over_water_leaves_no_wake() {
         jumpjet, speed, 10
     ));
     assert_eq!(
-        super::wake_anchor_for(jumpjet, speed, false, sim.resolved_terrain.as_ref(), 10),
+        super::wake_anchor_for(
+            jumpjet,
+            speed,
+            false,
+            true,
+            sim.resolved_terrain.as_ref(),
+            10
+        ),
         None
     );
 }
 
 /// Ship's own wake gate (`0x0069FE3C..0x0069FE74`): every 8th frame, not
 /// Drive's 10th, and never for an `Underwater=` type.
+/// Phobos `MakesWake=` (`Ext/TechnoType/Body.cpp:1070`, `Nullable<bool>`)
+/// over each locomotor's `[AudioVisual] *MakesWake=` global
+/// (`Ext/Rules/Body.cpp:543-546`, ctor no/yes/yes/yes): `no` skips the wake
+/// entirely, an authored `yes` re-enables a global-disabled locomotor, and a
+/// Drive boat still wakes on the 10th frame and a Ship on the 8th.
+#[cfg(feature = "phobos")]
+#[test]
+fn mikes_wake_gates_each_locomotor_wake() {
+    fn scene(global: &str, boat_keys: &str, ship: bool) -> (Simulation, RuleSet) {
+        let locomotor = if ship {
+            "{2BEA74E1-7CCA-11d3-BE14-00104B62A16C}"
+        } else {
+            "{4A582741-9839-11d1-B709-00A024DDAFD1}"
+        };
+        let ini = IniFile::from_str(&format!(
+            "[General]
+Wake=WAKE1
+             [AudioVisual]
+{global}             [InfantryTypes]
+[VehicleTypes]
+0=BOAT
+[AircraftTypes]
+[BuildingTypes]
+             [BOAT]
+Strength=300
+Armor=heavy
+Speed=6
+MovementZone=Water
+             SpeedType=Float
+Naval=yes
+{boat_keys}             Locomotor={locomotor}
+"
+        ));
+        let art = IniFile::from_str(
+            "[WAKE1]
+Layer=ground
+YSortAdjust=-288
+Rate=120
+",
+        );
+        let mut rules =
+            RuleSet::from_ini_with_fixed_art_for_test(&ini, &art).expect("wake rules parse");
+        rules.install_art_data(ArtRegistry::from_ini(&art));
+        rules.bind_anim_frame_count_for_test("WAKE1", 15);
+        let mut sim = Simulation::new();
+        let id = sim
+            .spawn_object("BOAT", "Americans", 0, 0, 64, &rules)
+            .expect("spawn boat");
+        let boat = sim.substrate.entities.get_mut(id).expect("boat");
+        let ahead = crate::sim::components::DriveCoord {
+            x: 256 + 128,
+            y: 128,
+            z: 0,
+        };
+        let family = if ship {
+            crate::sim::movement::track_process::TrackFamily::Ship
+        } else {
+            crate::sim::movement::track_process::TrackFamily::Drive
+        };
+        let runtime = boat.locomotor.as_mut().unwrap();
+        assert!(runtime.ensure_installed_track_state());
+        assert!(runtime.store_track_destination(family, Some(ahead)));
+        assert!(runtime.store_track_head(family, Some(ahead)));
+        boat.foot_speed
+            .set_speed_fraction(crate::util::fixed_math::SIM_ONE);
+        let mut terrain = water_terrain(3, 1);
+        for cell in terrain.cells_mut_for_test() {
+            cell.land_type = crate::rules::terrain_rules::LandType::Water.as_index();
+        }
+        sim.resolved_terrain = Some(terrain);
+        (sim, rules)
+    }
+    let wakes = |sim: &Simulation| {
+        sim.logic_order()
+            .iter()
+            .filter(|id| {
+                sim.anim(**id)
+                    .is_some_and(|anim| sim.interner.resolve(anim.type_id()) == "WAKE1")
+            })
+            .count()
+    };
+    // Drive: the global default (yes) keeps the wake; the type's `no` and a
+    // global `no` both skip it; an authored `yes` beats the global `no`.
+    for (global, boat_keys, expected) in [
+        ("", "", 1),
+        (
+            "",
+            "MakesWake=no
+",
+            0,
+        ),
+        (
+            "DriveLocomotorMakesWake=no
+",
+            "",
+            0,
+        ),
+        (
+            "DriveLocomotorMakesWake=no
+",
+            "MakesWake=yes
+",
+            1,
+        ),
+    ] {
+        let (mut sim, rules) = scene(global, boat_keys, false);
+        sim.session.set_binary_frame_for_test(10);
+        sim.spawn_wakes_for_frame(&rules);
+        assert_eq!(wakes(&sim), expected, "{global:?} {boat_keys:?}");
+    }
+    // Ship's own 8th-frame gate obeys the same key.
+    for (boat_keys, expected) in [
+        ("", 1),
+        (
+            "MakesWake=no
+",
+            0,
+        ),
+    ] {
+        let (mut sim, rules) = scene("", boat_keys, true);
+        sim.session.set_binary_frame_for_test(8);
+        sim.spawn_wakes_for_frame(&rules);
+        assert_eq!(wakes(&sim), expected, "ship {boat_keys:?}");
+    }
+}
+
 #[test]
 fn a_ship_wakes_every_eighth_frame_unless_it_is_underwater() {
     let ini = IniFile::from_str(

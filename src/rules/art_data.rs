@@ -615,6 +615,13 @@ pub struct AnimTypeRuntimeConfig {
     pub z_adjust: i32,
     pub y_sort_adjust: i32,
     pub layer: AnimLayer,
+    /// Phobos `Layer.UseObjectLayer=` (`Ext/AnimType/Body.cpp:92`,
+    /// `Nullable<bool>`, unset at `Ext/AnimType/Body.h:47,99`): on an attached
+    /// anim, true takes the owner object's `InWhichLayer`, false the type's
+    /// own `Layer` (`AnimClass_InWhichLayer`, hook `0x424CB0`,
+    /// `Ext/Anim/Hooks.cpp:354-375`). Unset keeps the stock attached Ground.
+    #[cfg(feature = "phobos")]
+    pub phobos_layer_use_object_layer: Option<bool>,
     pub flat: bool,
     pub tiled: bool,
     /// Phobos `Tiled.Interval=` (`Ext/AnimType/Body.cpp:128`,
@@ -1121,6 +1128,9 @@ fn parse_anim_runtime_config(section: &IniSection) -> AnimTypeRuntimeConfig {
         // AnimType ctor42765B initializes0; ReadINI428147 uses ReadInt5276D0.
         y_sort_adjust: section.read_int("YSortAdjust", 0),
         layer: AnimLayer::from_ini(section),
+        #[cfg(feature = "phobos")]
+        phobos_layer_use_object_layer: section
+            .read_phobos_nullable_bool("Layer.UseObjectLayer", None),
         flat: section.read_bool("Flat", false),
         tiled: section.read_bool("Tiled", false),
         #[cfg(feature = "phobos")]

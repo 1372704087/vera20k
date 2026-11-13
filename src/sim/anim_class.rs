@@ -3490,7 +3490,8 @@ impl Simulation {
     }
 
     /// Anim GetLayer424CB0: attached -> Ground; missing type -> Air; otherwise
-    /// the current type's layer.
+    /// the current type's layer. Phobos `Layer.UseObjectLayer` overrides an
+    /// attached anim (owner's layer for true, the type's for false).
     pub(crate) fn submit_anim_display(&mut self, id: AnimId, rules: &RuleSet) {
         if let Some(layer) = self.anim_display_layer(id, rules) {
             Self::submit_object_display(
@@ -3514,24 +3515,45 @@ impl Simulation {
         use crate::rules::art_data::AnimLayer;
         use crate::sim::world::display_layers::DisplayLayer;
         let anim = self.substrate.anims.get(id)?;
+        let config = rules
+            .art()
+            .anim_runtime_config(self.interner.resolve(anim.type_id));
+        let type_layer =
+            |config: Option<&crate::rules::art_data::AnimTypeRuntimeConfig>| match config
+                .map(|config| config.layer)
+            {
+                None => Some(DisplayLayer::AIR),
+                Some(AnimLayer::Ground) => Some(DisplayLayer::GROUND),
+                Some(AnimLayer::Top) => Some(DisplayLayer::TOP),
+                Some(AnimLayer::Other(index)) => {
+                    u8::try_from(index).ok().and_then(DisplayLayer::from_index)
+                }
+            };
         #[cfg(feature = "ares")]
         let attached = anim.owner_entity.is_some() || anim.owner_terrain.is_some();
         #[cfg(not(feature = "ares"))]
         let attached = anim.owner_entity.is_some();
         if attached {
+            // Phobos `AnimClass_InWhichLayer` (hook `0x424CB0`,
+            // `Ext/Anim/Hooks.cpp:354-375`): a set `Layer.UseObjectLayer`
+            // picks the owner object's layer (true) or the type's (false).
+            #[cfg(feature = "phobos")]
+            if let Some(use_object_layer) =
+                config.and_then(|config| config.phobos_layer_use_object_layer)
+            {
+                if !use_object_layer {
+                    return type_layer(config);
+                }
+                // The hook reads OwnerObject only; a terrain-owned anim keeps
+                // the stock attached layer.
+                return match anim.owner_entity {
+                    Some(owner) => self.entity_display_layer(owner, rules),
+                    None => Some(DisplayLayer::GROUND),
+                };
+            }
             return Some(DisplayLayer::GROUND);
         }
-        let config = rules
-            .art()
-            .anim_runtime_config(self.interner.resolve(anim.type_id));
-        match config.map(|config| config.layer) {
-            None => Some(DisplayLayer::AIR),
-            Some(AnimLayer::Ground) => Some(DisplayLayer::GROUND),
-            Some(AnimLayer::Top) => Some(DisplayLayer::TOP),
-            Some(AnimLayer::Other(index)) => {
-                u8::try_from(index).ok().and_then(DisplayLayer::from_index)
-            }
-        }
+        type_layer(config)
     }
 
     /// gamemd-derived: `AnimClass::GetCoords @ 0x00422BE0` — with an owner at
@@ -5742,6 +5764,82 @@ mod tests {
     use crate::rules::ini_parser::IniFile;
     use crate::sim::combat::Health;
     use crate::sim::game_entity::GameEntity;
+
+    /// Phobos `Layer.UseObjectLayer=` (`Ext/AnimType/Body.cpp:92`,
+    /// `AnimClass_InWhichLayer` hook `0x424CB0`,
+    /// `Ext/Anim/Hooks.cpp:354-375`): an attached anim takes the owner
+    /// object's `InWhichLayer` when true, its own type layer when false, and
+    /// the stock Ground when the key is unset.
+    #[test]
+    #[cfg(feature = "phobos")]
+    fn layer_use_object_layer_selects_between_the_owner_and_the_type() {
+        use crate::sim::world::Simulation;
+        use crate::sim::world::display_layers::DisplayLayer;
+
+        let ini = crate::sim::arena_fixture::clear_ground_ini(
+            "[VehicleTypes]\n0=OWNER\n[OWNER]\nStrength=1000\nArmor=heavy\nSpeed=4\n",
+        );
+        let mut rules = RuleSet::from_ini(&ini).expect("arena rules");
+        let mut art = ArtRegistry::from_ini(&IniFile::from_str(
+            "[OWNERLAYER]\nLayer=Top\nLayer.UseObjectLayer=yes\n\
+             [TYPELAYER]\nLayer=Top\nLayer.UseObjectLayer=no\n\
+             [STOCK]\nLayer=Top\n",
+        ));
+        for name in ["OWNERLAYER", "TYPELAYER", "STOCK"] {
+            art.bind_anim_frame_count_for_test(name, 8);
+        }
+        rules.replace_art_registry_for_test(art);
+        let mut sim = crate::sim::arena_fixture::rival_arena(&rules, 17);
+        sim.intern_rule_type_ids(&rules);
+        let owner = sim
+            .spawn_object("OWNER", "Russians", 10, 10, 0, &rules)
+            .expect("owner");
+        assert_eq!(
+            sim.entity_display_layer(owner, &rules),
+            Some(DisplayLayer::GROUND)
+        );
+        let attach = |sim: &mut Simulation, name: &str| {
+            let ty = sim.intern(name);
+            let anim = sim
+                .spawn_anim_at_world(
+                    &rules,
+                    AnimClassSpawnDescriptor::new(
+                        ty,
+                        16,
+                        16,
+                        crate::util::fixed_math::SIM_ZERO,
+                        crate::util::fixed_math::SIM_ZERO,
+                        0,
+                    ),
+                    AnimWorldCoord {
+                        x: 10 * 256,
+                        y: 10 * 256,
+                        z: 0,
+                    },
+                )
+                .expect("the art section spawns the anim");
+            assert!(sim.set_anim_owner_object(anim, Some(owner), &rules));
+            anim
+        };
+        let anim = attach(&mut sim, "OWNERLAYER");
+        assert_eq!(
+            sim.anim_display_layer(anim, &rules),
+            Some(DisplayLayer::GROUND),
+            "true takes the owner object's layer"
+        );
+        let anim = attach(&mut sim, "TYPELAYER");
+        assert_eq!(
+            sim.anim_display_layer(anim, &rules),
+            Some(DisplayLayer::TOP),
+            "false takes the type's layer"
+        );
+        let anim = attach(&mut sim, "STOCK");
+        assert_eq!(
+            sim.anim_display_layer(anim, &rules),
+            Some(DisplayLayer::GROUND),
+            "unset keeps the stock attached Ground"
+        );
+    }
 
     /// Phobos `RestrictVisibilityIfCloaked=` (`Ext/AnimType/Body.cpp:111`) at
     /// `AnimClass_DrawIt_Visibility @ 0x423061` (`Ext/Anim/Hooks.cpp:524-570`):

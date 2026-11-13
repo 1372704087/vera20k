@@ -95,6 +95,43 @@ impl Simulation {
         }
     }
 
+    /// Phobos `BuildingTypeExt::IsPoweredAnimBlocked`
+    /// (`Ext/BuildingType/Body.cpp:101-115`, used by the roof production anim
+    /// at `Ext/Building/Hooks.cpp:1179`): a powered slot is blocked while the
+    /// building is offline, unless it is under Construction/Selling.
+    /// RESIDUAL: Ares' `HasPowerFromMapFile` exception is not modeled.
+    #[cfg(feature = "phobos")]
+    pub(crate) fn powered_anim_blocked(
+        &self,
+        id: u64,
+        flags: BuildingAnimPowerFlags,
+        rules: &RuleSet,
+    ) -> bool {
+        let Some(entity) = self.substrate.entities.get(id) else {
+            return false;
+        };
+        let Some(object) = self.interner.object_type(entity.type_ref(), rules) else {
+            return false;
+        };
+        let powered = (Self::anim_power_policy(object, entity)
+            && crate::sim::power_system::native_building_power_drain(object.power) > 0
+            && (flags.powered || flags.powered_light || flags.powered_effect))
+            || (object.powered_special && flags.powered_special);
+        if !powered {
+            return false;
+        }
+        if matches!(
+            entity.mission.effective().known(),
+            Some(
+                crate::sim::mission::MissionType::Construction
+                    | crate::sim::mission::MissionType::Selling
+            )
+        ) {
+            return false;
+        }
+        !entity.building_online()
+    }
+
     /// The building anim power policy's `Powered=` test (`0x004467D0`,
     /// `0x00451A54`, `0x00454BF7`). Ares 3.0 BuildingClass_Place_NeedsEngineer
     /// 100143C0 (hook `0x004467D6`), _PlayAnim_NeedsEngineer 10014400

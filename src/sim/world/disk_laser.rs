@@ -45,6 +45,97 @@ const RING: [[i32; 2]; 16] = [
     [-54, -233],
 ];
 
+/// Phobos `DiskLaser_Circle` (hook `0x4A757B`,
+/// `Ext/WeaponType/Hooks.DiskLaserRadius.cpp:27-42`): a firing weapon's
+/// `DiskLaser.Radius` rebuilds the ring as `(int)(cos/sin * radius)` from the
+/// hook's literal 16 sector constants. 240 is the initial applied radius
+/// (`DiskLaserClass::Radius`), so the original literal table stays.
+///
+/// RESIDUAL: native keeps the rebuilt table globally, so a later 240-radius
+/// shot after a custom one would draw the recomputed 240 points (one point one
+/// pixel off the literal table); VERA always keeps the literal table at 240.
+#[cfg(feature = "phobos")]
+fn phobos_disk_laser_ring(radius: f64) -> [[i32; 2]; 16] {
+    const COS: [f64; 16] = [
+        0.0,
+        0.37460659341591196,
+        0.7071067811865474,
+        0.9205048534524403,
+        1.0,
+        0.9271838545667874,
+        0.7071067811865476,
+        0.3907311284892737,
+        0.0,
+        -0.37460659341591207,
+        -0.7071067811865475,
+        -0.9205048534524404,
+        -1.0,
+        -0.9271838545667874,
+        -0.5735764363510464,
+        -0.22495105434386525,
+    ];
+    const SIN: [f64; 16] = [
+        -1.0,
+        -0.9271838545667874,
+        -0.7071067811865477,
+        -0.3907311284892739,
+        0.0,
+        0.374606593415912,
+        0.7071067811865476,
+        0.9205048534524404,
+        1.0,
+        0.9271838545667874,
+        0.7071067811865476,
+        0.39073112848927377,
+        0.0,
+        -0.374606593415912,
+        -0.8191520442889916,
+        -0.9743700647852351,
+    ];
+    if radius == 240.0 {
+        return RING;
+    }
+    let mut ring = [[0i32; 2]; 16];
+    for (index, point) in ring.iter_mut().enumerate() {
+        *point = [(COS[index] * radius) as i32, (SIN[index] * radius) as i32];
+    }
+    ring
+}
+
+#[cfg(all(test, feature = "phobos"))]
+mod tests {
+    use super::{RING, phobos_disk_laser_ring};
+
+    /// `Hooks.DiskLaserRadius.cpp:27-42`: the initial applied radius is 240,
+    /// so only a different weapon value rebuilds the table; the rebuilt
+    /// points truncate `cos * radius` like the hook's C cast.
+    #[test]
+    fn the_phobos_radius_rebuilds_the_ring_and_240_keeps_the_literal_table() {
+        assert_eq!(phobos_disk_laser_ring(240.0), RING);
+        assert_eq!(
+            phobos_disk_laser_ring(120.0),
+            [
+                [0, -120],
+                [44, -111],
+                [84, -84],
+                [110, -46],
+                [120, 0],
+                [111, 44],
+                [84, 84],
+                [46, 110],
+                [0, 120],
+                [-44, 111],
+                [-84, 84],
+                [-110, 46],
+                [-120, 0],
+                [-111, -44],
+                [-68, -98],
+                [-26, -116],
+            ]
+        );
+    }
+}
+
 #[derive(Debug, Clone, Copy, Default, Hash, Serialize, Deserialize)]
 struct DiskLaser {
     source: Option<u64>,
@@ -237,6 +328,10 @@ impl Simulation {
             let weapon = rules
                 .weapon(self.interner.resolve(weapon_id))
                 .expect("retained Disk weapon");
+            #[cfg(feature = "phobos")]
+            let ring = phobos_disk_laser_ring(weapon.phobos_disk_laser_radius);
+            #[cfg(not(feature = "phobos"))]
+            let ring = RING;
             let source = self
                 .substrate
                 .entities
@@ -303,7 +398,7 @@ impl Simulation {
             let a = (i32::from(shot.start) + shot.step) & 15;
             let b = (i32::from(shot.start) - shot.step + 16) & 15;
             let point = |index: i32| {
-                let [x, y] = RING[(index & 15) as usize];
+                let [x, y] = ring[(index & 15) as usize];
                 ProjectileCoord::new(muzzle.x.wrapping_add(x), muzzle.y.wrapping_add(y), muzzle.z)
             };
             let first = point(a);

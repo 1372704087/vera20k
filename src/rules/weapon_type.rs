@@ -226,6 +226,14 @@ pub struct WeaponType {
     pub is_laser: bool,
     /// Weapon fires a disk-shaped laser (Vortex) (+0x14a).
     pub disk_laser: bool,
+    /// Phobos `DiskLaser.Radius=` (`Ext/WeaponType/Body.cpp:86`,
+    /// `Valueable<double>` constructed at `DiskLaserClass::Radius` = 240 at
+    /// `Ext/WeaponType/Body.h:28,123`): the ring radius a disk laser fired by
+    /// this weapon draws. `DiskLaser_Circle` (hook `0x4A757B`,
+    /// `Ext/WeaponType/Hooks.DiskLaserRadius.cpp:27-42`) rebuilds the
+    /// 16-point table when the value differs from the last applied radius.
+    #[cfg(feature = "phobos")]
+    pub phobos_disk_laser_radius: f64,
     /// Weapon draws a visible line to target (+0x14b).
     pub is_line: bool,
     /// Weapon fires a thicker laser beam (+0x14c).
@@ -887,6 +895,8 @@ impl WeaponType {
             charges: section.read_bool("Charges", false),
             is_laser: section.read_bool("IsLaser", false),
             disk_laser: section.read_bool("DiskLaser", false),
+            #[cfg(feature = "phobos")]
+            phobos_disk_laser_radius: section.read_double("DiskLaser.Radius", 240.0),
             is_line: section.read_bool("IsLine", false),
             is_big_laser: section.read_bool("IsBigLaser", false),
             is_house_color: section.read_bool("IsHouseColor", false),

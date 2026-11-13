@@ -339,3 +339,4 @@ tools/vendor-eval/
 /android/local.properties
 /android/**/build/
 /android/app/src/main/jniLibs/
+!/docs/phobos-roof-production-anim.md

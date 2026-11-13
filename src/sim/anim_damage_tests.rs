@@ -488,7 +488,7 @@ fn anim_damage_applies_the_invokers_firepower_multiplier() {
     );
     assert!((keyed_mult - plain_mult).abs() < f64::EPSILON);
 
-    let (global, global_mult) = visits_for("Damage.ApplyFirepowerMult=yes\n", true, true);
+    let (global, global_mult) = visits_for("", true, true);
     assert_eq!(
         global.into_iter().max(),
         Some(crate::sim::attach_effect::scale_i32(plain_max, global_mult)),

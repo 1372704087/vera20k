@@ -20,29 +20,34 @@ Readers: the type key at `Ext/AnimType/Body.cpp:98`; the global at
 
 `AnimClass_AI_Damage` (`0x42453E`, `Ext/Anim/Hooks.cpp:41-140`):
 
-- Inside the `Damage.DealtByInvoker` block, when the anim has an invoker,
-  the first damage round (`Animation.Value == max(Damage.Delay - 1, 1)`)
-  caches `pExt->FirepowerMult = TechnoExt::GetCurrentFirepowerMultiplier(pInvoker)`.
-- Every applied damage is then `(int)(appliedDamage * pExt->FirepowerMult)`,
-  before the `Weapon=`/warhead dispatch. `FirepowerMult` is constructed 1.0
+- Inside the `Damage.DealtByInvoker` block and after its `appliedDamage > 0`
+  gate, when the anim has an invoker, the first damage round
+  (`Animation.Value == max(Damage.Delay - 1, 1)`) caches
+  `pExt->FirepowerMult = TechnoExt::GetCurrentFirepowerMultiplier(pInvoker)`.
+- Every positive applied damage is then
+  `(int)(appliedDamage * pExt->FirepowerMult)`, before the
+  `Weapon=`/warhead dispatch. `FirepowerMult` is constructed 1.0
   (`Ext/Anim/Body.h:62`), so visits before the first damage round and a
-  no-invoker anim are unscaled.
-- Without `Damage.DealtByInvoker` the whole block, including the fold, does
-  not run.
+  no-invoker anim are unscaled (identity).
+- Without `Damage.DealtByInvoker` the block does not run, so the multiplier
+  stays 1.0.
 
 `GetCurrentFirepowerMultiplier` composes the object's crate firepower, the
-house difficulty/country bias, the `FIREPOWER` veteran ability and an
-occupiable building's `OccupyDamageMultiplier=`; VERA's owner is
-`combat::crit::current_firepower_multiplier`.
+house difficulty/country bias, the AttachEffect firepower term, the
+`FIREPOWER` veteran ability, and the occupied/bunker/open-topped stages.
+VERA's owner for that whole composition is
+`combat::world_fire::bullet_init_firepower_multiplier` (the same helper the
+bullet payload uses).
 
 ## VERA
 
-`CombatDamageRules::anim_damage_apply_firepower_mult` and
+`CombatDamageDefaults::anim_damage_apply_firepower_mult` and
 `AnimTypeRuntimeConfig::damage_apply_firepower_mult` read the key pair.
 `AnimObject::phobos_firepower_mult` (serialized, hashed when not 1.0) caches
-the multiplier on the first damage round; the anim damage owner folds each
-application (including the `Weapon=` detonation damage) with
-`attach_effect::scale_i32`, the shared model of the native cast.
+the multiplier on the first damage round, only for a positive application;
+the anim damage owner folds each positive application (including the
+`Weapon=` detonation damage) with `attach_effect::scale_i32`, the shared
+model of the native cast.
 
 ## Tests
 
@@ -55,9 +60,13 @@ red and restored.
 
 ## Residuals
 
-- The cache is refreshed only when the anim's `Animation.Value` equals
-  `max(Damage.Delay-1, 1)`; if that frame is skipped (a delay larger than the
-  animation length), the multiplier stays 1.0, as natively.
-- `GetCurrentFirepowerMultiplier`'s occupiable-building and bunker terms are
-  owned by `current_firepower_multiplier`; a bunker term it does not fold is
-  that function's recorded residual, not this key's.
+- The cache is refreshed only on a positive application whose
+  `Animation.Value` equals `max(Damage.Delay-1, 1)`; if that visit deals no
+  damage (a delay larger than the animation length), the multiplier stays
+  1.0, as natively.
+- The delayed `Weapon=` dispatch keeps `RAD_NO_ATTACKER` as the bullet's
+  attacker where Phobos passes the resolved invoker; that is a pre-existing
+  residual of the shared `Damage.Delay`/`Weapon=` owner, not of this key.
+- The multiplier helper is the one the bullet payload uses; any residual of
+  that composition (for example a stage the retail data never reaches)
+  applies to both consumers.

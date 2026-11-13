@@ -2896,42 +2896,51 @@ impl Simulation {
         let anim_source_house = source_house;
         // Phobos `Damage.ApplyFirepowerMult` (`Ext/Anim/Hooks.cpp:119-128`):
         // with the type key or the `[CombatDamage] AnimDamage.ApplyFirepowerMult`
-        // global, the invoker's current firepower multiplier is cached on the
-        // first damage round (`Animation.Value == max(Damage.Delay-1, 1)`) and
-        // every applied damage is scaled by it.
+        // global, an anim inside the `Damage.DealtByInvoker` block caches the
+        // invoker's current firepower multiplier on its first damage round
+        // (`Animation.Value == max(Damage.Delay-1, 1)`, after the applied>0
+        // gate) and scales every application by it.
         #[cfg(feature = "phobos")]
-        let fold_firepower = {
-            let apply = config
-                .damage_apply_firepower_mult
-                .unwrap_or(rules.combat_damage.anim_damage_apply_firepower_mult);
-            if apply
-                && dealt_by_invoker
-                && anim_frame == std::cmp::max(config.ares_damage_delay.wrapping_sub(1), 1)
-                && let Some(invoker) = self.substrate.entities.get(anim_attacker)
+        let apply_firepower = config
+            .damage_apply_firepower_mult
+            .unwrap_or(rules.combat_damage.anim_damage_apply_firepower_mult)
+            && dealt_by_invoker;
+        #[cfg(feature = "phobos")]
+        let first_damage_round =
+            anim_frame == std::cmp::max(config.ares_damage_delay.wrapping_sub(1), 1);
+        #[cfg(feature = "phobos")]
+        let refresh_firepower = |sim: &mut Self| {
+            if first_damage_round
+                && let Some(multiplier) =
+                    crate::sim::combat::world_fire::bullet_init_firepower_multiplier(
+                        &sim.interner,
+                        &sim.substrate,
+                        &sim.houses,
+                        rules,
+                        anim_attacker,
+                    )
+                && let Some(anim) = sim.substrate.anims.get_mut(id)
             {
-                let multiplier =
-                    crate::sim::combat::crit::current_firepower_multiplier(self, rules, invoker);
-                if let Some(anim) = self.substrate.anims.get_mut(id) {
-                    anim.phobos_firepower_mult = NativeF64Bits::from_bits(multiplier.to_bits());
-                }
+                anim.phobos_firepower_mult = multiplier;
             }
+        };
+        #[cfg(feature = "phobos")]
+        let fold_firepower = |sim: &mut Self, value: i32| -> i32 {
+            if !apply_firepower || value <= 0 {
+                return value;
+            }
+            refresh_firepower(sim);
             let cached = f64::from_bits(
-                self.substrate
+                sim.substrate
                     .anims
                     .get(id)
                     .map_or(NativeF64Bits::ONE, |anim| anim.phobos_firepower_mult)
                     .bits(),
             );
-            move |value: i32| -> i32 {
-                if apply {
-                    crate::sim::attach_effect::scale_i32(value, cached)
-                } else {
-                    value
-                }
-            }
+            crate::sim::attach_effect::scale_i32(value, cached)
         };
         #[cfg(not(feature = "phobos"))]
-        let fold_firepower = |value: i32| -> i32 { value };
+        let fold_firepower = |_sim: &mut Self, value: i32| -> i32 { value };
         // Phobos `Damage.ApplyOncePerLoop` (`Ext/Anim/Hooks.cpp:56-66`): the
         // damage lands only on the loop's first frame —
         // `Animation.Value == max(Damage.Delay-1, 1)` — as
@@ -2955,10 +2964,11 @@ impl Simulation {
                 .as_deref()
                 .and_then(|name| rules.weapon(name))
             {
+                let applied = fold_firepower(self, applied);
                 return self.ares_anim_weapon_detonation(
                     id,
                     weapon,
-                    fold_firepower(applied),
+                    applied,
                     anim_attacker,
                     rules,
                     overlay_registry,
@@ -3029,10 +3039,11 @@ impl Simulation {
                     .as_deref()
                     .and_then(|name| rules.weapon(name))
                 {
+                    let whole = fold_firepower(self, whole);
                     return self.ares_anim_weapon_detonation(
                         id,
                         weapon,
-                        fold_firepower(whole),
+                        whole,
                         crate::sim::combat::RAD_NO_ATTACKER,
                         rules,
                         overlay_registry,
@@ -3042,7 +3053,7 @@ impl Simulation {
                 whole
             }
         };
-        let whole = fold_firepower(whole);
+        let whole = fold_firepower(self, whole);
         //4245C3..424630 compares the own stored ID exactly, not Image.
         let warhead_name = if self.interner.resolve(type_id) == "INVISO" {
             Some(rules.bridge_warheads.c4_name.as_str())

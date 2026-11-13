@@ -981,6 +981,13 @@ pub struct ObjectType {
     /// takes `[General] SkipCrushSlowdown`. Vehicle types only.
     #[cfg(feature = "phobos")]
     pub phobos_skip_crush_slowdown: Option<bool>,
+    /// Phobos `BunkerableAnyway=` (`Valueable<bool>`, default **false**;
+    /// `Ext/TechnoType/Body.cpp:1082`, `Body.h:319`, constructed false
+    /// `Body.h:753`): a tank-bunker candidate that keeps only the
+    /// `Bunkerable=` and parasite gates (`Ext/Techno/Hooks.Misc.cpp:913-929`,
+    /// hook `0x70FB73`).
+    #[cfg(feature = "phobos")]
+    pub phobos_bunkerable_anyway: bool,
     /// Phobos `FactoryPlant.AllowTypes` / `.DisallowTypes` / `.MaxCount`
     /// (`Ext/BuildingType/Body.cpp:224-226`, declarations `Body.h:74-76`,
     /// constructors `:199-201`): the restricted-plant settings.
@@ -1203,6 +1210,13 @@ pub struct ObjectType {
     /// bonuses, each `None` inheriting the same-named `[General]` value.
     #[cfg(feature = "phobos")]
     pub phobos_extra_threat: crate::rules::phobos_extra_threat::PhobosExtraThreat,
+    /// Phobos `BunkerStateUpdateDelay=` (BuildingType, `Nullable<int>`, unset;
+    /// `Ext/BuildingType/Body.cpp:253`, `Body.h:102`, constructed unset
+    /// `Body.h:225`): the Mission_Repair return while a tank bunker installs
+    /// (`0x44C976`, `Ext/Building/Hooks.cpp:1474-1485`); unset takes
+    /// `[General] BunkerStateUpdateDelay=`. Buildings only.
+    #[cfg(feature = "phobos")]
+    pub phobos_bunker_state_update_delay: Option<i32>,
     /// Phobos `TiberiumEater.*` (`Ext/TechnoType/Body.cpp:1402-1414`,
     /// `New/Type/Affiliated/TiberiumEaterTypeClass.cpp`); `None` when the
     /// type has no non-negative `TiberiumEater.TransDelay`.
@@ -5848,6 +5862,10 @@ impl ObjectType {
             phobos_extra_threat:
                 crate::rules::phobos_extra_threat::PhobosExtraThreat::from_section(section),
             #[cfg(feature = "phobos")]
+            phobos_bunker_state_update_delay: (category == ObjectCategory::Building)
+                .then(|| section.read_phobos_nullable_int("BunkerStateUpdateDelay", None))
+                .flatten(),
+            #[cfg(feature = "phobos")]
             phobos_tiberium_eater: crate::rules::phobos_tiberium_eater::parse(section),
             #[cfg(feature = "phobos")]
             phobos_not_human_random_death_sequence: (category == ObjectCategory::Infantry)
@@ -6300,6 +6318,8 @@ impl ObjectType {
             phobos_skip_crush_slowdown: (category == ObjectCategory::Vehicle)
                 .then(|| section.read_phobos_nullable_bool("SkipCrushSlowdown", None))
                 .flatten(),
+            #[cfg(feature = "phobos")]
+            phobos_bunkerable_anyway: section.read_bool("BunkerableAnyway", false),
             // `BuildingTypeExt::LoadFromINI` reads these three only on a
             // BuildingType section; VERA's ObjectType reader is shared.
             #[cfg(feature = "phobos")]

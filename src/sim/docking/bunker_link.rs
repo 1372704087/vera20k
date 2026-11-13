@@ -86,6 +86,9 @@ impl BunkerLinks {
 /// `SpeedType=` (`+0x67C`) is not Hover (3), and a Foot is not being eaten by
 /// a parasite (`+0x694`, `0x0070FBAF..0x0070FBC3`). For a Foot the weapon
 /// test is [`crate::sim::combat::combat_weapon::is_armed`]'s.
+/// Phobos `BunkerableAnyway=` (hook `0x70FB73`) keeps only the `Bunkerable=`
+/// and parasite gates and drops the turret, weapon and SpeedType tests
+/// (`Ext/Techno/Hooks.Misc.cpp:913-929`).
 ///
 /// Native callers: the bunker's radio receiver (`0x0043C512`, CAN_LOAD's
 /// Bunker arm in [`crate::sim::radio::receive::can_load`]; `0x0043C86A`)
@@ -100,15 +103,29 @@ pub fn can_auto_deploy_here(sim: &Simulation, unit_id: u64, rules: &RuleSet) -> 
         return false;
     };
     obj.bunkerable
-        && obj.has_turret
-        && crate::sim::combat::combat_weapon::is_armed(
-            unit,
-            obj,
-            &sim.substrate.entities,
-            rules,
-            &sim.interner,
-        )
-        && obj.speed_type != crate::rules::locomotor_type::SpeedType::Hover
+        && (obj.has_turret
+            && crate::sim::combat::combat_weapon::is_armed(
+                unit,
+                obj,
+                &sim.substrate.entities,
+                rules,
+                &sim.interner,
+            )
+            && obj.speed_type != crate::rules::locomotor_type::SpeedType::Hover
+            || {
+                // Phobos `BunkerableAnyway=` (hook `0x70FB73`,
+                // `Ext/Techno/Hooks.Misc.cpp:913-929`): keeps the
+                // `Bunkerable=` and parasite gates, drops turret, weapon and
+                // SpeedType. Only the type key exists; there is no global.
+                #[cfg(feature = "phobos")]
+                {
+                    obj.phobos_bunkerable_anyway
+                }
+                #[cfg(not(feature = "phobos"))]
+                {
+                    false
+                }
+            })
         && unit.parasite.eater().is_none()
 }
 

@@ -2182,21 +2182,68 @@ pub(super) fn emit_admitted_fire(
     let mut area_fire_firer = false;
     if weapon.area_fire && combat_weapon::is_not_spray_attack(obj) {
         #[cfg(feature = "phobos")]
-        match weapon.phobos_area_fire_target() {
-            crate::rules::phobos_weapon_extras::AreaFireTarget::Random => {
-                match phobos_area_fire_random_cell(world, snap.stable_id, weapon, rules) {
-                    Some(cell) => area_fire_cell = Some(cell),
-                    // `0x6FE4E7`: `xor eax,eax; ret 8` — no shot and no
-                    // rearm when every candidate is refused.
-                    None => return None,
+        {
+            // `pThis->OnBridge` and `pThis->GetCell()->Level` feed the
+            // hook's `allowBridges` for every arm.
+            let firer = world.substrate.entities.get(snap.stable_id);
+            let on_bridge = firer.is_some_and(|entity| entity.on_bridge());
+            let firer_level = firer
+                .map(|entity| {
+                    i32::from(
+                        world
+                            .terrain_cell_level(entity.position.rx(), entity.position.ry())
+                            .unwrap_or(0),
+                    )
+                })
+                .unwrap_or(0);
+            match weapon.phobos_area_fire_target() {
+                crate::rules::phobos_weapon_extras::AreaFireTarget::Random => {
+                    match phobos_area_fire_random_cell(
+                        world,
+                        snap.stable_id,
+                        weapon,
+                        rules,
+                        on_bridge,
+                        firer_level,
+                    ) {
+                        Some(cell) => area_fire_cell = Some(cell),
+                        // `0x6FE4E7`: `xor eax,eax; ret 8` — no shot and no
+                        // rearm when every candidate is refused.
+                        None => return None,
+                    }
                 }
-            }
-            crate::rules::phobos_weapon_extras::AreaFireTarget::Firer => {
-                area_fire_firer = true;
-            }
-            crate::rules::phobos_weapon_extras::AreaFireTarget::Base => {
-                area_fire_cell = object_get_coords(world, snap.stable_id)
-                    .and_then(|coord| world.packed_map_cell(coord.x, coord.y));
+                crate::rules::phobos_weapon_extras::AreaFireTarget::Firer
+                | crate::rules::phobos_weapon_extras::AreaFireTarget::Base => {
+                    // Both arms gate the cell under the firer: the hook's
+                    // base arm passes `nullptr` as owner and
+                    // `explicitEmptyCells=false`, and `self` reads
+                    // `pThis->GetCell()`.
+                    let Some(entity) = firer else {
+                        return None;
+                    };
+                    let cell = (entity.position.rx(), entity.position.ry());
+                    if !phobos_area_fire_cell_gate(
+                        world,
+                        rules,
+                        weapon,
+                        cell,
+                        None,
+                        on_bridge,
+                        firer_level,
+                        false,
+                    ) {
+                        return None;
+                    }
+                    if matches!(
+                        weapon.phobos_area_fire_target(),
+                        crate::rules::phobos_weapon_extras::AreaFireTarget::Firer
+                    ) {
+                        area_fire_firer = true;
+                    } else {
+                        area_fire_cell = object_get_coords(world, snap.stable_id)
+                            .and_then(|coord| world.packed_map_cell(coord.x, coord.y));
+                    }
+                }
             }
         }
         #[cfg(not(feature = "phobos"))]
@@ -3240,6 +3287,8 @@ fn phobos_area_fire_random_cell(
     firer: u64,
     weapon: &WeaponType,
     rules: &RuleSet,
+    on_bridge: bool,
+    firer_level: i32,
 ) -> Option<(u16, u16)> {
     let entity = world.substrate.entities.get(firer)?;
     let source = crate::sim::attach_effect::range_modifier_source(
@@ -3254,22 +3303,22 @@ fn phobos_area_fire_random_cell(
         weapon.range_leptons,
         rules,
     );
-    let spread = ((leptons as f64) / 256.0 + 0.99) as usize;
+    // `GetRangeWithModifiers() / 256 + 0.99` truncated. A negative range
+    // (`-512` sentinel) saturates to a single candidate here; the native
+    // `static_cast<size_t>` wraps into the enumerator's Max cap, which no
+    // retail area-fire weapon reaches.
+    let spread = if leptons < 0 {
+        0
+    } else {
+        ((leptons as f64) / 256.0 + 0.99) as usize
+    };
     let base = object_get_coords(world, firer)
         .and_then(|coord| world.packed_map_cell(coord.x, coord.y))?;
     let offsets = crate::sim::cell_rect::cell_spread_offsets(spread);
     if offsets.is_empty() {
         return None;
     }
-    // `WeaponTypeExt::SkipWeaponPicking` is derived true when no target gate
-    // is authored; VERA reads the three gate groups it models (`CanTarget`,
-    // health range, veterancy). `CanTargetHouses` and the AE lists built into
-    // that derivation stay a residual.
-    let targeting = weapon.weapon_targeting();
-    let skip_picking = targeting.can_target == crate::rules::phobos_crit::AffectedTarget::ALL
-        && targeting.min_health == 0.0
-        && targeting.max_health == 1.0
-        && targeting.veterancy == crate::rules::phobos_airburst::AffectedVeterancy::ALL;
+    let owner = world.substrate.entities.get(firer).map(|e| e.owner());
     let size = offsets.len();
     for i in 0..size {
         let rand = world
@@ -3282,45 +3331,122 @@ fn phobos_area_fire_random_cell(
         let (Ok(rx), Ok(ry)) = (u16::try_from(rx), u16::try_from(ry)) else {
             continue;
         };
-        if world
-            .resolved_terrain
-            .as_ref()
-            .and_then(|terrain| terrain.cell(rx, ry))
-            .is_none()
-        {
-            continue;
-        }
-        if skip_picking || phobos_area_fire_cell_eligible(world, weapon, rx, ry) {
+        if phobos_area_fire_cell_gate(
+            world,
+            rules,
+            weapon,
+            (rx, ry),
+            owner,
+            on_bridge,
+            firer_level,
+            true,
+        ) {
             return Some((rx, ry));
         }
     }
     None
 }
 
-/// The cell half of `EnumFunctions::AreCellAndObjectsEligible`
-/// (`Utilities/EnumFunctions.cpp`), reusing the force-fire cell gate.
+/// `WeaponTypeExt::SkipWeaponPicking`'s load-time derivation
+/// (`Ext/WeaponType/Body.cpp:210-223`): true exactly when no target gate is
+/// authored. VERA models every group except the CE/health/veterancy trio's
+/// AE lists, which it does carry (`has_attach_effect_gates`).
 #[cfg(feature = "phobos")]
-fn phobos_area_fire_cell_eligible(
+fn phobos_skip_weapon_picking(weapon: &WeaponType) -> bool {
+    let targeting = weapon.weapon_targeting();
+    targeting.can_target == crate::rules::phobos_crit::AffectedTarget::ALL
+        && targeting.min_health == 0.0
+        && targeting.max_health == 1.0
+        && targeting.veterancy == crate::rules::phobos_airburst::AffectedVeterancy::ALL
+        && weapon.can_target_houses() == crate::rules::phobos_shields::AffectedHouse::ALL
+        && !weapon.has_attach_effect_gates()
+}
+
+/// `EnumFunctions::AreCellAndObjectsEligible` (`Utilities/EnumFunctions.cpp:96-117`):
+/// the cell gate, then every Techno in the cell must pass the house filter
+/// (when an owner is supplied) and `IsTechnoEligible`. `explicit_empty` is
+/// the random arm's `true`; the base/self arms pass `false` and no owner.
+#[cfg(feature = "phobos")]
+#[allow(clippy::too_many_arguments)]
+fn phobos_area_fire_cell_gate(
     world: &Simulation,
+    rules: &RuleSet,
     weapon: &WeaponType,
-    rx: u16,
-    ry: u16,
+    cell: (u16, u16),
+    owner: Option<crate::sim::intern::InternedId>,
+    on_bridge: bool,
+    firer_level: i32,
+    explicit_empty: bool,
 ) -> bool {
-    let techno_content = matches!(
-        world.native_cell_content((rx, ry)).next(),
-        Some(crate::sim::occupancy::CellObjectMember::Entity(_))
-    );
+    if phobos_skip_weapon_picking(weapon) {
+        return true;
+    }
+    if world
+        .resolved_terrain
+        .as_ref()
+        .and_then(|terrain| terrain.cell(cell.0, cell.1))
+        .is_none()
+    {
+        return false;
+    }
+    // `CellClass::BridgeLevels` = 4. The hook's `allowBridges` needs the
+    // candidate's bridge head AND (firer on a bridge or the level match).
+    const BRIDGE_LEVELS: i32 = 4;
+    let allow_bridges = world.cell_has_bridge_head(cell)
+        && (on_bridge
+            || i32::from(world.terrain_cell_level(cell.0, cell.1).unwrap_or(0)) + BRIDGE_LEVELS
+                == firer_level);
+    let targeting = weapon.weapon_targeting();
     let land = world
         .resolved_terrain
         .as_ref()
-        .and_then(|terrain| terrain.cell(rx, ry))
+        .and_then(|terrain| terrain.cell(cell.0, cell.1))
         .and_then(|cell| crate::rules::terrain_rules::LandType::from_index(cell.land_type));
-    crate::sim::combat::crit::cell_eligible(
+    let techno_content = explicit_empty.then(|| {
+        matches!(
+            world.native_cell_content(cell).next(),
+            Some(crate::sim::occupancy::CellObjectMember::Entity(_))
+        )
+    });
+    if !crate::sim::combat::crit::cell_eligible(
         land,
-        weapon.weapon_targeting().can_target,
-        Some(techno_content),
-        world.cell_has_bridge_head((rx, ry)),
-    )
+        targeting.can_target,
+        techno_content,
+        allow_bridges,
+    ) {
+        return false;
+    }
+    for member in world.native_cell_content(cell) {
+        let crate::sim::occupancy::CellObjectMember::Entity(id) = member else {
+            continue;
+        };
+        let Some(entity) = world.substrate.entities.get(id) else {
+            return false;
+        };
+        if let Some(owner) = owner
+            && !crate::sim::combat::can_target_house(
+                weapon.can_target_houses(),
+                owner,
+                entity.owner(),
+                &world.houses,
+                world.house_alliances(),
+                &world.interner,
+            )
+        {
+            return false;
+        }
+        let Some(object) = world.interner.object_type(entity.type_ref(), rules) else {
+            return false;
+        };
+        if !crate::sim::combat::crit::techno_eligible(
+            entity.category(),
+            targeting.can_target,
+            object.is_vehicle(),
+        ) {
+            return false;
+        }
+    }
+    true
 }
 
 /// `TechnoClass::FireAt 0x006FF749..0x006FF939`, which runs after a launched

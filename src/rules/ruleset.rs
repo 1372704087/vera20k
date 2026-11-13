@@ -9649,6 +9649,21 @@ impl RuleSet {
                 b"phobos-weapon-strafing-v1".hash(&mut hasher);
                 strafing.hash(&mut hasher);
             }
+            // Phobos `AreaFire.Target=`: the mode changes the fire's draw
+            // count and target identity, so an authored non-default value
+            // belongs to the configuration identity.
+            let area_fire = Self::by_upper_id(
+                self.weapon_entries()
+                    .filter(|(_, weapon)| {
+                        weapon.phobos_area_fire_target()
+                            != crate::rules::phobos_weapon_extras::AreaFireTarget::Base
+                    })
+                    .map(|(id, weapon)| (id, weapon.phobos_area_fire_target())),
+            );
+            if !area_fire.is_empty() {
+                b"phobos-weapon-area-fire-v1".hash(&mut hasher);
+                area_fire.hash(&mut hasher);
+            }
         }
         Self::by_upper_id(self.super_weapons.iter().map(|(id, super_weapon)| {
             (id, (&super_weapon.weapon_type, &super_weapon.aux_building))

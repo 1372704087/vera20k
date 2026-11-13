@@ -122,6 +122,15 @@ pub(super) fn visit(
     });
     #[cfg(not(feature = "phobos"))]
     let strafing = StrafeKeys::STOCK;
+    // Phobos `FiringForceScatter` (`Ext/AircraftType/Body.cpp:36`, default from
+    // `[General] AircraftFiringForceScatter=`, constructor true
+    // `Ext/Rules/Body.h:888`).
+    #[cfg(feature = "phobos")]
+    let firing_force_scatter = obj
+        .phobos_firing_force_scatter
+        .unwrap_or(rules.phobos_globals.aircraft_firing_force_scatter);
+    #[cfg(not(feature = "phobos"))]
+    let firing_force_scatter = true;
     let facts = StrikeFacts {
         state,
         target: crate::sim::combat::target_present(entity.attack_target.target(), world),

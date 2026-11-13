@@ -208,6 +208,13 @@ pub struct PhobosGlobals {
     /// when it is set (`0x4B1146`/`0x6A0809`, `Ext/Unit/Hooks.Crushing.cpp:104-109`).
     #[serde(default)]
     pub skip_crush_slowdown: bool,
+    /// `[General] AircraftFiringForceScatter=` (`Valueable<bool>`, default
+    /// **true**; `Ext/Rules/Body.cpp:473`, `Body.h:383,888`): the fallback for
+    /// an AircraftType's `FiringForceScatter`; false stops an attacking
+    /// aircraft from forcing the target cell to scatter
+    /// (`Ext/Aircraft/Hooks.cpp:324,341-355`).
+    #[serde(default = "aircraft_firing_force_scatter_default")]
+    pub aircraft_firing_force_scatter: bool,
     /// `[General] Sinkable=` (`Nullable<bool>`, unset; `Ext/Rules/Body.cpp:
     /// 484`, `Body.h:394,899`): the fallback for a UnitType's `Sinkable`;
     /// unset keeps the stock type-property gate.
@@ -1055,6 +1062,12 @@ fn one_f64() -> NativeF64Bits {
     NativeF64Bits::ONE
 }
 
+/// `AircraftFiringForceScatter=`'s constructor value
+/// (`Ext/Rules/Body.h:888`): vanilla forces the scatter.
+fn aircraft_firing_force_scatter_default() -> bool {
+    true
+}
+
 /// `CombatAlert.Interval=`'s constructor value (`Ext/Rules/Body.h:787`).
 fn combat_alert_interval_default() -> i32 {
     150
@@ -1129,6 +1142,7 @@ impl Default for PhobosGlobals {
             ai_guard_area_targeting_delay: None,
             crush_slowdown_multiplier: crush_slowdown_default(),
             skip_crush_slowdown: false,
+            aircraft_firing_force_scatter: aircraft_firing_force_scatter_default(),
             sinkable: None,
             sink_speed: 5,
             paradrop_mission: MissionType::Guard,
@@ -1616,6 +1630,10 @@ impl PhobosGlobals {
         );
         globals.skip_crush_slowdown =
             general.read_bool("SkipCrushSlowdown", globals.skip_crush_slowdown);
+        globals.aircraft_firing_force_scatter = general.read_bool(
+            "AircraftFiringForceScatter",
+            globals.aircraft_firing_force_scatter,
+        );
         globals.sinkable = general.read_phobos_nullable_bool("Sinkable", globals.sinkable);
         globals.sink_speed = general.read_int("SinkSpeed", globals.sink_speed);
         globals.paradrop_mission = general.read_string_with(

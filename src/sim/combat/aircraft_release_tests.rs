@@ -842,6 +842,57 @@ fn an_aircraft_strike_scatters_the_target_cell_away_from_the_aircraft() {
     );
 }
 
+/// Phobos `FiringForceScatter=` (`Ext/AircraftType/Body.cpp:36`; hooks
+/// `0x41847E`/`0x4186DD`/`0x41882C`/`0x41893B`/`0x418A4A`/`0x418B46` at
+/// `Ext/Aircraft/Hooks.cpp:341-355`) suppresses the forced target-cell
+/// Scatter. Same setup as the test above, only the type key differs: the
+/// computer tank on the struck cell keeps its Guard and no Move is queued.
+#[cfg(feature = "phobos")]
+#[test]
+fn firing_force_scatter_false_leaves_the_struck_cell_alone() {
+    use crate::sim::mission::{MissionId, MissionType};
+    let (mut sim, rules) = fixture(&serde_json::json!({
+        "burst": 1,
+        "aircraft_ini": "FiringForceScatter=no\n",
+        "extra_ini": "[VehicleTypes]\n0=MTNK\n[MTNK]\nStrength=200\nSpeed=6\n\
+                      SpeedType=Track\nLocomotor={4A582741-9839-11d1-B709-00A024DDAFD1}\n",
+    }));
+    assert_eq!(
+        rules.object("ORCA").unwrap().phobos_firing_force_scatter,
+        Some(false)
+    );
+    crate::sim::arena_fixture::flat_ground(&mut sim, &rules);
+    let russians = sim.interner.intern("Russians");
+    let mut house = crate::sim::house_state::HouseState::new(russians, 0, None, false, 0, 10);
+    house.set_current_iq_for_test(5);
+    sim.houses.register(house);
+    let tank = sim
+        .spawn_object("MTNK", "Russians", 10, 9, 0, &rules)
+        .unwrap();
+    sim.substrate
+        .entities
+        .get_mut(tank)
+        .unwrap()
+        .mission
+        .set_current_for_test(MissionId::from_known(MissionType::Guard), 0);
+    assert_eq!(
+        dispatch(&mut sim, &rules).len(),
+        1,
+        "the release still fires"
+    );
+    let tank = sim.substrate.entities.get(tank).unwrap();
+    assert!(
+        tank.navigation.nav_com().is_none(),
+        "{:?}",
+        tank.navigation.nav_com()
+    );
+    assert_eq!(
+        tank.mission.queued(),
+        MissionId::NONE,
+        "no Scatter-queued Move"
+    );
+}
+
 /// Phobos `Strafing.Shots` (`Ext/WeaponType/Body.cpp:109`) caps the round
 /// (`Ext/Aircraft/Hooks.cpp:37-51`) and the ending shot takes
 /// `Strafing.EndDelay` (`:221`) or, unset, `(Range + 4 * LeptonsPerCell) /

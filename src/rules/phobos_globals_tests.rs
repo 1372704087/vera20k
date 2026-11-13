@@ -745,6 +745,14 @@ fn self_heal_caps_and_gates_default_and_read() {
     assert!(set.gain_self_heal_from_allies);
 }
 
+/// `[General] AircraftFiringForceScatter=` (`Ext/Rules/Body.cpp:473`,
+/// constructor **true** `Body.h:888`).
+#[test]
+fn the_aircraft_firing_force_scatter_global_defaults_true() {
+    assert!(PhobosGlobals::default().aircraft_firing_force_scatter);
+    assert!(!read("[General]\nAircraftFiringForceScatter=no\n").aircraft_firing_force_scatter);
+}
+
 /// `[General] SkipCrushSlowdown=` (`Ext/Rules/Body.cpp:274`, constructor
 /// **false** `Body.h:716`) and its `[General]`-only placement.
 #[test]

@@ -1164,6 +1164,14 @@ pub struct ObjectType {
     /// is the nearest binary32 widened back. Unit types only.
     #[cfg(feature = "phobos")]
     pub phobos_crush_overlay_extra_forward_tilt: f64,
+    /// Phobos `CrushForwardTiltPerFrame=` (`Nullable<double>`, unset;
+    /// `Ext/UnitType/Body.cpp:71`, `Body.h:56`, constructed unset `Body.h:119`):
+    /// the forward rocking rate stored when a Unit crushes a Unit or a Vehicle
+    /// type crushes (`0x00741954`, `0x4B19F7`/`0x4B1A4B`, `0x6A0809`); unset
+    /// keeps the stock -0.050000001 (`Ext/Unit/Hooks.Crushing.cpp:35,68,99`).
+    /// Vehicle types only.
+    #[cfg(feature = "phobos")]
+    pub phobos_crush_forward_tilt_per_frame: Option<f64>,
     /// Phobos `LandingAnim=` (`Ext/AircraftType/Body.cpp:41`,
     /// `Nullable<AnimType*>`): the anim a landing aircraft plays; unset takes
     /// `[AudioVisual] DefaultLandingAnim` (and its
@@ -1200,6 +1208,13 @@ pub struct ObjectType {
     /// types only.
     #[cfg(feature = "phobos")]
     pub phobos_retreat_to_edge: Option<crate::rules::phobos_aircraft_edge::PhobosEdgeType>,
+    /// Phobos `FiringForceScatter=` (`Nullable<bool>`, unset;
+    /// `Ext/AircraftType/Body.cpp:36`, `Body.h:27`, constructed unset
+    /// `Body.h:51`): false suppresses the target-cell scatter an attacking
+    /// aircraft forces (`Ext/Aircraft/Hooks.cpp:324,341-355`); unset takes
+    /// `[General] AircraftFiringForceScatter`. Aircraft types only.
+    #[cfg(feature = "phobos")]
+    pub phobos_firing_force_scatter: Option<bool>,
     /// Phobos `Explodes.KillPassengers` (`Ext/TechnoType/Body.cpp:968`) and
     /// `Explodes.DuringBuildup` (`Ext/BuildingType/Body.cpp:222`), consumed by
     /// the `TechnoClass::ReceiveDamage` death arm.
@@ -1266,12 +1281,6 @@ pub struct ObjectType {
     /// `0x4B1146`/`0x6A0809`), which jumps to origin+0x3C.
     #[cfg(feature = "phobos")]
     pub phobos_skip_crush_slowdown: Option<bool>,
-    /// Phobos `CrushForwardTiltPerFrame=` (`Ext/UnitType/Body.cpp:71`,
-    /// `Nullable<double>`, constructor `Body.h:119` leaves it unset): the
-    /// binary32 rate written to Techno+334 when a crushing Unit tilts.
-    /// Unset keeps the stock rate its arm uses. Read only for a UnitType.
-    #[cfg(feature = "phobos")]
-    pub phobos_crush_forward_tilt_per_frame: Option<f64>,
     /// Phobos `RecountBurst=` (`Ext/TechnoType/Body.cpp:1031`,
     /// `Nullable<bool>`): unset falls back to `[General] RecountBurst=`. A
     /// weapon change or idle timeout recounts the burst index and re-arms the
@@ -1558,17 +1567,6 @@ pub struct ObjectType {
     /// placement hooks. Only an AircraftType section reaches the reader.
     #[cfg(feature = "phobos")]
     pub phobos_spawn_distance_from_target: Option<i32>,
-    /// Phobos `AircraftTypeExt::FiringForceScatter`
-    /// (`Ext/AircraftType/Body.cpp:36`, `Nullable<bool>`, constructor
-    /// `Body.h:27` leaves it unset): whether the aircraft's attack mission
-    /// scatters the target cell's contents after it fires; unset takes
-    /// `[General] AircraftFiringForceScatter` (`Ext/Rules/Body.cpp:473`,
-    /// default `yes`). Consumer: the stock Scatter arms of
-    /// `AircraftClass::Mission_Attack` (`Ext/Aircraft/Hooks.cpp:257`,
-    /// `:348`, `:354`, hooks `0x41879D`/`0x41882C`/`0x4186DD`). Only an
-    /// AircraftType section reaches the Phobos reader.
-    #[cfg(feature = "phobos")]
-    phobos_firing_force_scatter: Option<bool>,
     /// Phobos `TechnoTypeExt::MaxGuardRange` (`Ext/TechnoType/Body.cpp:975`,
     /// `Valueable<Leptons>`, constructor `Body.h:647` = `Leptons(4096)`): the
     /// hard cap `TechnoClass::GetGuardRange @ 0x00707E60` applies after it
@@ -6033,6 +6031,10 @@ impl ObjectType {
                 0.0
             },
             #[cfg(feature = "phobos")]
+            phobos_crush_forward_tilt_per_frame: (category == ObjectCategory::Vehicle)
+                .then(|| section.read_phobos_nullable_double("CrushForwardTiltPerFrame", None))
+                .flatten(),
+            #[cfg(feature = "phobos")]
             phobos_landing_anim: (category == ObjectCategory::Aircraft)
                 .then(|| {
                     section.read_phobos_nullable_with("LandingAnim", None, |raw| {
@@ -6063,6 +6065,10 @@ impl ObjectType {
                 .then(|| {
                     crate::rules::phobos_aircraft_edge::read_retreat_to_edge(section)
                 })
+                .flatten(),
+            #[cfg(feature = "phobos")]
+            phobos_firing_force_scatter: (category == ObjectCategory::Aircraft)
+                .then(|| section.read_phobos_nullable_bool("FiringForceScatter", None))
                 .flatten(),
             #[cfg(feature = "phobos")]
             phobos_explodes: crate::rules::phobos_explodes::PhobosExplodesSettings::from_section(
@@ -6110,12 +6116,6 @@ impl ObjectType {
             #[cfg(feature = "phobos")]
             phobos_skip_crush_slowdown: (category == ObjectCategory::Vehicle)
                 .then(|| section.read_phobos_nullable_bool("SkipCrushSlowdown", None))
-                .flatten(),
-            #[cfg(feature = "phobos")]
-            phobos_crush_forward_tilt_per_frame: (category == ObjectCategory::Vehicle)
-                .then(|| {
-                    section.read_phobos_nullable_double("CrushForwardTiltPerFrame", None)
-                })
                 .flatten(),
             #[cfg(feature = "phobos")]
             phobos_recount_burst: section.read_phobos_nullable_bool("RecountBurst", None),
@@ -6608,10 +6608,6 @@ impl ObjectType {
             #[cfg(feature = "phobos")]
             phobos_spawn_distance_from_target: (category == ObjectCategory::Aircraft)
                 .then(|| section.read_phobos_nullable_leptons("SpawnDistanceFromTarget", None))
-                .flatten(),
-            #[cfg(feature = "phobos")]
-            phobos_firing_force_scatter: (category == ObjectCategory::Aircraft)
-                .then(|| section.read_phobos_nullable_bool("FiringForceScatter", None))
                 .flatten(),
             // `TechnoTypeExt::LoadFromINIFile` (`Ext/TechnoType/Body.cpp:975`),
             // a `read<Leptons>` (cells x 256) for every family.
@@ -8007,7 +8003,7 @@ mod tests {
 
         let unit = IniFile::from_str(
             "[UNT]\nStrength=100\nDeployingAnims=A,B,C\nCrushOverlayExtraForwardTilt=0.05\n\
-             SkipCrushSlowdown=yes\n",
+             SkipCrushSlowdown=yes\nCrushForwardTiltPerFrame=-0.125\n",
         );
         let object = ObjectType::from_ini_section(
             "UNT",
@@ -8015,6 +8011,10 @@ mod tests {
             ObjectCategory::Vehicle,
         );
         assert_eq!(object.phobos_skip_crush_slowdown, Some(true));
+        assert_eq!(
+            object.phobos_crush_forward_tilt_per_frame,
+            Some(f64::from(-0.125_f32))
+        );
         assert_eq!(object.phobos_deploying_anims, ["A", "B", "C"]);
         // Phobos `ReadDouble` writes a `float`; the literal therefore lands as
         // the nearest binary32 widened back to double.
@@ -8024,7 +8024,8 @@ mod tests {
         );
 
         let aircraft = IniFile::from_str(
-            "[AIR]\nStrength=100\nLandingAnim=LAND\nParadropDelay=8\nParadropEndDelay=12\nSpawnHeight=200\n",
+            "[AIR]\nStrength=100\nLandingAnim=LAND\nParadropDelay=8\nParadropEndDelay=12\n\
+             SpawnHeight=200\nFiringForceScatter=no\n",
         );
         let object = ObjectType::from_ini_section(
             "AIR",
@@ -8035,6 +8036,7 @@ mod tests {
         assert_eq!(object.phobos_paradrop_delay, Some(8));
         assert_eq!(object.phobos_paradrop_end_delay, Some(12));
         assert_eq!(object.phobos_spawn_height, Some(200));
+        assert_eq!(object.phobos_firing_force_scatter, Some(false));
 
         let unset = IniFile::from_str("[UNT]\nStrength=100\n");
         let object = ObjectType::from_ini_section(
@@ -8044,6 +8046,9 @@ mod tests {
         );
         assert_eq!(object.phobos_deploy_fire_delay, None);
         assert_eq!(object.phobos_skip_crush_slowdown, None);
+        assert_eq!(object.phobos_crush_forward_tilt_per_frame, None);
+        // Aircraft-only key: a Vehicle section never sets it.
+        assert_eq!(object.phobos_firing_force_scatter, None);
         assert_eq!(object.phobos_no_alpha_image_on_buildup, None);
         assert!(!object.phobos_no_build_area_on_buildup);
         assert_eq!(object.phobos_set_tab_by_selecting, -1);

@@ -9753,7 +9753,7 @@ RadSiteWarhead=RadSite
         (rules, art)
     }
 
-    fn fired_target(rules: &RuleSet, seed_rng: &mut SimRng) -> (TargetKind, u64) {
+    fn fired_target(rules: &RuleSet, seed_rng: &mut SimRng) -> (Vec<TargetKind>, u64) {
         use crate::sim::mission::state::MissionTestFixture;
 
         let mut sim = crate::sim::world::Simulation::new();
@@ -9797,17 +9797,19 @@ RadSiteWarhead=RadSite
             crate::sim::world::FrameEffects::default(),
         );
         let events = sim.fire_events.clone();
-        assert_eq!(events.len(), 1, "the deploy shot fires");
-        (events[0].target, deso)
+        (
+            events.iter().map(|event| event.target).collect::<Vec<_>>(),
+            deso,
+        )
     }
 
     // `base`: the stock cell under the firer.
     let (rules, _) = area_fire_rules("");
     let mut unused = SimRng::new(0);
-    let (target, _) = fired_target(&rules, &mut unused);
+    let (targets, _) = fired_target(&rules, &mut unused);
     assert_eq!(
-        target,
-        TargetKind::Cell(10, 10),
+        targets,
+        vec![TargetKind::Cell(10, 10)],
         "base keeps the stock cell"
     );
 
@@ -9816,8 +9818,18 @@ RadSiteWarhead=RadSite
         "AreaFire.Target=self
 ",
     );
-    let (target, deso) = fired_target(&rules, &mut unused);
-    assert_eq!(target, TargetKind::Entity(deso), "self aims at the firer");
+    let (targets, deso) = fired_target(&rules, &mut unused);
+    assert_eq!(
+        targets,
+        vec![TargetKind::Entity(deso)],
+        "self aims at the firer"
+    );
+
+    // The cell gate runs on the base/self arms too: `CanTarget=units` refuses
+    // this infantry firer's own cell, so the shot never fires.
+    let (rules, _) = area_fire_rules("CanTarget=units\n");
+    let (targets, _) = fired_target(&rules, &mut unused);
+    assert!(targets.is_empty(), "the cell gate refuses the firer's cell");
 
     // `random`: the first candidate drawn from the Scenario stream with
     // the default (gate-free) weapon is admitted, so the cell is
@@ -9828,16 +9840,16 @@ RadSiteWarhead=RadSite
 ",
     );
     let mut probe = SimRng::new(0);
-    let (target, _) = fired_target(&rules, &mut probe);
+    let (targets, _) = fired_target(&rules, &mut probe);
     let offsets = crate::sim::cell_rect::cell_spread_offsets(4);
     let drawn = probe.next_range_i32_inclusive(0, offsets.len() as i32 - 1) as usize;
     let (dx, dy) = offsets[drawn];
     assert_eq!(
-        target,
-        TargetKind::Cell(
+        targets,
+        vec![TargetKind::Cell(
             (10i32 + i32::from(dx)) as u16,
             (10i32 + i32::from(dy)) as u16
-        ),
+        )],
         "random takes the drawn candidate"
     );
 }

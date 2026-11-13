@@ -38,8 +38,8 @@ pub enum AreaFireTarget {
 }
 
 impl AreaFireTarget {
-    /// `EnumParser<AreaFireTarget>`'s name table; an unknown spelling keeps
-    /// the previous value.
+    /// `read<AreaFireTarget>`'s name table (`Utilities/TemplateDef.h:952-977`);
+    /// an unknown spelling keeps the previous value.
     pub fn parse(raw: &str) -> Option<Self> {
         if raw.eq_ignore_ascii_case("base") {
             Some(Self::Base)

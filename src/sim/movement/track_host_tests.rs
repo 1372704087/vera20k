@@ -3094,18 +3094,44 @@ fn paid_drive_crossing_sets_wall_tilt_after_mark_put_before_per_cell() {
     use crate::sim::overlay_grid::OverlayGrid;
     use crate::util::native_x87::NativeF32Bits;
 
-    for (straight, crusher, tilts, wall, overlay, remove_at_mark, expected) in [
-        (true, true, true, true, true, false, true),
-        (false, true, true, true, true, false, false),
-        (true, false, true, true, true, false, false),
-        (true, true, false, true, true, false, false),
-        (true, true, true, false, true, false, false),
-        (true, true, true, true, false, false, false),
-        (true, true, true, true, true, true, false),
+    for (straight, crusher, tilts, wall, overlay, remove_at_mark, expected, tilt_ini, tilt_bits) in [
+        (
+            true,
+            true,
+            true,
+            true,
+            true,
+            false,
+            true,
+            "",
+            0xbd4c_cccd_u32,
+        ),
+        (
+            true,
+            true,
+            true,
+            true,
+            true,
+            false,
+            true,
+            "CrushForwardTiltPerFrame=-0.125\n",
+            (-0.125_f32).to_bits(),
+        ),
+        (false, true, true, true, true, false, false, "", 0),
+        (true, false, true, true, true, false, false, "", 0),
+        (true, true, false, true, true, false, false, "", 0),
+        (true, true, true, false, true, false, false, "", 0),
+        (true, true, true, true, false, false, false, "", 0),
+        (true, true, true, true, true, true, false, "", 0),
     ] {
+        // `CrushForwardTiltPerFrame=` only exists on a Phobos build; the
+        // stock build cannot read the authored row.
+        if !cfg!(feature = "phobos") && !tilt_ini.is_empty() {
+            continue;
+        }
         let (mut sim, invocation, budget) = fixture(TrackFamily::Drive, 8);
         let ini = IniFile::from_str(&format!(
-            "[VehicleTypes]\n0=MTNK\n[MTNK]\nCrusher={}\nTiltsWhenCrushes={}\n\
+            "[VehicleTypes]\n0=MTNK\n[MTNK]\nCrusher={}\nTiltsWhenCrushes={}\n{tilt_ini}\
              [OverlayTypes]\n0=FENCE\n[FENCE]\nWall={}\nCrushable=yes\nStrength=100\n",
             if crusher { "yes" } else { "no" },
             if tilts { "yes" } else { "no" },
@@ -3185,7 +3211,7 @@ fn paid_drive_crossing_sets_wall_tilt_after_mark_put_before_per_cell() {
             .unwrap()
             .native_bits();
         assert_eq!(&actual[..3], &before[..3]);
-        assert_eq!(actual[3], if expected { 0xbd4c_cccd } else { before[3] });
+        assert_eq!(actual[3], if expected { tilt_bits } else { before[3] });
     }
 }
 

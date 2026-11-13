@@ -2096,6 +2096,15 @@ impl ProcessedRulesLayers {
         self.member_states(RulesTypeFamily::Vehicle, |member| &member.ore_gathering)
     }
 
+    /// Phobos `UnitTypeExt`'s resolved `DeployingAnims=`, one list per
+    /// VehicleType.
+    #[cfg(feature = "phobos")]
+    pub(crate) fn deploying_anim_states(&self) -> impl Iterator<Item = (&str, &[String])> {
+        self.member_states(RulesTypeFamily::Vehicle, |member| {
+            member.phobos_deploying_anims.as_slice()
+        })
+    }
+
     /// Ares GenericWarhead references, resolved by the same ordered type
     /// allocator as native references. Kept separate from the retail fields.
     pub(crate) fn generic_super_weapon_warhead_states(
@@ -5542,6 +5551,11 @@ struct ProcessedType {
     #[cfg(feature = "phobos")]
     #[serde(default)]
     ore_gathering: crate::rules::object_type::PhobosOreGathering,
+    /// Phobos `UnitTypeExt`'s `DeployingAnims=` resolved against the
+    /// animation registry; an absent key keeps the previous pass's list.
+    #[cfg(feature = "phobos")]
+    #[serde(default)]
+    phobos_deploying_anims: Vec<String>,
     /// Phobos `TechnoTypeExt::LoadFromINIFile`'s insignia block. Its
     /// `InsigniaType=` resolution and direct keys are read per reached pass on
     /// the same live TechnoType, so this accumulates instead of projecting a
@@ -6187,6 +6201,8 @@ impl ProcessedType {
             additional_super_weapons: Vec::new(),
             #[cfg(feature = "phobos")]
             ore_gathering: crate::rules::object_type::PhobosOreGathering::default(),
+            #[cfg(feature = "phobos")]
+            phobos_deploying_anims: Vec::new(),
             #[cfg(feature = "phobos")]
             phobos_insignia: Default::default(),
             generic_super_weapon_warhead: None,

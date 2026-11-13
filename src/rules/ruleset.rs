@@ -6274,6 +6274,14 @@ impl RuleSet {
                     unit.project_ore_gathering(gathering);
                 }
             }
+            for (name, anims) in processed.deploying_anim_states() {
+                if let Some(unit) = rules.object_list.iter_mut().find(|object| {
+                    object.category == ObjectCategory::Vehicle
+                        && object.id.eq_ignore_ascii_case(name)
+                }) {
+                    unit.project_phobos_deploying_anims(anims);
+                }
+            }
         }
         #[cfg(feature = "ares")]
         {

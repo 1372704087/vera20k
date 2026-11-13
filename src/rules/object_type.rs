@@ -3798,6 +3798,11 @@ impl ObjectType {
     pub(crate) fn project_ore_gathering(&mut self, gathering: &PhobosOreGathering) {
         self.ore_gathering = gathering.clone();
     }
+
+    #[cfg(feature = "phobos")]
+    pub(crate) fn project_phobos_deploying_anims(&mut self, anims: &[String]) {
+        self.phobos_deploying_anims = anims.to_vec();
+    }
     pub(crate) fn emp_rules(&self) -> Option<&crate::rules::ares_emp::EmpTypeRules> {
         self.emp.as_ref()
     }
@@ -8244,7 +8249,7 @@ mod tests {
             "[UNT]\nStrength=100\nDeployingAnims=A,B,C\nCrushOverlayExtraForwardTilt=0.05\n\
              SkipCrushSlowdown=yes\nCrushForwardTiltPerFrame=-0.125\n\
              DeployingAnim.KeepUnitVisible=yes\n\
-             DeployingAnim.ReverseForUndeploy=no\nDeployingAnim.UseUnitDrawer=no\n",
+             DeployingAnim.ReverseForUndeploy=no\nDeployingAnim.UseUnitDrawer=no\n\
              TiltsWhenCrushes.Vehicles=no\nTiltsWhenCrushes.Overlays=yes\n",
         );
         let object = ObjectType::from_ini_section(
@@ -8276,7 +8281,7 @@ mod tests {
             "[AIR]\nStrength=100\nLandingAnim=LAND\nParadropDelay=8\nParadropEndDelay=12\n\
              SpawnHeight=200\nFiringForceScatter=no\n\
              DeployingAnim.KeepUnitVisible=yes\n\
-             DeployingAnim.ReverseForUndeploy=no\nDeployingAnim.UseUnitDrawer=no\n",
+             DeployingAnim.ReverseForUndeploy=no\nDeployingAnim.UseUnitDrawer=no\n\
              TiltsWhenCrushes.Vehicles=yes\nTiltsWhenCrushes.Overlays=yes\n",
         );
         let object = ObjectType::from_ini_section(

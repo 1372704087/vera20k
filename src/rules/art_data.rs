@@ -385,6 +385,17 @@ pub struct AnimTypeRuntimeConfig {
     pub phobos_large_fire_distances: Vec<NativeF64Bits>,
     #[cfg(feature = "phobos")]
     pub phobos_theater_palette: Option<bool>,
+    /// Phobos `DetachOnCloak=` (`Ext/AnimType/Body.cpp:112`, `Valueable<bool>`
+    /// constructor `true`, `Ext/AnimType/Body.h:67`): the attached anim stays
+    /// on a cloaking owner (`Ext/Anim/Hooks.cpp:663-684`, hook `0x425174`).
+    #[cfg(feature = "phobos")]
+    pub phobos_detach_on_cloak: bool,
+    /// Phobos `RestrictVisibilityIfCloaked=` (`Ext/AnimType/Body.cpp:111`,
+    /// `Valueable<bool>` constructor `false`, `Ext/AnimType/Body.h:66`): an
+    /// anim attached to a cloaked techno hides from an unallied, unsensing
+    /// viewer (`Ext/Anim/Hooks.cpp:524-570`, `0x423061`).
+    #[cfg(feature = "phobos")]
+    pub phobos_restrict_visibility_if_cloaked: bool,
     /// Phobos `AnimTypeExt::HideIfNoOre_Threshold` (`src/Ext/AnimType/Body.h`,
     /// read as a `Valueable<int>` with constructor default 0): the smallest
     /// contained tiberium value at which a `HideIfNoOre=` anim still draws.
@@ -1073,6 +1084,14 @@ fn parse_anim_runtime_config(section: &IniSection) -> AnimTypeRuntimeConfig {
         #[cfg(feature = "phobos")]
         phobos_theater_palette:
             crate::rules::phobos_anim_type_ext::PhobosAnimTypeExt::theater_palette(section),
+        #[cfg(feature = "phobos")]
+        phobos_detach_on_cloak:
+            crate::rules::phobos_anim_type_ext::PhobosAnimTypeExt::detach_on_cloak(section),
+        #[cfg(feature = "phobos")]
+        phobos_restrict_visibility_if_cloaked:
+            crate::rules::phobos_anim_type_ext::PhobosAnimTypeExt::restrict_visibility_if_cloaked(
+                section,
+            ),
         z_adjust: section.read_int("ZAdjust", 0),
         // AnimType ctor42765B initializes0; ReadINI428147 uses ReadInt5276D0.
         y_sort_adjust: section.read_int("YSortAdjust", 0),

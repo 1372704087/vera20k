@@ -1081,7 +1081,7 @@ fn designator_query(
 /// (`Phobos.INI.cpp:133`, `Ext/Rules/Body.cpp:176`, `Ext/SWType/Body.cpp:283`);
 /// the combined client/rules bool short-circuits the arm, no armed superweapon
 /// draws nothing, and the armed `[SuperWeaponType]` switch is checked in build.
-#[cfg(feature = "phobos")]
+#[cfg(all(feature = "phobos", feature = "ares"))]
 #[test]
 fn designator_range_gates_default_and_short_circuit() {
     assert!(
@@ -1135,7 +1135,7 @@ fn designator_range_gates_default_and_short_circuit() {
 /// One own designator and one enemy inhibitor ring in their owning house's
 /// colour at `DesignatorRange`/`InhibitorRange`; a designator type without
 /// `DesignatorRange` falls back to `Sight` (`Ext/SWType/Hooks.cpp:81-88`).
-#[cfg(feature = "phobos")]
+#[cfg(all(feature = "phobos", feature = "ares"))]
 #[test]
 fn designator_and_inhibitor_rings_use_house_colour_and_range() {
     let rules = designator_rules("");
@@ -1183,7 +1183,7 @@ fn designator_and_inhibitor_rings_use_house_colour_and_range() {
 
 /// The hook skips allies other than the current player, limbo and dead
 /// technos, and types absent from the lists (`Ext/SWType/Hooks.cpp:70-77`).
-#[cfg(feature = "phobos")]
+#[cfg(all(feature = "phobos", feature = "ares"))]
 #[test]
 fn designator_scan_excludes_allies_limbo_dead_and_unlisted() {
     let rules = designator_rules("");

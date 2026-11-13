@@ -112,7 +112,10 @@ pub(crate) fn build(
     // The caller combines the [Phobos] client and [AudioVisual] rules switches
     // into show_designator_range; the armed [SuperWeaponType] switch is the
     // third gate, checked here.
-    #[cfg(feature = "phobos")]
+    // `SW.Designators`/`SW.Inhibitors` and `DesignatorRange`/`InhibitorRange`
+    // are Ares' SWTypeExt keys in VERA's rules; a phobos-only build carries no
+    // influence data, so the rings need both capabilities compiled in.
+    #[cfg(all(feature = "phobos", feature = "ares"))]
     if show_designator_range
         && let Some(section) = armed_super_weapon
         && let Some(super_weapon) = rules.super_weapon(section)
@@ -316,7 +319,7 @@ pub(crate) fn build(
 /// only the explicit lists, ignoring `SW.AnyDesignator`/`SW.AnyInhibitor` and
 /// the health/deactivated/building-power predicates. Radius is the techno's
 /// `DesignatorRange`/`InhibitorRange` falling back to `Sight`.
-#[cfg(feature = "phobos")]
+#[cfg(all(feature = "phobos", feature = "ares"))]
 fn push_designator_rings(
     draws: &mut Vec<RadialIndicatorDraw>,
     sim: &Simulation,
@@ -328,18 +331,10 @@ fn push_designator_rings(
     let Some(player) = sim.session().current_house() else {
         return;
     };
-    // `SW.Influence` is an Ares SWType key; a Phobos-only build retains no
-    // designator or inhibitor list, so no ring is drawn.
-    #[cfg(not(feature = "ares"))]
-    let (designators, inhibitors) = {
-        let _ = (draws, sim, rules, super_weapon, colors, viewport);
+    let Some(influence) = rules.super_weapon_metadata(&super_weapon.id) else {
         return;
     };
-    #[cfg(feature = "ares")]
-    let Some((designators, inhibitors)) = rules.super_weapon_influence_lists(&super_weapon.id)
-    else {
-        return;
-    };
+    let (designators, inhibitors) = (influence.designators(), influence.inhibitors());
     // `SW_Designators.Contains(pTechnoType)`: TechnoType identity is category
     // plus name, the same test the launch scan uses.
     let matches = |types: &[crate::rules::superweapon_type::TechnoTypeReference],

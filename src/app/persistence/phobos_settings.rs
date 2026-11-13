@@ -46,7 +46,14 @@ pub(crate) struct PhobosClientSettings {
     /// (`Phobos.INI.cpp:46` static, read `:94`): drops a
     /// `LowDeployPriority=yes` techno from a multi-object deploy when the
     /// selection also holds one that is not low priority.
+    /// Phobos `[Phobos] PriorityDeployFiltering=` (source default `yes`): the
+    /// gate on `LowDeployPriority` in the selection-wide deploy walk
+    /// (`Ext/Techno/Hooks.cpp`, `0x730D0F`).
     pub(crate) priority_deploy_filtering: bool,
+    /// Phobos `[Phobos] PrioritySelectionFiltering=` (`Phobos.INI.cpp:93`,
+    /// source default `yes`): the gate on `LowSelectionPriority` in the band
+    /// walk (`Misc/Selection.cpp:169`).
+    pub(crate) priority_selection_filtering: bool,
     /// `[Phobos] TypeSelectUseIFVMode=`, default `yes`
     /// (`Phobos.INI.cpp:95`): a type-selection click enters IFV mode instead of
     /// a plain move/select.
@@ -98,6 +105,7 @@ impl Default for PhobosClientSettings {
             show_harvester_counter: true,
             show_weeds_counter: true,
             priority_deploy_filtering: true,
+            priority_selection_filtering: true,
             type_select_use_ifv_mode: true,
             message_display_in_center: false,
             save_game_on_scenario_start: true,
@@ -149,6 +157,11 @@ pub(crate) fn read(settings_dir: &Path) -> PhobosClientSettings {
         priority_deploy_filtering: section.read_bool(
             "PriorityDeployFiltering",
             defaults.priority_deploy_filtering,
+        ),
+        // `Phobos.INI.cpp:93`: `ReadBool(..., "PrioritySelectionFiltering", true)`.
+        priority_selection_filtering: section.read_bool(
+            "PrioritySelectionFiltering",
+            defaults.priority_selection_filtering,
         ),
         type_select_use_ifv_mode: section
             .read_bool("TypeSelectUseIFVMode", defaults.type_select_use_ifv_mode),
@@ -206,7 +219,7 @@ mod tests {
             "[Phobos]\nShowPlacementPreview=no\nDigitalDisplay.Enable=yes\n\
              SuperWeaponSidebar.RequiredSignificance=2\nShowFlashOnSelecting=yes\n\
              ShowPowerPlantEnhancerRange=yes\nShowDesignatorRange=yes\nShowPowerDelta=no\nShowHarvesterCounter=no\n\
-             ShowWeedsCounter=no\nPriorityDeployFiltering=no\nTypeSelectUseIFVMode=no\n\
+             ShowWeedsCounter=no\nPriorityDeployFiltering=no\nPrioritySelectionFiltering=no\nTypeSelectUseIFVMode=no\n\
              MessageDisplayInCenter=yes\nSaveGameOnScenarioStart=no\n\
              HideLaserTrailEffects=yes\nShowGameTime=yes\nEnableSelectBox=yes\n\
              CampaignDefaultGameSpeed=4\n\
@@ -225,6 +238,7 @@ mod tests {
                 show_harvester_counter: false,
                 show_weeds_counter: false,
                 priority_deploy_filtering: false,
+                priority_selection_filtering: false,
                 type_select_use_ifv_mode: false,
                 message_display_in_center: true,
                 save_game_on_scenario_start: false,

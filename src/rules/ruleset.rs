@@ -11752,7 +11752,7 @@ impl RuleSet {
     }
 
     #[cfg(feature = "ares")]
-    pub(crate) fn super_weapon_metadata(
+    pub fn super_weapon_metadata(
         &self,
         id: &str,
     ) -> Option<&crate::rules::superweapon_type::AresSuperWeaponMetadata> {

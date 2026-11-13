@@ -112,11 +112,6 @@ fn original_cannon_launch_motion_and_live_bridge_draw_form_one_production_chain(
         high_root: launch::high_arc_root(weapon.lobber, origin, Some(target)),
         voxel_downward: None,
         building_pitch_height: None,
-        // The Phobos arcing fix is off for this stock oracle row.
-        #[cfg(feature = "phobos")]
-        arcing_fix: false,
-        #[cfg(feature = "phobos")]
-        lobber: weapon.lobber,
     })
     .expect("original selected launch succeeds");
     assert_eq!(

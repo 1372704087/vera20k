@@ -1456,6 +1456,61 @@ impl Simulation {
         self.substrate.anims.get(id)
     }
 
+    /// Phobos `RestrictVisibilityIfCloaked=` (`Ext/AnimType/Body.cpp:111`,
+    /// `Valueable<bool>` constructor `false`, `Ext/AnimType/Body.h:66`/`:118`),
+    /// consumed by `AnimClass_DrawIt_Visibility @ 0x423061`
+    /// (`Ext/Anim/Hooks.cpp:524-570`): with the key set, an anim whose techno
+    /// owner is `Cloaking` (1) or `Cloaked` (2) is not drawn for a viewer that
+    /// is neither allied with that owner nor sensing the owner's cell, while an
+    /// observer house still draws it.
+    ///
+    /// The hook falls back to a trailer anim's `Invoker` when `OwnerObject` is not
+    /// a techno; VERA keeps no such invoker on the anim, a recorded residual.
+    #[cfg(feature = "phobos")]
+    pub fn anim_hidden_by_cloaked_owner(
+        &self,
+        id: AnimId,
+        rules: &RuleSet,
+        viewer: Option<InternedId>,
+    ) -> bool {
+        let Some(anim) = self.anim(id) else {
+            return false;
+        };
+        let restricted = rules
+            .art()
+            .anim_runtime_config(self.interner().resolve(anim.type_id()))
+            .is_some_and(|config| config.phobos_restrict_visibility_if_cloaked);
+        if !restricted {
+            return false;
+        }
+        let Some(viewer) = viewer.or_else(|| self.session().current_house()) else {
+            return false;
+        };
+        if self.session().is_observer_house(viewer) {
+            return false;
+        }
+        let Some(owner_id) = anim.owner_entity() else {
+            return false;
+        };
+        let Some(owner) = self.entities().get(owner_id) else {
+            return false;
+        };
+        if !matches!(owner.cloak.as_ref().map_or(0, |cloak| cloak.state()), 1 | 2) {
+            return false;
+        }
+        if self
+            .house_alliances()
+            .is_allied(self.interner(), viewer, owner.owner())
+        {
+            return false;
+        }
+        // `pTechno->GetCell()->Sensors_InclHouse(current)`: a sensor over the
+        // owner's cell reveals it regardless of the alliance.
+        !self
+            .fog()
+            .has_sensor_for_house(viewer, owner.position.rx(), owner.position.ry())
+    }
+
     pub fn anims(&self) -> impl Iterator<Item = (&AnimId, &AnimObject)> {
         self.substrate.anims.iter()
     }
@@ -3469,6 +3524,38 @@ impl Simulation {
         }
         self.set_anim_owner_object(id, None, rules);
         Some(owner)
+    }
+
+    /// Phobos `DetachOnCloak=` (`Ext/AnimType/Body.cpp:112`, `Valueable<bool>`
+    /// constructor `true`): `Detach_All(false)` on a cloaking object detaches
+    /// every attached anim (`TechnoClass::Do_Cloak @ 0x703789` reaches vtable
+    /// `+0xDC`), and the hook `AnimClass_Detach_Cloak @ 0x425174`
+    /// (`Ext/Anim/Hooks.cpp:663-684`) suppresses that detach only for a type
+    /// whose key reads `no`.
+    pub(crate) fn detach_attached_anims_for_cloak(&mut self, owner_id: u64, rules: &RuleSet) {
+        let ids: Vec<AnimId> = self
+            .anims()
+            .filter(|(_, anim)| anim.owner_entity() == Some(owner_id))
+            .filter(|(_, anim)| {
+                let name = self.interner.resolve(anim.type_id());
+                #[cfg(feature = "phobos")]
+                {
+                    rules
+                        .art()
+                        .anim_runtime_config(name)
+                        .is_none_or(|config| config.phobos_detach_on_cloak)
+                }
+                #[cfg(not(feature = "phobos"))]
+                {
+                    let _ = name;
+                    true
+                }
+            })
+            .map(|(&id, _)| id)
+            .collect();
+        for id in ids {
+            self.detach_anim_from_owner(id, rules);
+        }
     }
 
     /// Anim PointerExpired425150 removes Display, calls owner+60, clears +CC,
@@ -5586,6 +5673,109 @@ mod tests {
     use crate::sim::combat::Health;
     use crate::sim::game_entity::GameEntity;
 
+    /// Phobos `RestrictVisibilityIfCloaked=` (`Ext/AnimType/Body.cpp:111`) at
+    /// `AnimClass_DrawIt_Visibility @ 0x423061` (`Ext/Anim/Hooks.cpp:524-570`):
+    /// the cloak state of the anim's techno owner, its alliance with the viewer
+    /// and the viewer's sensors on the owner's cell decide the skip.
+    #[test]
+    #[cfg(feature = "phobos")]
+    fn a_cloaked_owners_anim_hides_only_from_unsensing_unallied_viewers() {
+        use crate::sim::world::Simulation;
+
+        const ANIM: &str = "CLOAKSPARK";
+        const PLAIN: &str = "PLAINSPARK";
+        let ini = crate::sim::arena_fixture::clear_ground_ini(
+            "[General]\nCloakingStages=6\n\
+             [VehicleTypes]\n0=VICTIM\n\
+             [VICTIM]\nStrength=1000\nArmor=heavy\nSpeed=4\nCloakable=yes\nCloakingSpeed=3\n",
+        );
+        let mut rules = RuleSet::from_ini(&ini).expect("arena rules");
+        let mut art = ArtRegistry::from_ini(&IniFile::from_str(&format!(
+            "[{ANIM}]\nRestrictVisibilityIfCloaked=yes\nLayer=Ground\n\
+             [{PLAIN}]\nLayer=Ground\n"
+        )));
+        art.bind_anim_frame_count_for_test(ANIM, 8);
+        art.bind_anim_frame_count_for_test(PLAIN, 8);
+        rules.replace_art_registry_for_test(art);
+        let mut sim = crate::sim::arena_fixture::rival_arena(&rules, 17);
+        sim.session.set_map_width_for_test(32);
+        sim.session.set_map_height_for_test(32);
+        sim.fog.set_width_for_test(32);
+        sim.fog.set_height_for_test(32);
+        sim.intern_rule_type_ids(&rules);
+        let target = sim
+            .spawn_object("VICTIM", "Russians", 10, 10, 0, &rules)
+            .expect("the arena places the cloakable victim");
+        let americans = sim.intern("Americans");
+        let russians = sim.intern("Russians");
+        let attach = |sim: &mut Simulation, name: &str, owner: Option<u64>| {
+            let ty = sim.intern(name);
+            let anim = sim
+                .spawn_anim_at_world(
+                    &rules,
+                    AnimClassSpawnDescriptor::new(
+                        ty,
+                        16,
+                        16,
+                        crate::util::fixed_math::SIM_ZERO,
+                        crate::util::fixed_math::SIM_ZERO,
+                        0,
+                    ),
+                    AnimWorldCoord {
+                        x: 10 * 256,
+                        y: 10 * 256,
+                        z: 0,
+                    },
+                )
+                .expect("the art section spawns the anim");
+            sim.substrate.anims.set_owner_entity_for_test(anim, owner);
+            anim
+        };
+        let cloak = |sim: &mut Simulation, state: i32| {
+            sim.substrate
+                .entities
+                .get_mut(target)
+                .unwrap()
+                .cloak
+                .as_mut()
+                .expect("Cloakable=yes carries the cloak runtime")
+                .set_state_for_test(state);
+        };
+
+        assert!(rules.art().anim_runtime_config(ANIM).is_some());
+        let anim = attach(&mut sim, ANIM, Some(target));
+        // An uncloaked owner draws, whatever the viewer.
+        assert!(!sim.anim_hidden_by_cloaked_owner(anim, &rules, Some(americans)));
+
+        cloak(&mut sim, 2);
+        assert!(
+            sim.anim_hidden_by_cloaked_owner(anim, &rules, Some(americans)),
+            "an enemy viewer without a sensor loses the cloaked owner's anim"
+        );
+        cloak(&mut sim, 1);
+        assert!(
+            sim.anim_hidden_by_cloaked_owner(anim, &rules, Some(americans)),
+            "Cloaking (1) hides like Cloaked (2)"
+        );
+        // The owner's own house is allied with itself.
+        assert!(!sim.anim_hidden_by_cloaked_owner(anim, &rules, Some(russians)));
+
+        // `Sensors_InclHouse` on the owner's cell reveals it to the enemy.
+        let cell = {
+            let entity = sim.entities().get(target).unwrap();
+            (entity.position.rx(), entity.position.ry())
+        };
+        sim.fog_mut_for_test()
+            .increment_sensor_at(americans, cell.0, cell.1);
+        assert!(!sim.anim_hidden_by_cloaked_owner(anim, &rules, Some(americans)));
+
+        // The key off, and an anim without a techno owner, both draw.
+        let plain = attach(&mut sim, PLAIN, Some(target));
+        assert!(!sim.anim_hidden_by_cloaked_owner(plain, &rules, Some(americans)));
+        let free = attach(&mut sim, ANIM, None);
+        assert!(!sim.anim_hidden_by_cloaked_owner(free, &rules, Some(americans)));
+    }
+
     /// Phobos' `AnimClass_AI_Early @ 0x423B95` replacement of the stock
     /// `HideIfNoOre` test: the anim's cell `Get_Tiberium_Value @ 0x00485020`
     /// hides it at or below `abs(HideIfNoOre.Threshold=)`, not only at zero.
@@ -6102,6 +6292,61 @@ mod tests {
         }
         rules.install_art_fixture(art);
         rules
+    }
+
+    /// Phobos `DetachOnCloak=`: `Detach_All(false)` on a cloaking object
+    /// detaches attached anims, and only the type that reads the key `no`
+    /// stays attached (`Ext/AnimType/Body.cpp:112`, hook `0x425174`).
+    #[cfg(feature = "phobos")]
+    #[test]
+    fn detach_on_cloak_keeps_only_the_anim_type_that_asks_for_it() {
+        let rules = runtime_rules(
+            "[CLOAKKEEP]\nDetachOnCloak=no\nLayer=Ground\n[CLOAKNORM]\nLayer=Ground\n",
+            &[("CLOAKKEEP", 8), ("CLOAKNORM", 8)],
+        );
+        let mut sim = Simulation::new();
+        let owner_id = 100;
+        let type_ref = sim.interner.intern("CLOAKOWNER");
+        let mut entity = GameEntity::new_at_frame_zero_for_test(
+            owner_id,
+            5,
+            5,
+            0,
+            0,
+            sim.interner.intern("Americans"),
+            Health::new(100),
+            type_ref,
+            EntityCategory::Unit,
+            0,
+            5,
+            false,
+        );
+        entity.lifecycle.set_in_limbo_for_test(false);
+        sim.substrate.entities.insert(entity);
+        let keep_type = sim.interner.intern("CLOAKKEEP");
+        let norm_type = sim.interner.intern("CLOAKNORM");
+        let keep = sim
+            .spawn_anim_object(&rules, runtime_descriptor(keep_type, 0))
+            .unwrap();
+        let norm = sim
+            .spawn_anim_object(&rules, runtime_descriptor(norm_type, 0))
+            .unwrap();
+        for id in [keep, norm] {
+            assert!(sim.set_anim_owner_object(id, Some(owner_id), &rules));
+        }
+
+        sim.detach_attached_anims_for_cloak(owner_id, &rules);
+
+        assert_eq!(
+            sim.anim(keep).unwrap().owner_entity,
+            Some(owner_id),
+            "DetachOnCloak=no keeps the attached anim"
+        );
+        assert_eq!(
+            sim.anim(norm).unwrap().owner_entity,
+            None,
+            "the default detaches"
+        );
     }
 
     fn runtime_descriptor(type_name: InternedId, delay: u16) -> AnimClassSpawnDescriptor {

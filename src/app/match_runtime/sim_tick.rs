@@ -1796,11 +1796,19 @@ fn advance_one_simulation_frame(
                     advanced.expect("simulation frame failed; prior world mutations remain")
                 }
             };
+            // Phobos `[Phobos] HideShakeEffects=` (`Ext/Bullet/Hooks.DetonateLogics.cpp:33`):
+            // the detonation writes never move the view. The sim still samples
+            // the shake range (see the residual in the B-progress report), so
+            // the offsets are dropped at the presentation owner instead.
+            #[cfg(feature = "phobos")]
+            let hide_shake_effects = state.match_state.match_presentation.hide_shake_effects;
+            #[cfg(not(feature = "phobos"))]
+            let hide_shake_effects = false;
             state
                 .match_state
                 .match_presentation
                 .screen_shake
-                .apply_updates(&output.screen_shake_updates);
+                .apply_updates_with_hide(&output.screen_shake_updates, hide_shake_effects);
             if output.outcome_waiting {
                 // The simulation retains this frame's non-sound facts until
                 // the same House suffix finishes. Its sound prefix has already
@@ -1911,6 +1919,13 @@ fn advance_one_simulation_frame(
             frame_overlay_removals = overlay_removals;
             frame_committed = tick_result.frame_committed;
             if tick_result.frame_committed {
+                #[cfg(feature = "phobos")]
+                let hide_light_flash_effects = state
+                    .match_state
+                    .match_presentation
+                    .hide_light_flash_effects;
+                #[cfg(not(feature = "phobos"))]
+                let hide_light_flash_effects = false;
                 drained_combat_lights =
                     crate::app::presentation::combat_lights::materialize_combat_lights(
                         combat_lights,
@@ -1922,6 +1937,7 @@ fn advance_one_simulation_frame(
                             .in_game_options
                             .detail_level,
                         &mut state.match_state.match_presentation.detail.borrow_mut(),
+                        hide_light_flash_effects,
                     );
             }
             // Parity capture, if requested. The sim has already finalized all

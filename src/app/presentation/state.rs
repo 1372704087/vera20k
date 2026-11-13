@@ -137,6 +137,16 @@ pub(crate) struct MatchPresentationState {
     /// `[AudioVisual] SelectionFlashDuration` on each local selection.
     #[cfg(feature = "phobos")]
     pub(crate) show_flash_on_selecting: bool,
+    /// Phobos `[Phobos] HideLightFlashEffects=` (read default false,
+    /// `Phobos.INI.cpp:111`): a combat light `Impact` request makes no light
+    /// (`DoFlash @ 0x48A62E` skips at `0x48A6FA`).
+    #[cfg(feature = "phobos")]
+    pub(crate) hide_light_flash_effects: bool,
+    /// Phobos `[Phobos] HideShakeEffects=` (read default false,
+    /// `Phobos.INI.cpp:113`): the screen-shake writes never move the view
+    /// (`Ext/Bullet/Hooks.DetonateLogics.cpp:33`).
+    #[cfg(feature = "phobos")]
+    pub(crate) hide_shake_effects: bool,
     /// Phobos `uimd.ini [Sidebar] CenterPauseMenuBackground` (default no),
     /// applied to the active-game shell's background rectangle.
     #[cfg(feature = "phobos")]

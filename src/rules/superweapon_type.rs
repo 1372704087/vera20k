@@ -698,6 +698,12 @@ pub struct SuperWeaponType {
     /// `1` (`GeneralUtils::IntValidCheck`).
     #[cfg(feature = "phobos")]
     pub phobos_tab_index: crate::rules::phobos_sw_tab_index::PhobosSwTabIndex,
+    /// Phobos `ShowDesignatorRange=` (`Ext/SWType/Body.cpp:283`, constructor
+    /// `Ext/SWType/Body.h:86,186`), default `yes`: this superweapon draws its
+    /// designator/inhibitor range rings while armed
+    /// (`Tactical_SuperLinesCircles_ShowDesignatorRange @ 0x6DBE74`).
+    #[cfg(feature = "phobos")]
+    pub show_designator_range: bool,
     /// Phobos `UseWeeds.Amount=` (`:297`); `None` keeps the constructor
     /// default `[General] WeedCapacity`.
     #[cfg(feature = "phobos")]
@@ -983,6 +989,8 @@ impl SuperWeaponType {
             phobos_tab_index: crate::rules::phobos_sw_tab_index::PhobosSwTabIndex::from_section(
                 section,
             ),
+            #[cfg(feature = "phobos")]
+            show_designator_range: section.read_bool("ShowDesignatorRange", true),
             #[cfg(feature = "phobos")]
             use_weeds_amount: section.read_phobos_nullable_int("UseWeeds.Amount", None),
             #[cfg(feature = "phobos")]

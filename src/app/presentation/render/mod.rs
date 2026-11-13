@@ -544,6 +544,19 @@ pub(crate) fn render_game(
             false
         }
     };
+    // The [Phobos] client and [AudioVisual] rules halves of the designator
+    // range rings; the armed [SuperWeaponType] half is checked in build.
+    let show_designator_range = {
+        #[cfg(feature = "phobos")]
+        {
+            rules.is_some_and(|rules| rules.phobos_globals.show_designator_range)
+                && state.match_state.match_presentation.show_designator_range
+        }
+        #[cfg(not(feature = "phobos"))]
+        {
+            false
+        }
+    };
     let match_presentation = &mut state.match_state.match_presentation;
     let radials = crate::app::presentation::radial_indicators::build(
         simulation,
@@ -553,6 +566,7 @@ pub(crate) fn render_game(
         armed_building.as_deref(),
         cursor_cell,
         show_power_plant_enhancer_range,
+        show_designator_range,
         match_presentation.target_lines.unit_action_lines_enabled(),
         &mut match_presentation.placement_range_pulse,
         &mut match_presentation.superweapon_range_pulse,

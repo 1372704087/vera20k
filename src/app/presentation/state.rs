@@ -167,6 +167,10 @@ pub(crate) struct MatchPresentationState {
     /// the client half of the placement-time enhancer ring switch.
     #[cfg(feature = "phobos")]
     pub(crate) show_power_plant_enhancer_range: bool,
+    /// Phobos `[Phobos] ShowDesignatorRange` (source default false): the client
+    /// half of the armed superweapon's designator/inhibitor range ring switch.
+    #[cfg(feature = "phobos")]
+    pub(crate) show_designator_range: bool,
     /// Phobos `[Phobos] ShowPowerDelta=` (source default `yes`): the client
     /// half of the power-delta indicator; the `uimd.ini` switch must be on too.
     #[cfg(feature = "phobos")]

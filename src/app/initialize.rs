@@ -1097,6 +1097,8 @@ impl App {
                     show_power_plant_enhancer_range: phobos_client
                         .show_power_plant_enhancer_range,
                     #[cfg(feature = "phobos")]
+                    show_designator_range: phobos_client.show_designator_range,
+                    #[cfg(feature = "phobos")]
                     placement_preview_art: Default::default(),
                     #[cfg(feature = "phobos")]
                     sw_sidebar: crate::app::presentation::sw_sidebar::SwSidebarState {

@@ -3,6 +3,69 @@
 use super::*;
 use crate::rules::ini_parser::IniFile;
 
+/// `EnumFunctions::CanTargetHouse` (`EnumFunctions.cpp:5..16`): the shared
+/// ladder's owner/neutral/alliance buckets, with the neutral test on the
+/// target house. Both the sim combat owner and the radar's
+/// `RadarInvisibleToHouse` test delegate here.
+#[cfg(feature = "phobos")]
+#[test]
+fn can_target_house_ladder_buckets() {
+    assert!(can_target_house_ladder(
+        AffectedHouse::ALL,
+        false,
+        false,
+        false
+    ));
+    assert!(can_target_house_ladder(
+        AffectedHouse::OWNER,
+        true,
+        false,
+        false
+    ));
+    assert!(!can_target_house_ladder(
+        AffectedHouse::OWNER,
+        false,
+        false,
+        false
+    ));
+    assert!(can_target_house_ladder(
+        AffectedHouse::NEUTRAL,
+        false,
+        true,
+        false
+    ));
+    assert!(!can_target_house_ladder(
+        AffectedHouse::NEUTRAL,
+        false,
+        false,
+        false
+    ));
+    assert!(can_target_house_ladder(
+        AffectedHouse::ALLIES,
+        false,
+        false,
+        true
+    ));
+    assert!(!can_target_house_ladder(
+        AffectedHouse::ALLIES,
+        false,
+        false,
+        false
+    ));
+    assert!(can_target_house_ladder(
+        AffectedHouse::ENEMIES,
+        false,
+        false,
+        false
+    ));
+    assert!(!can_target_house_ladder(
+        AffectedHouse::ENEMIES,
+        false,
+        false,
+        true
+    ));
+}
+
 #[test]
 fn registry_walk_reads_duplicate_keys_through_name_reader() {
     let stored = "B".repeat(31);

@@ -98,6 +98,34 @@ pub(crate) fn read_affected_house(
     })
 }
 
+/// `EnumFunctions::CanTargetHouse` (`EnumFunctions.cpp:5..16`): the shared
+/// owner/neutral/alliance ladder. `is_owner` is source==target, `is_neutral`
+/// the target house's `MultiplayPassive`, `is_allied` the source/target
+/// alliance. Pure decision logic so the sim combat owner and the radar's
+/// `RadarInvisibleToHouse` test share one port instead of copying the ladder.
+#[cfg(feature = "phobos")]
+pub(crate) fn can_target_house_ladder(
+    flags: AffectedHouse,
+    is_owner: bool,
+    is_neutral: bool,
+    is_allied: bool,
+) -> bool {
+    if flags == AffectedHouse::ALL {
+        return true;
+    }
+    if is_owner {
+        return flags.contains(AffectedHouse::OWNER);
+    }
+    if is_neutral && flags.contains(AffectedHouse::NEUTRAL) {
+        return true;
+    }
+    if is_allied {
+        flags.contains(AffectedHouse::ALLIES)
+    } else {
+        flags.contains(AffectedHouse::ENEMIES)
+    }
+}
+
 /// `ShieldTypeClass`'s constructor values. Every field keeps the current value
 /// when its key is absent, so one `apply_pass` may replace or retain each value.
 #[derive(Debug, Clone, PartialEq, Default, serde::Serialize, serde::Deserialize)]

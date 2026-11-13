@@ -1907,7 +1907,7 @@ impl Simulation {
             }
             let mut changed = false;
             if repair {
-                crate::sim::production::engineer_repair(self, rules, building_id);
+                crate::sim::production::engineer_repair(self, rules, building_id, engineer_id);
             } else if capturable {
                 //519F44 re-reads the Building Tag and raises Entered again;
                 //do not deduplicate the earlier519B53 call.519F4F then reads

@@ -247,27 +247,73 @@ pub fn toggle_repair(
 /// `TechnoClass::EngineerRepair @ 0x00701410` (vt+40C). Restore actual+6C
 /// and estimated+70 independently to live Strength. The Building-only tail
 /// stops paid repair, transitions its owned art slots and plays the resolved
+/// Phobos `EngineerRepairAmount` (`Ext/Techno/Hooks.cpp:1220-1240`): 0 fully
+/// repairs, a positive amount adds points clamped to `[0, Strength]`, and a
+/// negative amount adds that percentage of Strength (rounded).
+#[cfg(feature = "phobos")]
+fn engineer_repair_amount(strength: i32, health: i32, amount: i32) -> i32 {
+    if amount > 0 {
+        health.saturating_add(amount).clamp(0, strength)
+    } else if amount < 0 {
+        let percentage =
+            (f64::from(health) / f64::from(strength) - f64::from(amount) / 100.0).clamp(0.0, 1.0);
+        (f64::from(strength) * percentage).round() as i32
+    } else {
+        strength
+    }
+}
+
 /// AudioVisual/BuildingRepairedSound at GetCoords(false), in that order.
 ///
 /// This does not sample Building+544 or invalidate House power: original
 /// 440042..440074 owns that later building-visit boundary. Mark(2) at70141A
 /// requests presentation redraw; it does not write either health sample or
 /// House dirty flag. Executable comparisons: engineer_repair_joined.
-pub(crate) fn engineer_repair(sim: &mut Simulation, rules: &RuleSet, id: u64) -> bool {
-    let Some(strength) = sim
+pub(crate) fn engineer_repair(
+    sim: &mut Simulation,
+    rules: &RuleSet,
+    id: u64,
+    engineer_id: u64,
+) -> bool {
+    let Some(object) = sim
         .substrate
         .entities
         .get(id)
         .and_then(|entity| sim.object_type(entity.type_ref(), rules))
-        .map(|object| object.strength)
     else {
         return false;
+    };
+    let strength = object.strength;
+    // Phobos `InfantryClass_UpdatePosition_EngineerRepair` (0x519FEC): the
+    // repaired health is the lesser of the building type's and the engineer
+    // type's `EngineerRepairAmount` result; both 0 keep the stock full repair.
+    #[cfg(feature = "phobos")]
+    let building_amount = object.phobos_engineer_repair_amount;
+    #[cfg(not(feature = "phobos"))]
+    let building_amount = 0;
+    #[cfg(feature = "phobos")]
+    let engineer_amount = sim
+        .substrate
+        .entities
+        .get(engineer_id)
+        .and_then(|entity| sim.object_type(entity.type_ref(), rules))
+        .map_or(0, |object| object.phobos_engineer_repair_amount);
+    #[cfg(not(feature = "phobos"))]
+    let engineer_amount = {
+        let _ = engineer_id;
+        0
     };
     let Some(entity) = sim.substrate.entities.get_mut(id) else {
         return false;
     };
-    entity.health.set(strength);
-    entity.estimated_health.reset(strength);
+    let health = entity.health.current();
+    #[cfg(feature = "phobos")]
+    let repaired = engineer_repair_amount(strength, health, building_amount)
+        .min(engineer_repair_amount(strength, health, engineer_amount));
+    #[cfg(not(feature = "phobos"))]
+    let repaired = strength;
+    entity.health.set(repaired);
+    entity.estimated_health.reset(repaired);
     if entity.category() != EntityCategory::Structure {
         return true;
     }
@@ -531,4 +577,21 @@ fn repair_step(sim: &mut Simulation, rules: &RuleSet, id: u64) {
     }
     sim.refresh_building_damage_state(id, rules);
     Simulation::retire_damage_smoke_after_heal(&sim.interner, &mut sim.substrate, id, rules);
+}
+
+#[cfg(all(test, feature = "phobos"))]
+mod phobos_repair_tests {
+    use super::engineer_repair_amount;
+
+    /// `EngineerRepairAmount`: 0 fully repairs, positive adds clamped points,
+    /// negative adds a rounded percentage of Strength.
+    #[test]
+    fn engineer_repair_amount_boundaries() {
+        assert_eq!(engineer_repair_amount(100, 40, 0), 100);
+        assert_eq!(engineer_repair_amount(100, 40, 30), 70);
+        assert_eq!(engineer_repair_amount(100, 90, 30), 100);
+        assert_eq!(engineer_repair_amount(100, 40, -25), 65);
+        assert_eq!(engineer_repair_amount(100, 90, -25), 100);
+        assert_eq!(engineer_repair_amount(100, 0, -25), 25);
+    }
 }

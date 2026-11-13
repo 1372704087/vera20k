@@ -251,6 +251,23 @@ fn unload_epilogue(
     Simulation::mission_rate_epilogue_for(scenario_rng, substrate, rules, id, MissionType::Unload)
 }
 
+/// Phobos `DeployFireDelay` (`Ext/Building/Hooks.Unload.cpp:73-77`): a set
+/// building key replaces the Unload epilogue's `RandomRanged(0, 2) + 14`
+/// and consumes no random draw.
+fn building_unload_delay(sim: &mut Simulation, rules: &RuleSet, id: u64) -> i32 {
+    #[cfg(feature = "phobos")]
+    if let Some(delay) = sim
+        .substrate
+        .entities
+        .get(id)
+        .and_then(|building| sim.object_type(building.type_ref(), rules))
+        .and_then(|object| object.phobos_deploy_fire_delay)
+    {
+        return delay;
+    }
+    unload_epilogue(&mut sim.scenario_rng, &sim.substrate, rules, id)
+}
+
 /// Whether this entity's type takes the transport branch of the Unit Unload
 /// handler (`Type+0x5E0 Passengers > 0`, gate at `0x0073D6EC`).
 pub(crate) fn is_vehicle_transport_type(
@@ -997,7 +1014,7 @@ pub(crate) fn building_mission_unload_absorber(
         },
         effects,
     );
-    let delay = unload_epilogue(&mut sim.scenario_rng, &sim.substrate, rules, id);
+    let delay = building_unload_delay(sim, rules, id);
     // Phobos `BuildingClass_Mi_Unload_NoQueueUpToUnload` (`0x44DCB1`,
     // `Ext/Techno/Hooks.Transport.cpp:804-817`): the building type's key,
     // else the Building global, else the General global, answers 0 for the
@@ -1042,12 +1059,7 @@ pub(crate) fn ares_tunnel_mission_unload(
         overlay_registry,
         effects,
     );
-    Some(unload_epilogue(
-        &mut sim.scenario_rng,
-        &sim.substrate,
-        rules,
-        id,
-    ))
+    Some(building_unload_delay(sim, rules, id))
 }
 
 /// `TunnelData::UnloadOne @ 100098A0` for the network's last `member`:

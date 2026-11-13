@@ -676,7 +676,13 @@ impl Simulation {
         }
         self.apply_wall_damage(target, -1, registry);
         if let Some(actor) = self.substrate.entities.get_mut(id) {
-            actor.rocking_mut().recoil_after_overlay_crush();
+            // Phobos `CrushOverlayExtraForwardTilt` (0x73B05B) replaces the
+            // stock +0.02 with the type's value (default 0.02).
+            #[cfg(feature = "phobos")]
+            let extra = object.phobos_crush_overlay_extra_forward_tilt as f32;
+            #[cfg(not(feature = "phobos"))]
+            let extra = 0.02f32;
+            actor.rocking_mut().recoil_after_overlay_crush(extra);
             //73B067 clears Foot+6B5 after the damage call, even when the
             //Cell refuses a non-Wall overlay. TiltsWhenCrushes is not a gate.
             actor.foot_speed.clear_crush_slowdown();

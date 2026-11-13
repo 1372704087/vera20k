@@ -114,12 +114,14 @@ impl RockingState {
     }
 
     /// Unit73B05B..73B06E, after Cell480CB0(-1) regardless of its return:
-    /// FADD binary32 constant7F4E38 (+0.02), then FSTP Techno+334.
+    /// FADD the overlay-crush tilt, then FSTP Techno+334. Stock adds binary32
+    /// 0.02 (`0x3CA3D70A`); Phobos `CrushOverlayExtraForwardTilt`
+    /// (`Ext/Unit/Hooks.Crushing.cpp:18`) replaces that constant.
     /// Original numeric controls: unit_per_cell_overlay.json.
-    pub(crate) fn recoil_after_overlay_crush(&mut self) {
+    pub(crate) fn recoil_after_overlay_crush(&mut self, extra: f32) {
         self.vel_forwards = store(X::add(
             load(self.vel_forwards),
-            load(NativeF32Bits::from_bits(0x3ca3_d70a)),
+            load(NativeF32Bits::from_bits(extra.to_bits())),
         ));
     }
 

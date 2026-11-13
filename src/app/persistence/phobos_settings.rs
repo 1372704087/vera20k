@@ -89,6 +89,14 @@ pub(crate) struct PhobosClientSettings {
     /// `[Phobos] EnableSelectBox=`, default `no` (`Phobos.INI.cpp:104`): the
     /// client switch for the `[SelectBoxTypes]` custom selection box.
     pub(crate) enable_select_box: bool,
+    /// `[Phobos] RealTimeTimers=`, default `no` (`Phobos.INI.cpp:102`): the
+    /// tactical timer lines print wall-clock time instead of the stock
+    /// `frames / 15` (`PrintTimerOnTactical_Start` at `0x006D4B50`).
+    pub(crate) real_time_timers: bool,
+    /// `[Phobos] RealTimeTimers.Adaptive=`, default `no` (`Phobos.INI.cpp:103`):
+    /// the wall-clock divisor follows the measured frame rate instead of the
+    /// GameSpeed table.
+    pub(crate) real_time_timers_adaptive: bool,
     /// `[Phobos] CampaignDefaultGameSpeed=`, engine speed index
     /// (`6 - ReadInteger(4)` at `Phobos.INI.cpp:120`): 2 when the computed
     /// index leaves 0..=6 (`:121-124`), i.e. the stock `GS4` forced when speed
@@ -121,6 +129,8 @@ impl Default for PhobosClientSettings {
             hide_shake_effects: false,
             show_game_time: false,
             enable_select_box: false,
+            real_time_timers: false,
+            real_time_timers_adaptive: false,
             campaign_default_game_speed: 2,
         }
     }
@@ -186,6 +196,12 @@ pub(crate) fn read(settings_dir: &Path) -> PhobosClientSettings {
         hide_shake_effects: section.read_bool("HideShakeEffects", defaults.hide_shake_effects),
         show_game_time: section.read_bool("ShowGameTime", defaults.show_game_time),
         enable_select_box: section.read_bool("EnableSelectBox", defaults.enable_select_box),
+        // `Phobos.INI.cpp:102-103`: both default to `false`.
+        real_time_timers: section.read_bool("RealTimeTimers", defaults.real_time_timers),
+        real_time_timers_adaptive: section.read_bool(
+            "RealTimeTimers.Adaptive",
+            defaults.real_time_timers_adaptive,
+        ),
         // `Phobos.INI.cpp:120-124`: index `6 - key`, then the same 0..=6 guard
         // that forces the stock `GS4` speed 2 when the read leaves the range.
         campaign_default_game_speed: {
@@ -256,6 +272,8 @@ mod tests {
                 hide_shake_effects: true,
                 show_game_time: true,
                 enable_select_box: true,
+                real_time_timers: false,
+                real_time_timers_adaptive: false,
                 campaign_default_game_speed: 2,
             }
         );
@@ -282,6 +300,22 @@ mod tests {
         assert!(PhobosClientSettings::default().show_briefing);
         let dir = profile_with("[Phobos]\nShowBriefing=no\n");
         assert!(!read(&dir).show_briefing);
+        std::fs::remove_dir_all(dir).unwrap();
+    }
+
+    /// `Phobos.INI.cpp:102-103` reads `[Phobos] RealTimeTimers` and
+    /// `RealTimeTimers.Adaptive` with `false` defaults; `0x006D4B50` prints
+    /// wall-clock seconds when the first is on and follows the measured frame
+    /// rate when the second is on too.
+    #[test]
+    fn real_time_timers_defaults_to_no_and_reads_both_switches() {
+        let defaults = PhobosClientSettings::default();
+        assert!(!defaults.real_time_timers);
+        assert!(!defaults.real_time_timers_adaptive);
+        let dir = profile_with("[Phobos]\nRealTimeTimers=yes\nRealTimeTimers.Adaptive=yes\n");
+        let settings = read(&dir);
+        assert!(settings.real_time_timers);
+        assert!(settings.real_time_timers_adaptive);
         std::fs::remove_dir_all(dir).unwrap();
     }
 }

@@ -155,6 +155,14 @@ impl PhobosAnimTypeExt {
         section.read_phobos_nullable_bool("AttachFireAnimsToParent", None)
     }
 
+    /// `RestrictVisibilityIfCloaked` (`Valueable<bool>`, constructor `false`,
+    /// `Ext/AnimType/Body.h:66`/`:118`): the anim attached to a cloaked or
+    /// cloaking techno is hidden from a viewer that neither allies its owner
+    /// nor senses its cell (`Ext/Anim/Hooks.cpp:524-570`, `0x423061`).
+    pub fn restrict_visibility_if_cloaked(section: &IniSection) -> bool {
+        section.read_bool("RestrictVisibilityIfCloaked", false)
+    }
+
     /// `DetachOnCloak` (`Valueable<bool>`, constructor `true`,
     /// `Ext/AnimType/Body.h:67`/`:119`): a cloaking owner keeps this attached
     /// anim instead of letting `Detach_All(false)` remove it
@@ -266,6 +274,7 @@ mod tests {
         assert_eq!(PhobosAnimTypeExt::attach_fire_anims_to_parent(empty), None);
         assert_eq!(PhobosAnimTypeExt::theater_palette(empty), None);
         assert!(PhobosAnimTypeExt::detach_on_cloak(empty));
+        assert!(!PhobosAnimTypeExt::restrict_visibility_if_cloaked(empty));
         assert!(PhobosAnimTypeExt::constrain_fire_anims_to_cell_spots(empty));
         assert_eq!(PhobosAnimTypeExt::small_fire_count(empty), None);
         assert!(PhobosAnimTypeExt::small_fire_anims(empty).is_empty());
@@ -282,7 +291,7 @@ mod tests {
         let ini = IniFile::from_str(
             "[ANIM]\nAttachedAnimPosition=Ground\nWakeAnim=WAKE1,WAKE2\nVisibleTo=owner,allies\n\
              FireAnimDisallowedLandTypes=Rock\nAttachFireAnimsToParent=yes\n\
-             TheaterPalette=no\nDetachOnCloak=no\n",
+             TheaterPalette=no\nDetachOnCloak=no\nRestrictVisibilityIfCloaked=yes\n",
         );
         let set = ini.section("ANIM").unwrap();
         assert_eq!(
@@ -304,6 +313,7 @@ mod tests {
         );
         assert_eq!(PhobosAnimTypeExt::theater_palette(set), Some(false));
         assert!(!PhobosAnimTypeExt::detach_on_cloak(set));
+        assert!(PhobosAnimTypeExt::restrict_visibility_if_cloaked(set));
     }
 
     /// The fire-spawn keys keep their `Ext/AnimType/Body.h` constructor values

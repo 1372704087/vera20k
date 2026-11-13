@@ -2173,23 +2173,62 @@ pub(super) fn emit_admitted_fire(
     // an AreaFire shot off its own cell (`0x0051CB08`); a Unit fires it from
     // range, so a Chaos Drone's gas rises around the drone, not the victim. A
     // fixture without terrain has no cell and keeps the victim.
-    let area_fire_cell = (weapon.area_fire && combat_weapon::is_not_spray_attack(obj))
-        .then(|| object_get_coords(world, snap.stable_id))
-        .flatten()
-        .and_then(|coord| world.packed_map_cell(coord.x, coord.y));
+    // Phobos `TechnoClass_FireAt_AreaFire` (`0x6FE19A`,
+    // `Ext/Techno/Hooks.Firing.cpp:743-798`) replaces the stock cell under
+    // the firer with `AreaFire.Target=`'s answer: `random` draws an eligible
+    // adjacent cell, `self` aims at the firer itself, and `base` keeps the
+    // stock cell after the weapon's cell gate.
+    let mut area_fire_cell = None;
+    let mut area_fire_firer = false;
+    if weapon.area_fire && combat_weapon::is_not_spray_attack(obj) {
+        #[cfg(feature = "phobos")]
+        match weapon.phobos_area_fire_target() {
+            crate::rules::phobos_weapon_extras::AreaFireTarget::Random => {
+                match phobos_area_fire_random_cell(world, snap.stable_id, weapon, rules) {
+                    Some(cell) => area_fire_cell = Some(cell),
+                    // `0x6FE4E7`: `xor eax,eax; ret 8` — no shot and no
+                    // rearm when every candidate is refused.
+                    None => return None,
+                }
+            }
+            crate::rules::phobos_weapon_extras::AreaFireTarget::Firer => {
+                area_fire_firer = true;
+            }
+            crate::rules::phobos_weapon_extras::AreaFireTarget::Base => {
+                area_fire_cell = object_get_coords(world, snap.stable_id)
+                    .and_then(|coord| world.packed_map_cell(coord.x, coord.y));
+            }
+        }
+        #[cfg(not(feature = "phobos"))]
+        {
+            area_fire_cell = object_get_coords(world, snap.stable_id)
+                .and_then(|coord| world.packed_map_cell(coord.x, coord.y));
+        }
+    }
     // The Object local FireAt took at entry (`0x006FDD88..0x006FDDA1`),
     // which the retarget leaves alone; the Inviso OnBridge copy reads it.
     let entry_target = snap.target;
     let area_fire_snap;
-    let (snap, (target_rx, target_ry, target_sub_x, target_sub_y)) = match area_fire_cell {
-        Some((rx, ry)) => {
-            area_fire_snap = AttackerSnapshot {
-                target: TargetKind::Cell(rx, ry),
-                ..snap.clone()
-            };
-            (&area_fire_snap, cell_center_coords(rx, ry))
-        }
-        None => (snap, (target_rx, target_ry, target_sub_x, target_sub_y)),
+    let (snap, (target_rx, target_ry, target_sub_x, target_sub_y)) = if area_fire_firer {
+        // `R->EAX(pThis)` at `0x6FE1D5`: the firer object replaces the cell
+        // argument, and its own coordinates replace the cell center.
+        let Some(firer) = world.substrate.entities.get(snap.stable_id) else {
+            return None;
+        };
+        let coords = crate::sim::combat::attack_target::target_coords(firer);
+        area_fire_snap = AttackerSnapshot {
+            target: TargetKind::Entity(snap.stable_id),
+            ..snap.clone()
+        };
+        (&area_fire_snap, coords)
+    } else if let Some((rx, ry)) = area_fire_cell {
+        area_fire_snap = AttackerSnapshot {
+            target: TargetKind::Cell(rx, ry),
+            ..snap.clone()
+        };
+        (&area_fire_snap, cell_center_coords(rx, ry))
+    } else {
+        (snap, (target_rx, target_ry, target_sub_x, target_sub_y))
     };
 
     // Fire one shot!
@@ -3187,6 +3226,101 @@ pub(super) fn emit_admitted_fire(
         world.note_disguise_blink_started();
     }
     Some(bullet_id)
+}
+
+/// Phobos `AreaFire.Target=random`'s cell pick
+/// (`Ext/Techno/Hooks.Firing.cpp:759-784`): one `RandomRanged(0, last)`
+/// Scenario draw per candidate in [cell_spread_offsets] order around the
+/// firer's cell; the first cell inside the map whose gate admits it wins.
+/// Running out answers no cell, which the caller treats as `0x6FE4E7`'s
+/// no-shot return.
+#[cfg(feature = "phobos")]
+fn phobos_area_fire_random_cell(
+    world: &mut Simulation,
+    firer: u64,
+    weapon: &WeaponType,
+    rules: &RuleSet,
+) -> Option<(u16, u16)> {
+    let entity = world.substrate.entities.get(firer)?;
+    let source = crate::sim::attach_effect::range_modifier_source(
+        entity,
+        Some(&world.substrate.entities),
+        rules,
+        &world.interner,
+    );
+    let leptons = crate::sim::attach_effect::range_with_attach_effects(
+        source,
+        &weapon.id,
+        weapon.range_leptons,
+        rules,
+    );
+    let spread = ((leptons as f64) / 256.0 + 0.99) as usize;
+    let base = object_get_coords(world, firer)
+        .and_then(|coord| world.packed_map_cell(coord.x, coord.y))?;
+    let offsets = crate::sim::cell_rect::cell_spread_offsets(spread);
+    if offsets.is_empty() {
+        return None;
+    }
+    // `WeaponTypeExt::SkipWeaponPicking` is derived true when no target gate
+    // is authored; VERA reads the three gate groups it models (`CanTarget`,
+    // health range, veterancy). `CanTargetHouses` and the AE lists built into
+    // that derivation stay a residual.
+    let targeting = weapon.weapon_targeting();
+    let skip_picking = targeting.can_target == crate::rules::phobos_crit::AffectedTarget::ALL
+        && targeting.min_health == 0.0
+        && targeting.max_health == 1.0
+        && targeting.veterancy == crate::rules::phobos_airburst::AffectedVeterancy::ALL;
+    let size = offsets.len();
+    for i in 0..size {
+        let rand = world
+            .scenario_rng
+            .next_range_i32_inclusive(0, size as i32 - 1) as usize;
+        let index = (i + rand) % size;
+        let (dx, dy) = offsets[index];
+        let rx = i32::from(base.0) + i32::from(dx);
+        let ry = i32::from(base.1) + i32::from(dy);
+        let (Ok(rx), Ok(ry)) = (u16::try_from(rx), u16::try_from(ry)) else {
+            continue;
+        };
+        if world
+            .resolved_terrain
+            .as_ref()
+            .and_then(|terrain| terrain.cell(rx, ry))
+            .is_none()
+        {
+            continue;
+        }
+        if skip_picking || phobos_area_fire_cell_eligible(world, weapon, rx, ry) {
+            return Some((rx, ry));
+        }
+    }
+    None
+}
+
+/// The cell half of `EnumFunctions::AreCellAndObjectsEligible`
+/// (`Utilities/EnumFunctions.cpp`), reusing the force-fire cell gate.
+#[cfg(feature = "phobos")]
+fn phobos_area_fire_cell_eligible(
+    world: &Simulation,
+    weapon: &WeaponType,
+    rx: u16,
+    ry: u16,
+) -> bool {
+    let techno_content = matches!(
+        world.native_cell_content((rx, ry)).next(),
+        Some(crate::sim::occupancy::CellObjectMember::Entity(_))
+    );
+    let land = world
+        .resolved_terrain
+        .as_ref()
+        .and_then(|terrain| terrain.cell(rx, ry))
+        .and_then(|cell| crate::rules::terrain_rules::LandType::from_index(cell.land_type));
+    crate::sim::combat::crit::cell_eligible(
+        land,
+        weapon.weapon_targeting().can_target,
+        Some(techno_content),
+        world.cell_has_bridge_head((rx, ry)),
+    )
 }
 
 /// `TechnoClass::FireAt 0x006FF749..0x006FF939`, which runs after a launched

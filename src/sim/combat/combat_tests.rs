@@ -9590,9 +9590,11 @@ fn deployed_desolator_self_irradiates_and_refires_below_third() {
         sim.session.set_binary_frame_for_test(frame);
         let mission = &mut sim.substrate.entities.get_mut(deso).unwrap().mission;
         mission.apply_test_fixture(MissionTestFixture {
-            current: MissionId::from_known(MissionType::Guard),
+            current: crate::sim::mission::MissionId::from_known(
+                crate::sim::mission::MissionType::Guard,
+            ),
             suspended: mission.suspended(),
-            queued: MissionId::NONE,
+            queued: crate::sim::mission::MissionId::NONE,
             movement_bypass_latch: mission.movement_bypass_latch(),
             handler_state: mission.handler_state(),
             mission_start_frame: mission.mission_start_frame(),
@@ -9659,6 +9661,185 @@ fn deployed_desolator_self_irradiates_and_refires_below_third() {
     assert_eq!(events.len(), 1, "gate reopens below one third");
     let site = sim.radiation.site_at((10, 10)).expect("merged site");
     assert!(site.level() > 500, "re-detonation merged effective + added");
+}
+
+/// Phobos `AreaFire.Target=` (`Ext/WeaponType/Body.cpp:123`, consumer
+/// `Ext/Techno/Hooks.Firing.cpp:743-798`, hook `0x6FE19A`): `self` replaces
+/// the stock cell under the firer with the firer object, `random` draws one
+/// `RandomRanged(0, last)` candidate per try around the firer's cell, and
+/// `base` keeps the stock cell.
+#[cfg(feature = "phobos")]
+#[test]
+fn phobos_area_fire_target_self_and_random_replace_the_stock_cell() {
+    use crate::sim::rng::SimRng;
+
+    fn area_fire_rules(target_key: &str) -> (RuleSet, IniFile) {
+        let art = IniFile::from_str(
+            "[DESO]
+Sequence=DesoFixture
+[DesoFixture]
+Deployed=100,1,0
+DeployedFire=100,3,0
+",
+        );
+        let ini = crate::sim::arena_fixture::clear_ground_ini(&format!(
+            "[General]
+VeteranArmor=1.5
+
+[InfantryTypes]
+0=DESO
+1=E2
+
+[VehicleTypes]
+[MTNK]
+
+[AircraftTypes]
+
+[BuildingTypes]
+
+[DESO]
+Strength=200
+Armor=plate
+Speed=4
+Primary=RadBeamWeapon
+Secondary=RadEruptionWeapon
+Deployer=yes
+DeployFire=yes
+ImmuneToRadiation=yes
+
+[E2]
+Strength=300
+Armor=none
+Speed=4
+
+[RadBeamWeapon]
+Damage=25
+ROF=70
+Range=6
+Warhead=RadSite
+
+[RadEruptionWeapon]
+Damage=1
+ROF=60
+Range=4
+AreaFire=yes
+{target_key}Warhead=RadEruptionWarhead
+RadLevel=500
+Report=DesolatorDeploy
+
+[RadEruptionWarhead]
+Verses=100%,100%,100%,20%,10%,10%,0%,0%,0%,100%,100%
+InfDeath=7
+Radiation=yes
+CellSpread=10
+
+[RadSite]
+Verses=100%,100%,100%,50%,10%,10%,0%,0%,0%,100%,100%
+InfDeath=7
+Radiation=yes
+
+[Radiation]
+RadDurationMultiple=1
+RadApplicationDelay=16
+RadLevelMax=500
+RadLevelDelay=90
+RadLevelFactor=.2
+RadSiteWarhead=RadSite
+"
+        ));
+        let mut rules = RuleSet::from_ini_with_fixed_art_for_test(&ini, &art)
+            .expect("area-fire target rules parse");
+        rules.install_art_data(crate::rules::art_data::ArtRegistry::from_ini(&art));
+        (rules, art)
+    }
+
+    fn fired_target(rules: &RuleSet, seed_rng: &mut SimRng) -> (TargetKind, u64) {
+        use crate::sim::mission::state::MissionTestFixture;
+
+        let mut sim = crate::sim::world::Simulation::new();
+        sim.install_resolved_terrain_for_new_map(
+            crate::map::resolved_terrain::test_flat_ground_grid(16),
+        );
+        let deso = sim
+            .spawn_object("DESO", "Americans", 10, 10, 0, rules)
+            .expect("desolator spawns");
+        sim.substrate
+            .entities
+            .get_mut(deso)
+            .unwrap()
+            .mission_leaf
+            .set_infantry_doing_verified(28)
+            .unwrap();
+        // The area-fire pick reads the live Scenario stream; the fixture's
+        // spawn already consumed constructor draws, so predict from a clone.
+        *seed_rng = sim.scenario_rng.clone();
+        sim.session.set_binary_frame_for_test(1);
+        let mission = &mut sim.substrate.entities.get_mut(deso).unwrap().mission;
+        mission.apply_test_fixture(MissionTestFixture {
+            current: crate::sim::mission::MissionId::from_known(
+                crate::sim::mission::MissionType::Guard,
+            ),
+            suspended: mission.suspended(),
+            queued: crate::sim::mission::MissionId::NONE,
+            movement_bypass_latch: mission.movement_bypass_latch(),
+            handler_state: mission.handler_state(),
+            mission_start_frame: mission.mission_start_frame(),
+            ai_counter: mission.ai_counter(),
+            dispatch_timer: crate::sim::mission::MissionDispatchTimer::at_frame(1),
+        });
+        sim.fire_events.clear_for_test();
+        let first_tail = sim.next_stable_object_id();
+        sim.object_ai_visit_one(deso, Some(rules), crate::sim::world::ObjectAiCtx::default());
+        sim.visit_combat_tail(
+            first_tail,
+            rules,
+            None,
+            crate::sim::world::FrameEffects::default(),
+        );
+        let events = sim.fire_events.clone();
+        assert_eq!(events.len(), 1, "the deploy shot fires");
+        (events[0].target, deso)
+    }
+
+    // `base`: the stock cell under the firer.
+    let (rules, _) = area_fire_rules("");
+    let mut unused = SimRng::new(0);
+    let (target, _) = fired_target(&rules, &mut unused);
+    assert_eq!(
+        target,
+        TargetKind::Cell(10, 10),
+        "base keeps the stock cell"
+    );
+
+    // `self`: the firer object replaces the cell.
+    let (rules, _) = area_fire_rules(
+        "AreaFire.Target=self
+",
+    );
+    let (target, deso) = fired_target(&rules, &mut unused);
+    assert_eq!(target, TargetKind::Entity(deso), "self aims at the firer");
+
+    // `random`: the first candidate drawn from the Scenario stream with
+    // the default (gate-free) weapon is admitted, so the cell is
+    // `cell + offsets[RandomRanged(0, last)]` and exactly one draw is spent
+    // on the pick.
+    let (rules, _) = area_fire_rules(
+        "AreaFire.Target=random
+",
+    );
+    let mut probe = SimRng::new(0);
+    let (target, _) = fired_target(&rules, &mut probe);
+    let offsets = crate::sim::cell_rect::cell_spread_offsets(4);
+    let drawn = probe.next_range_i32_inclusive(0, offsets.len() as i32 - 1) as usize;
+    let (dx, dy) = offsets[drawn];
+    assert_eq!(
+        target,
+        TargetKind::Cell(
+            (10i32 + i32::from(dx)) as u16,
+            (10i32 + i32::from(dy)) as u16
+        ),
+        "random takes the drawn candidate"
+    );
 }
 
 #[test]

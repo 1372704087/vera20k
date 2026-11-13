@@ -506,6 +506,12 @@ impl WeaponType {
         self.phobos_extras.fire_once_reset_sequence
     }
 
+    /// Phobos `AreaFire.Target=` (`Ext/WeaponType/Body.cpp:123`).
+    #[cfg(feature = "phobos")]
+    pub fn phobos_area_fire_target(&self) -> crate::rules::phobos_weapon_extras::AreaFireTarget {
+        self.phobos_extras.area_fire_target
+    }
+
     /// Phobos `AttackNoThreatBuildings=` (`:206`) resolved against the
     /// human/AI `[General]` pair.
     #[cfg(feature = "phobos")]

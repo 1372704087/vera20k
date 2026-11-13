@@ -3,7 +3,7 @@
 //! `[General]` pair that `AttackNoThreatBuildings` falls back to
 //! (`Ext/Techno/Hooks.cpp:1852-1858`).
 
-use super::PhobosWeaponExtras;
+use super::{AreaFireTarget, PhobosWeaponExtras};
 use crate::rules::ini_parser::IniFile;
 use crate::rules::ruleset::RuleSet;
 
@@ -52,4 +52,39 @@ fn attack_no_threat_buildings_falls_back_to_the_human_or_ai_global() {
     // A weapon's own key wins over either global.
     let weapon_no = read("[Q]\nAttackNoThreatBuildings=no\n");
     assert!(!weapon_no.attack_no_threat_buildings(&rules, true));
+}
+
+/// Phobos `AreaFire.Target=` (`Ext/WeaponType/Body.cpp:123`): the three
+/// `AreaFireTarget` names, case-insensitive, and an unknown spelling keeps
+/// the current value (`Base` on a fresh read).
+#[test]
+fn area_fire_target_reads_its_three_names() {
+    assert_eq!(
+        PhobosWeaponExtras::default().area_fire_target,
+        AreaFireTarget::Base
+    );
+    for (raw, expected) in [
+        ("base", AreaFireTarget::Base),
+        ("random", AreaFireTarget::Random),
+        ("self", AreaFireTarget::Firer),
+        ("SELF", AreaFireTarget::Firer),
+        ("Random", AreaFireTarget::Random),
+    ] {
+        let parsed = read(&format!(
+            "[Q]
+AreaFire.Target={raw}
+"
+        ));
+        assert_eq!(parsed.area_fire_target, expected, "{raw}");
+    }
+    assert_eq!(
+        read(
+            "[Q]
+AreaFire.Target=nearest
+"
+        )
+        .area_fire_target,
+        AreaFireTarget::Base,
+        "an unknown name keeps the previous value"
+    );
 }

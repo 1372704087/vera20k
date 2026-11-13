@@ -25,6 +25,34 @@
 use crate::rules::ini_parser::IniSection;
 use crate::rules::ruleset::RuleSet;
 
+/// Phobos `AreaFireTarget` (`Utilities/Enum.h:171-177`): the aim choice for
+/// an `AreaFire=` weapon. `Firer` is the native `self` spelling.
+#[derive(
+    Debug, Clone, Copy, Default, PartialEq, Eq, Hash, serde::Serialize, serde::Deserialize,
+)]
+pub enum AreaFireTarget {
+    #[default]
+    Base,
+    Random,
+    Firer,
+}
+
+impl AreaFireTarget {
+    /// `EnumParser<AreaFireTarget>`'s name table; an unknown spelling keeps
+    /// the previous value.
+    pub fn parse(raw: &str) -> Option<Self> {
+        if raw.eq_ignore_ascii_case("base") {
+            Some(Self::Base)
+        } else if raw.eq_ignore_ascii_case("random") {
+            Some(Self::Random)
+        } else if raw.eq_ignore_ascii_case("self") {
+            Some(Self::Firer)
+        } else {
+            None
+        }
+    }
+}
+
 /// The five `WeaponTypeExt` keys owned here.
 #[derive(Debug, Clone, PartialEq, Eq, Hash, serde::Serialize, serde::Deserialize)]
 pub struct PhobosWeaponExtras {
@@ -53,6 +81,14 @@ pub struct PhobosWeaponExtras {
     /// `Ext/Techno/Hooks.Misc.cpp:845-866`) then skips the class
     /// target-change latch reset and idle `Do_Action`.
     pub fire_once_reset_sequence: bool,
+    /// `AreaFire.Target=` (`Body.cpp:123`, `Valueable<AreaFireTarget>`
+    /// default `Base`, `Ext/WeaponType/Body.h:55,150`): what an `AreaFire=`
+    /// weapon aims at instead of the stock cell under the firer —
+    /// `Random` picks a random eligible adjacent cell in range with one
+    /// Scenario draw per candidate, `Firer` (native `self`) aims at the
+    /// firer itself (`Ext/Techno/Hooks.Firing.cpp:759-796`, hook
+    /// `0x6FE19A`).
+    pub area_fire_target: AreaFireTarget,
     /// `ChargeTurret.Delays=` (`Body.cpp:135`, `ValueableVector<int>`,
     /// `Body.h:65`, default empty `:160`): per-burst-shot charge delays for a
     /// charge turret — the just-fired shot's list item overrides the saved
@@ -72,6 +108,7 @@ impl Default for PhobosWeaponExtras {
             attack_no_threat_buildings: None,
             turret_recoil_suppress: false,
             fire_once_reset_sequence: true,
+            area_fire_target: AreaFireTarget::Base,
             charge_turret_delays: Vec::new(),
         }
     }
@@ -88,6 +125,12 @@ impl PhobosWeaponExtras {
                 .read_phobos_nullable_bool("AttackNoThreatBuildings", None),
             turret_recoil_suppress: section.read_bool("TurretRecoil.Suppress", false),
             fire_once_reset_sequence: section.read_bool("FireOnce.ResetSequence", true),
+            area_fire_target: section.read_string_with(
+                "AreaFire.Target",
+                2048,
+                AreaFireTarget::Base,
+                |current, raw| AreaFireTarget::parse(raw).unwrap_or(current),
+            ),
             charge_turret_delays: section
                 .read_ares_int_list("ChargeTurret.Delays")
                 .unwrap_or_default(),

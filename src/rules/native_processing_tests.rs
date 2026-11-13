@@ -443,6 +443,46 @@ fn phobos_shadow_indices_read_the_image_section_on_every_pass() {
     assert_eq!(read(&layers.process_with_fixed_art(&art).unwrap()), [0]);
 }
 
+/// Phobos `TurretShadow=` (`Ext/TechnoType/Body.cpp:1323`): read from the
+/// fixed ART section that pass's `Image=` selects, `Nullable<bool>` so a
+/// section without the key keeps the value the previous pass left.
+#[test]
+fn phobos_turret_shadow_reads_the_image_section_and_keeps_its_prior_value() {
+    use crate::rules::ruleset::RuleSet;
+    let art = IniFile::from_str("[FIRST]\nTurretShadow=yes\n[OTHER]\n[OFF]\nTurretShadow=no\n");
+    let mut layers = RulesLayerStack::new(IniFile::from_str(
+        "[AircraftTypes]\n0=JET\n[JET]\nImage=FIRST\n",
+    ));
+    let read = |processed: &ProcessedRulesLayers| {
+        RuleSet::from_processed_rules(processed)
+            .unwrap()
+            .object("JET")
+            .unwrap()
+            .phobos_turret_shadow
+    };
+    assert_eq!(
+        read(&layers.process_with_fixed_art(&art).unwrap()),
+        Some(true)
+    );
+    layers.push(
+        RulesLayerKind::GameMode,
+        IniFile::from_str("[JET]\nImage=OTHER\n"),
+    );
+    // `OTHER` has no key: the live object keeps what the first pass read.
+    assert_eq!(
+        read(&layers.process_with_fixed_art(&art).unwrap()),
+        Some(true)
+    );
+    layers.push(
+        RulesLayerKind::Scenario,
+        IniFile::from_str("[JET]\nImage=OFF\n"),
+    );
+    assert_eq!(
+        read(&layers.process_with_fixed_art(&art).unwrap()),
+        Some(false)
+    );
+}
+
 #[test]
 fn repair_inputs_retain_native_layer_defaults_through_reset_and_save() {
     use crate::rules::ruleset::RuleSet;

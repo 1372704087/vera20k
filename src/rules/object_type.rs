@@ -1195,6 +1195,14 @@ pub struct ObjectType {
     /// `GetFlightLevel()` (`:961`).
     #[cfg(feature = "phobos")]
     pub phobos_shadow_size_characteristic_height: Option<i32>,
+    /// Phobos `TurretShadow=` (`Ext/TechnoType/Body.cpp:1323`, ART layer,
+    /// `Nullable<bool>`, empty at construction `Body.h:57`/`:495`): a drawing
+    /// unit adds the turret voxel's own shadow stencil; unset falls back to
+    /// `[AudioVisual] DrawTurretShadow=` (`Ext/Rules/Body.cpp:173`, default no).
+    /// Under `UseTurretShadow=`-less units this is the only switch
+    /// (`Ext/TechnoType/Hooks.MatrixOp.cpp:803`).
+    #[cfg(feature = "phobos")]
+    pub phobos_turret_shadow: Option<bool>,
     /// Phobos `NoAlphaImageOnBuildup=` (`Ext/BuildingType/Body.cpp:234`,
     /// `Nullable<bool>`): skip the buildup image's alpha blend; unset takes
     /// `[AudioVisual]`. Building types only.
@@ -6145,6 +6153,10 @@ impl ObjectType {
             #[cfg(feature = "phobos")]
             phobos_shadow_size_characteristic_height: section
                 .read_phobos_nullable_int("ShadowSizeCharacteristicHeight", None),
+            // The ART layer owns `TurretShadow=` (`Ext/TechnoType/Body.cpp:1323`);
+            // `native_processing` publishes it after each fixed-ART pass.
+            #[cfg(feature = "phobos")]
+            phobos_turret_shadow: None,
             #[cfg(feature = "phobos")]
             phobos_spawn_height: (category == ObjectCategory::Aircraft)
                 .then(|| section.read_phobos_nullable_int("SpawnHeight", None))

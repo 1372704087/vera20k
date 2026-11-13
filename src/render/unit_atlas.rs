@@ -770,6 +770,20 @@ pub(crate) fn unit_barrel_pitches(fire_angle: i32) -> Vec<i8> {
     pitches
 }
 
+/// Phobos `Ext/TechnoType/Hooks.MatrixOp.cpp:803`: a unit without
+/// `UseTurretShadow=` draws the turret stencil only when its ART
+/// `TurretShadow=` says so, or the `[AudioVisual] DrawTurretShadow=` fallback
+/// does. VERA does not port stock `UseTurretShadow=`, so every type takes that
+/// `notUseTurretShadow` arm.
+pub(crate) fn turret_shadow_enabled(
+    rules: Option<&RuleSet>,
+    object: &crate::rules::object_type::ObjectType,
+) -> bool {
+    object
+        .phobos_turret_shadow
+        .unwrap_or(rules.is_some_and(|rules| rules.phobos_globals.draw_turret_shadow))
+}
+
 fn seed_unit_variant_keys(
     needed: &mut HashSet<UnitSpriteKey>,
     frame_counts: &mut BTreeMap<(String, VxlLayer, i32), u32>,
@@ -813,6 +827,28 @@ fn seed_unit_variant_keys(
     // Aircraft414728 includes the body frame remainder in its shadow cache
     // key, but707280 still samples ShadowIndex's HVA frame zero. Unit's key
     // (73B619, 73C21E..73C287) carries no body frame.
+    // Phobos `TurretShadow=` adds a second stencil per turret facing
+    // (`Ext/TechnoType/Hooks.MatrixOp.cpp:870`); it is seeded for every gun the
+    // model can draw, at the turret layer's own facing steps and slopes.
+    if rules
+        .and_then(|rules| rules.object(variant))
+        .is_some_and(|object| turret_shadow_enabled(rules, object))
+    {
+        for (layer, turret_index) in seed_layers_for(asset_manager, variant, rules) {
+            if layer != VxlLayer::Turret {
+                continue;
+            }
+            insert_unit_layer_keys(
+                needed,
+                variant,
+                VxlLayer::ShadowTurret,
+                turret_index,
+                1,
+                is_ground_vehicle,
+                &[0],
+            );
+        }
+    }
     if is_ground_vehicle
         || shadow
             .as_ref()
@@ -1545,6 +1581,14 @@ impl UnitModel {
                 let body = self.body.as_ref()?;
                 vxl_raster::render_legacy_vxl_shadow(body.vxl(), body.hva(), &params)
             }
+            VxlLayer::ShadowTurret => {
+                // `Hooks.MatrixOp.cpp:870` draws the turret voxel's section zero
+                // through `mtx_turret`; the atlas key's facing is the turret's
+                // own facing (`canonical_turret_facing`), so the stencil is the
+                // turret voxel's shadow at that facing.
+                let turret = turret?;
+                vxl_raster::shadow::render(turret.vxl(), turret.hva(), &params, 0, false)?
+            }
             VxlLayer::Body | VxlLayer::Turret | VxlLayer::Barrel => {
                 let key_pose = (params.frame, params.facing, params.slope_type, slope_blend);
                 if pose.as_ref().is_none_or(|parts| parts.pose != key_pose) {
@@ -1687,8 +1731,10 @@ impl UnitModel {
                 VxlLayer::Turret => (turret?, matrices[1]),
                 VxlLayer::Barrel => (barrel?, matrices[2]),
                 // Unit consumer retains independent native-ordered parts;
-                // the existing un-tilted shadow has its own owner.
-                VxlLayer::Composite | VxlLayer::Shadow => return None,
+                // the existing un-tilted shadow has its own owner. A posed
+                // (tilted) turret shadow is not drawn: its stencil would need
+                // the tilt matrix, which the shadow layer does not carry.
+                VxlLayer::Composite | VxlLayer::Shadow | VxlLayer::ShadowTurret => return None,
             };
             let params = VxlRenderParams {
                 frame: key.frame,
@@ -1877,7 +1923,7 @@ impl UnitModel {
         let (turret, barrel) = self.gun_parts(turret_index);
         let part = |part| part_native_draw_bounds(part, params);
         match layer {
-            VxlLayer::Shadow => None,
+            VxlLayer::Shadow | VxlLayer::ShadowTurret => None,
             VxlLayer::Body => part(self.body.as_ref()).ok().flatten(),
             VxlLayer::Turret => part(turret).ok().flatten(),
             VxlLayer::Barrel => part(barrel).ok().flatten(),
@@ -2116,7 +2162,9 @@ fn facing_config_for_layer(layer: VxlLayer) -> (u8, u16) {
         VxlLayer::Body | VxlLayer::Composite | VxlLayer::Shadow => {
             (UNIT_FACING_STEP, UNIT_FACING_BUCKETS)
         }
-        VxlLayer::Turret | VxlLayer::Barrel => (TURRET_FACING_STEP, TURRET_FACING_BUCKETS),
+        VxlLayer::Turret | VxlLayer::Barrel | VxlLayer::ShadowTurret => {
+            (TURRET_FACING_STEP, TURRET_FACING_BUCKETS)
+        }
     }
 }
 

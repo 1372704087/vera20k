@@ -2878,6 +2878,93 @@ fn emit_turret_unit_sprites(
             pieces,
         );
     }
+    // `Hooks.MatrixOp.cpp:803-870`: a second `DrawVoxelShadow` for the turret
+    // voxel's section zero, on the same surface, at the turret's own facing.
+    // A posed hull draws all its parts through the pose key (+0x3FF), which
+    // carries no turret stencil, so the turret shadow follows the unposed arm.
+    if ground_pose.is_none() {
+        emit_turret_shadow_sprite(
+            state,
+            atlas,
+            drawer,
+            entity,
+            type_id,
+            turret_key.clone(),
+            [center_x + tur_ox, center_y + tur_oy],
+            shadow_slope,
+            entity_depth,
+            voxel_adjust,
+            draw_state,
+            no_shadow,
+            band,
+            pieces,
+        );
+    }
+}
+
+/// Phobos' turret half of the shadow: one stencil of `{IMAGE}TUR.VXL`'s
+/// section zero at the turret's facing and slope
+/// (`Ext/TechnoType/Hooks.MatrixOp.cpp:856-871`). The `mtx_turret` rotation
+/// is the turret's own facing, which VERA carries in the key; the
+/// `ApplyTurretOffsetUnit` translation is the art `TurretOffset=` that the
+/// caller already applied to the anchor.
+#[allow(clippy::too_many_arguments)]
+fn emit_turret_shadow_sprite(
+    state: &AppState,
+    atlas: &crate::render::unit_atlas::UnitAtlas,
+    drawer: VoxelDrawer,
+    entity: &crate::sim::game_entity::GameEntity,
+    type_id: &str,
+    mut key: UnitSpriteKey,
+    anchor: [f32; 2],
+    shadow_slope: u8,
+    depth: f32,
+    voxel_adjust: f32,
+    draw_state: DrawState,
+    no_shadow: bool,
+    band: EntityDrawBand,
+    pieces: &mut Vec<ObjectPieceInstance>,
+) {
+    let enabled = state
+        .rules()
+        .and_then(|rules| rules.object(type_id))
+        .is_some_and(|object| {
+            crate::render::unit_atlas::turret_shadow_enabled(state.rules(), object)
+        });
+    // The grounded sunk/sinking gate is the same one `73C1D2` applies to the
+    // body stencil, and `no_shadow` is the unit's own draw suppression.
+    if !enabled || no_shadow || has_lifted_unit_shadow(entity) || !unit_shadow_admitted(entity, no_shadow, band) {
+        return;
+    }
+    key.layer = VxlLayer::ShadowTurret;
+    key.frame = 0;
+    key.slope_type = shadow_slope;
+    key.barrel_pitch = 0;
+    let Some(entry) = atlas.get(&key).copied() else {
+        return;
+    };
+    // `Hooks.MatrixOp.cpp:848` splits the turret stencil's cache record from
+    // the body's; the atlas key already names (type, gun, turret facing, slope).
+    draw_voxel_shadow(
+        state,
+        atlas,
+        drawer,
+        Some(crate::render::voxel_image_cache::VoxelImageKey::new(
+            crate::render::voxel_image_cache::VoxelCache::Shadow,
+            key.clone(),
+        )),
+        &key,
+    );
+    emit_shadow_stencil(
+        entry,
+        UnitTextureSource::Stable(entry.page),
+        anchor,
+        depth,
+        voxel_adjust,
+        draw_state,
+        1.0,
+        pieces,
+    );
 }
 
 /// Frames per facing in `OREGATH.SHP`, the literal `15` of

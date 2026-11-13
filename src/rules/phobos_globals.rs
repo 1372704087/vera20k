@@ -172,6 +172,11 @@ pub struct PhobosGlobals {
     /// exponent base `Pade2_2` consumes; default `0.693376137`
     /// (`Ext/Rules/Body.h:632`, the log of a half-size shadow).
     pub air_shadow_base_scale_log: NativeF64Bits,
+    /// `[AudioVisual] DrawTurretShadow=`, default `no` (`Ext/Rules/Body.cpp:173`,
+    /// `Valueable<bool>` constructor `Ext/Rules/Body.h:737`): the fallback for a
+    /// drawing unit's ART `TurretShadow=`
+    /// (`Ext/TechnoType/Hooks.MatrixOp.cpp:803`).
+    pub draw_turret_shadow: bool,
     /// `AutoDeath.OnOwnerChange.IgnoreRevertOnExit=`, default `no`
     /// (`Ext/Rules/Body.cpp:630`).
     pub auto_death_on_owner_change_ignore_revert_on_exit: bool,
@@ -1253,6 +1258,7 @@ impl Default for PhobosGlobals {
             height_shadow_scaling: false,
             height_shadow_scaling_min_scale: NativeF64Bits::from_bits(0.0f64.to_bits()),
             air_shadow_base_scale_log: NativeF64Bits::from_bits(0.693_376_137f64.to_bits()),
+            draw_turret_shadow: false,
             auto_death_on_owner_change_ignore_revert_on_exit: false,
             auto_death_allow_limboed: true,
             convert_reset_mind_control: false,
@@ -1490,6 +1496,9 @@ impl PhobosGlobals {
         if air_shadow_base_scale.is_some_and(|base| base > 0.98) {
             globals.height_shadow_scaling = false;
         }
+        // `Ext/Rules/Body.cpp:173`: the ART `TurretShadow=` fallback.
+        globals.draw_turret_shadow =
+            audio_visual.read_bool("DrawTurretShadow", globals.draw_turret_shadow);
         globals.parasite_grapple_anim = audio_visual
             .read_type_name("Parasite.GrappleAnim", 0x100)
             .map(str::to_owned);

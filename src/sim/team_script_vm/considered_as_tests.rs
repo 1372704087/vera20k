@@ -112,3 +112,81 @@ fn a_considered_type_fills_the_task_force_slot() {
         "an unrelated listed type does not fill the HTNK entry"
     );
 }
+
+/// `TeamClass::LiberateMember` (`0x6EA8E7`) frees the slot it found through
+/// the member's considered types.
+#[test]
+fn liberating_a_considered_member_frees_its_slot() {
+    let (mut sim, rules, team, tank) = scene(Some("HTNK"));
+    sim.team_add_member(
+        team,
+        tank,
+        false,
+        &rules,
+        None,
+        crate::sim::world::FrameEffects::default(),
+    );
+    {
+        let state = sim.team_script_vm.team(team).expect("team");
+        assert_eq!(state.slot_counts[0], 1, "the add matched the HTNK slot");
+    }
+    sim.team_remove_member(
+        team,
+        tank,
+        true,
+        &rules,
+        crate::sim::world::FrameEffects::default(),
+    );
+    let state = sim.team_script_vm.team(team).expect("team");
+    assert_eq!(state.members().collect::<Vec<_>>(), Vec::<u64>::new());
+    assert_eq!(
+        state.slot_counts[0], 0,
+        "the liberate scan found the HTNK slot"
+    );
+    assert_eq!(sim.team_can_add(team, tank, false, &rules), Some(0));
+}
+
+/// `TeamClass::Get_Needed_Types` (`0x6EF4D0`, hook `0x6EF57F`) subtracts a
+/// member whose type considers itself as the entry type.
+#[test]
+fn the_missing_type_tally_uses_the_considered_type() {
+    let tally = |considered_as: Option<&str>| {
+        let (mut sim, rules, team, tank) = scene(considered_as);
+        sim.team_script_vm
+            .teams
+            .get_mut(&team)
+            .expect("team")
+            .members
+            .push(TeamMember {
+                id: tank,
+                initiated: false,
+            });
+        let team_state = sim.team_script_vm.team(team).expect("team").clone();
+        sim.team_script_vm.needed_types(
+            &team_state,
+            |id| {
+                sim.substrate
+                    .entities
+                    .get(id)
+                    .map(crate::sim::team_script_vm::member_type_identity)
+            },
+            |id, entry_type| {
+                sim.substrate.entities.get(id).is_some_and(|entity| {
+                    crate::sim::team_script_vm::membership::member_fills_entry(
+                        crate::sim::team_script_vm::member_type_identity(entity),
+                        sim.interner.object_type(entity.type_ref(), &rules),
+                        entry_type,
+                        &sim.interner,
+                    )
+                })
+            },
+        )
+    };
+    assert!(
+        tally(Some("HTNK")).is_empty(),
+        "the considered member needs no HTNK"
+    );
+    let needed = tally(None);
+    assert_eq!(needed.len(), 1);
+    assert_eq!(needed[0].category, ObjectCategory::Vehicle);
+}

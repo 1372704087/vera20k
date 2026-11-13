@@ -62,7 +62,7 @@ pub(super) const fn entry_short(amount: i32, recruited: i32) -> bool {
 /// names the entry types it is treated as; native compares TechnoType
 /// pointers, so for retail's unique type names the name identity is the same
 /// test. An unset or unresolved list never matches.
-fn member_fills_entry(
+pub(crate) fn member_fills_entry(
     member_type: TeamMemberTypeIdentity,
     member_object: Option<&crate::rules::object_type::ObjectType>,
     entry_type: TeamMemberTypeIdentity,

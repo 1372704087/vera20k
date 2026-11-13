@@ -1,4 +1,4 @@
-//! The eight `WarheadTypeExt` keys owned by
+//! The nine `WarheadTypeExt` keys owned by
 //! [`crate::rules::phobos_warhead_extras`].
 
 use crate::rules::phobos_warhead_extras::PhobosWarheadExtras;
@@ -18,10 +18,11 @@ fn values(keys: &str) -> PhobosWarheadExtras {
         .clone()
 }
 
-/// `Body.h:328-329`, `:334`, `:463`, `:486-489`: four `no` valueables, two
-/// unset nullables and two more `no` valueables.
+/// `Body.h:328-329`, `:334`, `:463`, `:486-489`, `:189`/`:468`: five `no`
+/// valueables (`CLIsBlack` last in `LoadFromINI`, `Body.cpp:344`) and six
+/// unset nullables.
 #[test]
-fn the_eight_keys_construct_at_their_native_defaults() {
+fn the_nine_keys_construct_at_their_native_defaults() {
     let defaults = PhobosWarheadExtras::default();
     assert_eq!(values(""), defaults);
     assert!(!defaults.remove_mind_control);
@@ -32,6 +33,7 @@ fn the_eight_keys_construct_at_their_native_defaults() {
     assert!(!defaults.building_sell_ignore_unsellable);
     assert!(!defaults.building_undeploy);
     assert!(!defaults.building_undeploy_leave);
+    assert!(!defaults.cl_is_black);
 }
 
 #[test]
@@ -40,7 +42,7 @@ fn every_key_reads_on_its_own() {
         "RemoveMindControl=yes\nRemoveMindControl.Silent=yes\nShakeIsLocal=yes\n\
          MergeBuildingDamage=no\n\
          BuildingSell=yes\nBuildingSell.IgnoreUnsellable=yes\n\
-         BuildingUndeploy=yes\nBuildingUndeploy.Leave=yes\n",
+         BuildingUndeploy=yes\nBuildingUndeploy.Leave=yes\nCLIsBlack=yes\n",
     );
     assert!(set.remove_mind_control);
     assert_eq!(set.remove_mind_control_silent, Some(true));
@@ -51,6 +53,7 @@ fn every_key_reads_on_its_own() {
     assert!(set.building_sell_ignore_unsellable);
     assert!(set.building_undeploy);
     assert!(set.building_undeploy_leave);
+    assert!(set.cl_is_black);
 
     let one = values("BuildingUndeploy=yes\n");
     assert!(one.building_undeploy);

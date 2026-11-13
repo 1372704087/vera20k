@@ -210,6 +210,17 @@ pub(crate) fn materialize_combat_lights(
                     return None;
                 }
                 let override_size = warhead.map_or(0.0, |warhead| warhead.combat_light_size_f64);
+                // Phobos `[Warhead] CLIsBlack=` (`Ext/WarheadType/Body.cpp:344`,
+                // `Misc/Hooks.LightEffects.cpp:79-80`): after the caller's mask
+                // has decided the admission above, `DoFlash` writes
+                // `SpotlightFlags::NoColor` into the light it creates.
+                #[cfg(feature = "phobos")]
+                let flags = match warhead {
+                    Some(warhead) if warhead.phobos_extras.cl_is_black => {
+                        crate::sim::combat::NO_COLOR_SPOTLIGHT_FLAGS
+                    }
+                    _ => flags,
+                };
                 Some(CombatLight {
                     coord,
                     stage: 0,
@@ -564,6 +575,67 @@ mod tests {
                 );
             }
         }
+    }
+
+    /// Phobos `[Warhead] CLIsBlack=` (`Ext/WarheadType/Body.cpp:344`,
+    /// `Misc/Hooks.LightEffects.cpp:79-80`): the flash keeps the caller's mask
+    /// for its own admission but the light it writes carries
+    /// `SpotlightFlags::NoColor`.
+    #[cfg(feature = "phobos")]
+    #[test]
+    fn a_black_combat_light_warhead_overrides_only_the_record_flags() {
+        let rules = RuleSet::from_ini(&IniFile::from_str(
+            "[Warheads]\n0=BLACK\n1=PLAIN\n\
+             [BLACK]\nBright=yes\nCLIsBlack=yes\n\
+             [PLAIN]\nBright=yes\n",
+        ))
+        .unwrap();
+        let mut sim = Simulation::new();
+        let mut detail = detail_with_frame_rate(60);
+        for (name, caller_flags, expected) in
+            [("BLACK", 0, 0xE), ("BLACK", 2, 0xE), ("PLAIN", 2, 2)]
+        {
+            let request = CombatLightRequest::Impact {
+                target_id: None,
+                damage: 100,
+                warhead_ref: sim.intern(name),
+                coord: ProjectileCoord::new(0, 0, 0),
+                force_create: false,
+                flags: caller_flags,
+            };
+            let lights = materialize_combat_lights(
+                vec![request],
+                Some(&rules),
+                sim.interner(),
+                2,
+                &mut detail,
+                false,
+            );
+            assert_eq!(lights.len(), 1, "{name} at {caller_flags}");
+            assert_eq!(lights[0].flags, expected, "{name} at {caller_flags}");
+        }
+        // The admission still reads the caller's mask: a black warhead whose
+        // caller supplied none is dropped below the frame-rate minimum.
+        let mut slow = detail_with_frame_rate(1);
+        let request = CombatLightRequest::Impact {
+            target_id: None,
+            damage: 100,
+            warhead_ref: sim.intern("BLACK"),
+            coord: ProjectileCoord::new(0, 0, 0),
+            force_create: false,
+            flags: 0,
+        };
+        assert!(
+            materialize_combat_lights(
+                vec![request],
+                Some(&rules),
+                sim.interner(),
+                2,
+                &mut slow,
+                false
+            )
+            .is_empty()
+        );
     }
 
     #[test]

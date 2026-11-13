@@ -170,8 +170,15 @@ pub(super) trait ScanHost {
     /// Scenario `RandomRanged(min, max)`.
     fn random_ranged(&mut self, min: i32, max: i32) -> i32;
     /// `[General] GuardAreaTargetingDelay=` (`Rules+0xE04`) or
-    /// `NormalTargetingDelay=` (`Rules+0xE08`).
-    fn targeting_delay(&self, area_guard: bool) -> i32;
+    /// `NormalTargetingDelay=` (`Rules+0xE08`) with Phobos's per-mission
+    /// override on top (`0x70982C`).
+    fn targeting_delay(&self, mission: TargetingMission) -> i32;
+    /// `MegaMissionIsAttackMove` (vt+0x4C4), which the Phobos hook tests before
+    /// the committed mission.
+    #[cfg(feature = "phobos")]
+    fn mega_attack_move(&self) -> bool {
+        false
+    }
     /// The targeting timer (`+0x180` start, `+0x188` duration).
     fn arm_targeting_timer(&mut self, start: i32, duration: i32);
     /// Phobos `TechnoClass_TargetSomethingNearby_AutoFire` (`0x7098B9`,
@@ -230,8 +237,25 @@ pub(super) fn retaliate_and_scan<H: ScanHost>(host: &mut H, mask: ScanMission) -
     let frame = host.frame();
     host.set_last_scan_frame(frame);
     let area_guard = host.committed_area_guard();
+    let mission = {
+        #[cfg(feature = "phobos")]
+        {
+            if host.mega_attack_move() {
+                TargetingMission::AttackMove
+            } else if area_guard {
+                TargetingMission::AreaGuard
+            } else {
+                TargetingMission::Normal
+            }
+        }
+        #[cfg(not(feature = "phobos"))]
+        {
+            let _ = area_guard;
+            TargetingMission::Normal
+        }
+    };
     let draw = host.random_ranged(0, 2);
-    let duration = host.targeting_delay(area_guard).wrapping_add(draw);
+    let duration = host.targeting_delay(mission).wrapping_add(draw);
     host.arm_targeting_timer(frame, duration);
 
     // Phobos replaces the first instructions of the held-target step: a type
@@ -707,22 +731,57 @@ impl Simulation {
     }
 }
 
-/// Phobos `TechnoClass_TargetAndEstimateDamage_TargetingDelay` (`0x70982C`,
-/// `Ext/Techno/Hooks.Targeting.cpp:12-45`): the AI-controlled Area Guard
-/// delay override — the type's `AIGuardAreaTargetingDelay`, else the
-/// `[General]` one. A human-controlled house ignores both.
+/// The three mission arms of Phobos
+/// `TechnoClass_TargetAndEstimateDamage_TargetingDelay` (`0x70982C`,
+/// `Ext/Techno/Hooks.Targeting.cpp:12-45`): `MegaMissionIsAttackMove` first,
+/// then `CurrentMission == Area_Guard`, else the ordinary arm.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub(crate) enum TargetingMission {
+    AttackMove,
+    AreaGuard,
+    Normal,
+}
+
+/// Phobos `TechnoClass_TargetAndEstimateDamage_TargetingDelay`
+/// (`Ext/Techno/Hooks.Targeting.cpp:12-45`, `0x70982C`): each mission arm takes
+/// the human/AI type key, then its `[General]` twin; unset keeps the stock
+/// `RulesClass::NormalTargetingDelay`/`GuardAreaTargetingDelay` the caller
+/// already holds, so the resolver answers `None`.
 #[cfg(feature = "phobos")]
-pub(crate) fn phobos_ai_guard_area_targeting_delay(
+pub(crate) fn phobos_targeting_delay(
     rules: &RuleSet,
     object: Option<&crate::rules::object_type::ObjectType>,
     human: bool,
+    mission: TargetingMission,
 ) -> Option<i32> {
-    if human {
-        return None;
-    }
-    object
-        .and_then(|object| object.phobos_ai_guard_area_targeting_delay)
-        .or(rules.phobos_globals.ai_guard_area_targeting_delay)
+    let globals = &rules.phobos_globals;
+    let (typed, global) = match (mission, human) {
+        (TargetingMission::AttackMove, true) => (
+            object.and_then(|object| object.phobos_player_attack_move_targeting_delay),
+            globals.player_attack_move_targeting_delay,
+        ),
+        (TargetingMission::AttackMove, false) => (
+            object.and_then(|object| object.phobos_ai_attack_move_targeting_delay),
+            globals.ai_attack_move_targeting_delay,
+        ),
+        (TargetingMission::AreaGuard, true) => (
+            object.and_then(|object| object.phobos_player_guard_area_targeting_delay),
+            globals.player_guard_area_targeting_delay,
+        ),
+        (TargetingMission::AreaGuard, false) => (
+            object.and_then(|object| object.phobos_ai_guard_area_targeting_delay),
+            globals.ai_guard_area_targeting_delay,
+        ),
+        (TargetingMission::Normal, true) => (
+            object.and_then(|object| object.phobos_player_normal_targeting_delay),
+            globals.player_normal_targeting_delay,
+        ),
+        (TargetingMission::Normal, false) => (
+            object.and_then(|object| object.phobos_ai_normal_targeting_delay),
+            globals.ai_normal_targeting_delay,
+        ),
+    };
+    typed.or(global)
 }
 
 /// The production scan host.
@@ -766,27 +825,48 @@ impl<'r> ScanHost for WorldScan<'_, 'r> {
         self.sim.scenario_rng.next_range_i32_inclusive(min, max)
     }
 
-    fn targeting_delay(&self, area_guard: bool) -> i32 {
+    fn targeting_delay(&self, mission: TargetingMission) -> i32 {
         let general = &self.rules.general;
-        if area_guard {
+        if mission == TargetingMission::AreaGuard {
             #[cfg(feature = "phobos")]
             {
                 let object = self
                     .sim
                     .interner
                     .object_type(self.entity().type_ref(), self.rules);
-                if let Some(delay) = phobos_ai_guard_area_targeting_delay(
+                if let Some(delay) = phobos_targeting_delay(
                     self.rules,
                     object,
                     self.sim.owner_is_human(self.entity().owner()),
+                    mission,
                 ) {
                     return delay;
                 }
             }
             general.guard_area_targeting_delay
         } else {
+            #[cfg(feature = "phobos")]
+            {
+                let object = self
+                    .sim
+                    .interner
+                    .object_type(self.entity().type_ref(), self.rules);
+                if let Some(delay) = phobos_targeting_delay(
+                    self.rules,
+                    object,
+                    self.sim.owner_is_human(self.entity().owner()),
+                    mission,
+                ) {
+                    return delay;
+                }
+            }
             general.normal_targeting_delay
         }
+    }
+
+    #[cfg(feature = "phobos")]
+    fn mega_attack_move(&self) -> bool {
+        self.entity().mega_mission.is_attack_move()
     }
 
     fn arm_targeting_timer(&mut self, start: i32, duration: i32) {
@@ -1345,8 +1425,12 @@ mod tests {
             self.call("random", vec![min.into(), max.into()]);
             self.input("jitter") as i32
         }
-        fn targeting_delay(&self, area_guard: bool) -> i32 {
-            if area_guard { 41 } else { 23 }
+        fn targeting_delay(&self, mission: TargetingMission) -> i32 {
+            if mission == TargetingMission::AreaGuard {
+                41
+            } else {
+                23
+            }
         }
         fn arm_targeting_timer(&mut self, start: i32, duration: i32) {
             self.timer = (start, duration);
@@ -1754,58 +1838,68 @@ mod tests {
     }
 
     /// Phobos `TechnoClass_TargetAndEstimateDamage_TargetingDelay`
-    /// (`Ext/Techno/Hooks.Targeting.cpp:12-45`, `0x70982C`): the type's
-    /// `AIGuardAreaTargetingDelay` wins over the `[General]` value, and a
-    /// human-controlled house ignores both.
+    /// (`Ext/Techno/Hooks.Targeting.cpp:12-45`, `0x70982C`): each mission's
+    /// human/AI type key wins over its `[General]` twin, and an unset pair
+    /// leaves the stock delay to the caller.
     #[cfg(feature = "phobos")]
     #[test]
-    fn ai_guard_area_targeting_delay_falls_back_from_type_to_global() {
+    fn targeting_delays_fall_back_from_type_to_global_per_mission() {
         let rules =
             crate::rules::ruleset::RuleSet::from_ini(&crate::sim::arena_fixture::clear_ground_ini(
                 "[Countries]
 0=Americans
                  [General]
 AIGuardAreaTargetingDelay=30
+AINormalTargetingDelay=31
+PlayerNormalTargetingDelay=32
+PlayerGuardAreaTargetingDelay=33
+AIAttackMoveTargetingDelay=34
+PlayerAttackMoveTargetingDelay=35
                  [VehicleTypes]
 0=UNIT
 1=PLAIN
                  [UNIT]
 Strength=100
 AIGuardAreaTargetingDelay=45
+PlayerNormalTargetingDelay=46
+PlayerAttackMoveTargetingDelay=47
                  [PLAIN]
 Strength=100
 ",
             ))
             .unwrap();
+        let at = |object: Option<&crate::rules::object_type::ObjectType>, human, mission| {
+            phobos_targeting_delay(&rules, object, human, mission)
+        };
         assert_eq!(
-            phobos_ai_guard_area_targeting_delay(&rules, rules.object("UNIT"), false),
+            at(rules.object("UNIT"), false, TargetingMission::AreaGuard),
             Some(45),
-            "the type key wins"
+            "the type key wins in the Area Guard arm"
         );
         assert_eq!(
-            phobos_ai_guard_area_targeting_delay(&rules, rules.object("PLAIN"), false),
-            Some(30),
-            "an unset type falls back to [General]"
+            at(rules.object("PLAIN"), false, TargetingMission::AreaGuard),
+            Some(30)
         );
         assert_eq!(
-            phobos_ai_guard_area_targeting_delay(&rules, rules.object("UNIT"), true),
-            None,
-            "a human-controlled house ignores both"
+            at(rules.object("PLAIN"), false, TargetingMission::Normal),
+            Some(31)
         );
-        let none =
-            crate::rules::ruleset::RuleSet::from_ini(&crate::sim::arena_fixture::clear_ground_ini(
-                "[Countries]
-0=Americans
-[VehicleTypes]
-0=UNIT
-[UNIT]
-Strength=100
-",
-            ))
-            .unwrap();
         assert_eq!(
-            phobos_ai_guard_area_targeting_delay(&none, none.object("UNIT"), false),
-            None
+            at(rules.object("UNIT"), true, TargetingMission::Normal),
+            Some(46)
+        );
+        assert_eq!(
+            at(rules.object("PLAIN"), true, TargetingMission::AreaGuard),
+            Some(33),
+            "a human's Area Guard takes the player global"
+        );
+        assert_eq!(
+            at(rules.object("UNIT"), true, TargetingMission::AttackMove),
+            Some(47)
+        );
+        assert_eq!(
+            at(rules.object("PLAIN"), false, TargetingMission::AttackMove),
+            Some(34)
         );
     }
 }

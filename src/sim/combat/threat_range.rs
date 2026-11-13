@@ -338,8 +338,10 @@ fn range_from_leptons(leptons: i32) -> ScanRange {
 /// The scanner, Rescue4DE0ED and AreaGuard4D6E4B use this same owner.
 /// Mode0 returns a nonzero GuardRange unchanged unless vt+330 identifies an
 /// Engineer; mode1 doubles GuardRange or the wider live weapon range, then
-/// clamps0..4096. The native ADD wraps before the clamp. Mode2 applies the
-/// Patrol floor1792; mode-1 returns-1.
+/// clamps0..`MaxGuardRange` (Phobos `Ext/TechnoType/Body.h:218, default 4096;
+/// `Ext/Techno/Hooks.cpp:1923-2007`, hook `0x707E63`). The native ADD wraps
+/// before the clamp. Mode2 (Patrol) applies the 1792 floor first; mode-1
+/// returns-1.
 ///
 /// Phobos' `TechnoClass_GetGuardRange` replacement (hook `0x707E63`,
 /// `Ext/Techno/Hooks.cpp:1923-2007`) substitutes the type's `AreaGuardRange`
@@ -377,10 +379,28 @@ pub(crate) fn threat_range_leptons(
         weapon_ranges[0].max(weapon_ranges[1])
     };
     let doubled = base.wrapping_mul(AREA_GUARD_RANGE_MULTIPLIER);
-    doubled.clamp(
-        if mode == 2 { 0x700 } else { 0 },
-        AREA_GUARD_MAX_SCAN_CELLS * 256,
-    )
+    // Phobos `MaxGuardRange` (`Ext/TechnoType/Body.h:218,647`, default 4096)
+    // replaces the hard-coded cap at `Ext/Techno/Hooks.cpp:1973-2007`.
+    #[cfg(feature = "phobos")]
+    let max_range = obj
+        .phobos_max_guard_range
+        .map_or(AREA_GUARD_MAX_SCAN_CELLS * 256, |range| range.to_bits() >> 8);
+    #[cfg(not(feature = "phobos"))]
+    let max_range = AREA_GUARD_MAX_SCAN_CELLS * 256;
+    if mode == 2 {
+        // Native (`0x707E63`, Patrol arm): below 1792 the floor wins outright;
+        // at or above it the cap applies, so a cap under 1792 can still lose
+        // to the floor. `clamp` would reverse those two orderings.
+        if doubled >= 0x700 {
+            doubled.min(max_range)
+        } else {
+            0x700
+        }
+    } else if doubled < 0 {
+        0
+    } else {
+        doubled.min(max_range)
+    }
 }
 
 #[cfg(test)]
@@ -395,13 +415,17 @@ mod tests {
     /// observable and slot order cannot be mistaken for the answer.
     fn test_rules() -> RuleSet {
         let ini_str: &str = "\
-[VehicleTypes]\n0=NOGUARD\n1=WITHGUARD\n2=ONLYPRIMARY\n3=AREAGUARD\n\n\
+[VehicleTypes]\n0=NOGUARD\n1=WITHGUARD\n2=ONLYPRIMARY\n3=AREAGUARD\n4=MAXCAP\n5=SMALLCAP\n\n\
 [NOGUARD]\nStrength=100\nArmor=heavy\nSpeed=6\nPrimary=ShortGun\nSecondary=LongGun\n\n\
 [WITHGUARD]\nStrength=100\nArmor=heavy\nSpeed=6\nPrimary=ShortGun\nSecondary=LongGun\n\
 GuardRange=9\n\n\
 [ONLYPRIMARY]\nStrength=100\nArmor=heavy\nSpeed=6\nPrimary=ShortGun\n\n\
 [AREAGUARD]\nStrength=100\nArmor=heavy\nSpeed=6\nPrimary=ShortGun\nSecondary=LongGun\n\
 GuardRange=9\nAreaGuardRange=3\n\n\
+[MAXCAP]\nStrength=100\nArmor=heavy\nSpeed=6\nPrimary=ShortGun\n\
+GuardRange=9\nMaxGuardRange=4\n\n\
+[SMALLCAP]\nStrength=100\nArmor=heavy\nSpeed=6\nPrimary=ShortGun\n\
+GuardRange=3\nMaxGuardRange=4\n\n\
 [ShortGun]\nDamage=50\nROF=20\nRange=4\nWarhead=AP\n\n\
 [LongGun]\nDamage=50\nROF=20\nRange=6\nWarhead=AP\n\n\
 [AP]\nVerses=100%,100%,100%,100%,100%,100%,100%,100%,100%,100%,100%\n";
@@ -551,6 +575,40 @@ GuardRange=9\nAreaGuardRange=3\n\n\
             ),
             ScanRange::Hard(16 * 256),
             "a Guard mission keeps GuardRange"
+        );
+    }
+
+    /// Phobos `MaxGuardRange` (`Ext/TechnoType/Body.h:218,647`, default 4096;
+    /// read `Body.cpp:975`) caps the doubled range in the `GetGuardRange`
+    /// replacement (`Ext/Techno/Hooks.cpp:1973-2007`, hook `0x707E63`). The
+    /// Patrol arm tests the floor first, so a cap below 1792 still loses to it
+    /// — the reverse of a `clamp(1792, cap)` would be.
+    #[cfg(feature = "phobos")]
+    #[test]
+    fn phobos_max_guard_range_caps_the_double_after_the_patrol_floor() {
+        let rules = test_rules();
+        let capped = obj(&rules, "MAXCAP");
+        let ranges = type_weapon_ranges(&rules, capped, 0);
+        // GuardRange=9 doubles to 18 cells, above the 4-cell cap.
+        assert_eq!(threat_range_leptons(capped, 1, ranges, false), 4 * 256);
+        assert_eq!(threat_range_leptons(capped, 2, ranges, false), 4 * 256);
+        // Mode0 is not doubled, so 9 cells stays under the cap.
+        assert_eq!(threat_range_leptons(capped, 0, ranges, false), 9 * 256);
+        // GuardRange=3 doubles to 6 cells (1536), below the Patrol floor.
+        let short = obj(&rules, "SMALLCAP");
+        let short_ranges = type_weapon_ranges(&rules, short, 0);
+        assert_eq!(threat_range_leptons(short, 2, short_ranges, false), 0x700);
+        assert_eq!(threat_range_leptons(short, 1, short_ranges, false), 4 * 256);
+        // The scanner reads the same cap.
+        assert_eq!(
+            scan_range(
+                capped,
+                ScanMission::AreaGuard.literal_mask(),
+                ranges,
+                false,
+                Some(MissionType::AreaGuard),
+            ),
+            ScanRange::Hard(4 * 256)
         );
     }
 

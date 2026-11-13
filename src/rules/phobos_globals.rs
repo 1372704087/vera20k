@@ -191,6 +191,32 @@ pub struct PhobosGlobals {
     /// type key wins over this, and a human-controlled house ignores both.
     #[serde(default)]
     pub ai_guard_area_targeting_delay: Option<i32>,
+    /// `[General] AINormalTargetingDelay=` (`Nullable<int>`, unset;
+    /// `Ext/Rules/Body.cpp:428`, `Body.h:313,824`): the AI-controlled ordinary
+    /// scan-delay override; unset keeps `RulesClass::NormalTargetingDelay`
+    /// (`Ext/Techno/Hooks.Targeting.cpp:12-45`, hook `0x70982C`).
+    #[serde(default)]
+    pub ai_normal_targeting_delay: Option<i32>,
+    /// `[General] PlayerNormalTargetingDelay=` (`Nullable<int>`, unset;
+    /// `Ext/Rules/Body.cpp:429`, `Body.h:314,825`): the human-controlled
+    /// ordinary override (`0x70982C`).
+    #[serde(default)]
+    pub player_normal_targeting_delay: Option<i32>,
+    /// `[General] PlayerGuardAreaTargetingDelay=` (`Nullable<int>`, unset;
+    /// `Ext/Rules/Body.cpp:431`, `Body.h:316,827`): the human-controlled Area
+    /// Guard override (`0x70982C`).
+    #[serde(default)]
+    pub player_guard_area_targeting_delay: Option<i32>,
+    /// `[General] AIAttackMoveTargetingDelay=` (`Nullable<int>`, unset;
+    /// `Ext/Rules/Body.cpp:432`, `Body.h:317,828`): the AI-controlled
+    /// attack-move override (`0x70982C`, `MegaMissionIsAttackMove` arm).
+    #[serde(default)]
+    pub ai_attack_move_targeting_delay: Option<i32>,
+    /// `[General] PlayerAttackMoveTargetingDelay=` (`Nullable<int>`, unset;
+    /// `Ext/Rules/Body.cpp:433`, `Body.h:318,829`): the human-controlled
+    /// attack-move override (`0x70982C`).
+    #[serde(default)]
+    pub player_attack_move_targeting_delay: Option<i32>,
     /// `[General] CrushSlowdownMultiplier=` (`Valueable<double>`, default
     /// 0.2; `Ext/Rules/Body.cpp:273`, `Body.h:191,715`): the cap for the
     /// Drive/Ship crush slowdown (`0x4B1150`, `0x6A0813`).
@@ -1142,6 +1168,11 @@ impl Default for PhobosGlobals {
             keep_range_allow_player: false,
             art_image_swap: false,
             ai_guard_area_targeting_delay: None,
+            ai_normal_targeting_delay: None,
+            player_normal_targeting_delay: None,
+            player_guard_area_targeting_delay: None,
+            ai_attack_move_targeting_delay: None,
+            player_attack_move_targeting_delay: None,
             crush_slowdown_multiplier: crush_slowdown_default(),
             skip_crush_slowdown: false,
             aircraft_firing_force_scatter: aircraft_firing_force_scatter_default(),
@@ -1592,6 +1623,26 @@ impl PhobosGlobals {
         globals.ai_guard_area_targeting_delay = general.read_phobos_nullable_int(
             "AIGuardAreaTargetingDelay",
             globals.ai_guard_area_targeting_delay,
+        );
+        globals.ai_normal_targeting_delay = general.read_phobos_nullable_int(
+            "AINormalTargetingDelay",
+            globals.ai_normal_targeting_delay,
+        );
+        globals.player_normal_targeting_delay = general.read_phobos_nullable_int(
+            "PlayerNormalTargetingDelay",
+            globals.player_normal_targeting_delay,
+        );
+        globals.player_guard_area_targeting_delay = general.read_phobos_nullable_int(
+            "PlayerGuardAreaTargetingDelay",
+            globals.player_guard_area_targeting_delay,
+        );
+        globals.ai_attack_move_targeting_delay = general.read_phobos_nullable_int(
+            "AIAttackMoveTargetingDelay",
+            globals.ai_attack_move_targeting_delay,
+        );
+        globals.player_attack_move_targeting_delay = general.read_phobos_nullable_int(
+            "PlayerAttackMoveTargetingDelay",
+            globals.player_attack_move_targeting_delay,
         );
         globals.crush_slowdown_multiplier = read_double_bits(
             &general,

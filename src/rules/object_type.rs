@@ -2742,6 +2742,13 @@ pub struct ObjectType {
     /// Parsed from `Bunkerable=` in rules.ini. UnitTypeClass entries default
     /// true; other object categories default false.
     pub bunkerable: bool,
+    /// Phobos `TechnoTypeExt::BunkerableAnyway` (`Ext/TechnoType/Body.cpp:1082`,
+    /// `Valueable<bool>`, default false): a `Bunkerable=yes` type may enter a
+    /// tank bunker without a turret, current weapon or non-hover SpeedType
+    /// (`FootClass_IsBunkerableNow_Dehardcode`, `0x70FB73`,
+    /// `Ext/Techno/Hooks.Misc.cpp:915-929`).
+    #[cfg(feature = "phobos")]
+    pub phobos_bunkerable_anyway: bool,
 
     /// The native base weapon array (`TechnoTypeClass+0x898`, stride `0x1C`,
     /// `WEAPON_SLOT_COUNT` slots). Always that long; empty slots are `None`.
@@ -6926,6 +6933,8 @@ impl ObjectType {
             grinding: section.read_bool("Grinding", false),
             hospital,
             bunkerable: section.read_bool("Bunkerable", category == ObjectCategory::Vehicle),
+            #[cfg(feature = "phobos")]
+            phobos_bunkerable_anyway: section.read_bool("BunkerableAnyway", false),
             // Constructor values: the ordered Rules processor owns the
             // per-pass weapon block and RuleSet publishes its arrays.
             weapon_list: vec![None; WEAPON_SLOT_COUNT],

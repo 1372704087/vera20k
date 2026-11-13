@@ -391,6 +391,13 @@ pub(crate) trait JumpjetFlightHost {
     fn has_target(&self) -> bool;
     /// Foot `+0x6AD`: a Magnetron lifted the owner (`sim::locomotor_lift`).
     fn piggyback_active(&self) -> bool;
+    /// Phobos `JumpjetRotateOnCrash=` (hook `0x54CB0E`,
+    /// `Ext/Unit/Hooks.Jumpjet.cpp:153-158`): when false, state 5 skips the
+    /// `ADD CX,0x2D00` facing re-aim (`0x0054CB0E..0x0054CB39`) and drops
+    /// straight to the impact test. Defaults to the native spin.
+    fn jumpjet_rotate_on_crash(&self) -> bool {
+        true
+    }
     /// A lifted owner's arrival (`0x0054C1BD..0x0054C1CB`): the Magnetron
     /// still holding it (`+0x2B0`) lets it go (`0x0070FEE0(1)`), which drops
     /// it. The callback runs on the published instance.
@@ -1305,7 +1312,8 @@ pub(crate) fn state4_descend(
 ///
 /// The owner drops by `JumpjetCrash=` below where Update left it, truncated by
 /// `Math::ftol` (`0x0054CAFE..0x0054CB0A`), and the facing is re-aimed
-/// `0x2D00` past its animated current (`0x0054CB0E..0x0054CB39`). A lifted
+/// `0x2D00` past its animated current (`0x0054CB0E..0x0054CB39`) unless Phobos
+/// `JumpjetRotateOnCrash=` is false (hook `0x54CB0E`). A lifted
 /// owner (`+0x6AD`) instead stops dead and falls ever faster: its speeds
 /// zero and `JumpjetCrash=` grows by 1.0f a frame after the drop, stored as
 /// binary32 under the chop control word (`0x0054CAD2..0x0054CAFC`). Only a
@@ -1348,7 +1356,7 @@ pub(crate) fn state5_crash(runtime: &mut JumpjetRuntime, host: &mut impl Jumpjet
             single(ONE_F32),
         ))
         .bits();
-    } else {
+    } else if host.jumpjet_rotate_on_crash() {
         let spin = runtime
             .flight
             .facing

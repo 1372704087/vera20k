@@ -1418,6 +1418,28 @@ fn release_contact(
 /// as a plain `Bunker=` type.
 const PLAIN_REPAIR_DELAY_FRAMES: i32 = 0xF;
 
+/// `0x0044C970`'s return for a plain type, with Phobos
+/// `BunkerStateUpdateDelay` (`Ext/Building/Hooks.cpp:1474-1485`, hook
+/// `0x44C976`): a `Bunker=` type whose install is underway
+/// (`TankBunkerState > Idle && < Bunkered`) returns the BuildingType's
+/// `Nullable<int>`, else `[General] BunkerStateUpdateDelay=` (constructor 15).
+fn plain_repair_delay(
+    object: &crate::rules::object_type::ObjectType,
+    bunker_installing: Option<bool>,
+    rules: &RuleSet,
+) -> i32 {
+    #[cfg(feature = "phobos")]
+    {
+        if object.bunker && bunker_installing == Some(true) {
+            return object
+                .phobos_bunker_state_update_delay
+                .unwrap_or(rules.phobos_globals.bunker_state_update_delay);
+        }
+    }
+    let _ = (object, bunker_installing, rules);
+    PLAIN_REPAIR_DELAY_FRAMES
+}
+
 /// BuildingClass::MissionRepairAndProduce's ConstructionYard arm
 /// (`0x0044B7BC..0x0044B86F`), entered through Receive_Radio's 0xB message
 /// (`0x0043CC39`). Status 0 begins the Active body (Begin_Mode(2),
@@ -1526,7 +1548,15 @@ pub(crate) fn mission_repair(
         }
         // 0x0044C836 -> 0x0044C970: a type in none of the five families.
         let plain = !(object.unit_reload || object.hospital || object.armory());
-        return plain.then_some(PLAIN_REPAIR_DELAY_FRAMES);
+        if !plain {
+            return None;
+        }
+        let bunker_state = sim.substrate.entities.get(depot).and_then(|building| {
+            building
+                .bunker_runtime
+                .map(|runtime| runtime.is_installing())
+        });
+        return Some(plain_repair_delay(object, bunker_state, rules));
     }
     let status = building.mission.handler_state();
     let current = building
@@ -1815,6 +1845,40 @@ mod tests {
     use crate::sim::game_entity::GameEntity;
     use crate::sim::movement::locomotor::MovementLayer;
     use crate::sim::occupancy::CellListInsertion;
+
+    /// Phobos `BunkerStateUpdateDelay` (`Ext/Building/Hooks.cpp:1474-1485`,
+    /// hook `0x44C976`): the BuildingType nullable, else `[General]`, replaces
+    /// the plain-family return only while a `Bunker=` type's install is
+    /// underway; every other state keeps the stock 15 frames.
+    #[cfg(feature = "phobos")]
+    #[test]
+    fn bunker_state_update_delay_covers_the_install_states_only() {
+        use crate::rules::object_type::{ObjectCategory, ObjectType};
+
+        let section =
+            IniFile::from_str("[BNK]\nStrength=500\nBunker=yes\nBunkerStateUpdateDelay=40\n");
+        let object = ObjectType::from_ini_section(
+            "BNK",
+            section.section("BNK").unwrap(),
+            ObjectCategory::Building,
+        );
+        assert_eq!(object.phobos_bunker_state_update_delay, Some(40));
+        let rules = RuleSet::from_ini(&IniFile::from_str("[General]\nBunkerStateUpdateDelay=33\n"))
+            .unwrap();
+        assert_eq!(plain_repair_delay(&object, Some(true), &rules), 40);
+        assert_eq!(
+            plain_repair_delay(&object, Some(false), &rules),
+            PLAIN_REPAIR_DELAY_FRAMES
+        );
+        let bare = IniFile::from_str("[BNK]\nStrength=500\nBunker=yes\n");
+        let bare = ObjectType::from_ini_section(
+            "BNK",
+            bare.section("BNK").unwrap(),
+            ObjectCategory::Building,
+        );
+        assert_eq!(bare.phobos_bunker_state_update_delay, None);
+        assert_eq!(plain_repair_delay(&bare, Some(true), &rules), 33);
+    }
 
     /// Every initialized45C300 row comes from saved original execution,
     /// including omitted/repeated entries and the empty0x0 row.

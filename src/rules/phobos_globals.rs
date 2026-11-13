@@ -215,6 +215,24 @@ pub struct PhobosGlobals {
     /// (`Ext/Aircraft/Hooks.cpp:324,341-355`).
     #[serde(default = "aircraft_firing_force_scatter_default")]
     pub aircraft_firing_force_scatter: bool,
+    /// `[General] BunkerStateUpdateDelay=` (`Valueable<int>`, default **15**;
+    /// `Ext/Rules/Body.cpp:617`, `Body.h:515,1012`): the fallback for a
+    /// BuildingType's nullable; the Mission_Repair return while a tank bunker
+    /// installs (`0x44C976`, `Ext/Building/Hooks.cpp:1474-1485`).
+    #[serde(default = "fifteen")]
+    pub bunker_state_update_delay: i32,
+    /// `[General] ChronoSpherePreDelay=` (`Valueable<int>`, default **60**;
+    /// `Ext/Rules/Body.cpp:120`, `Body.h:39,579`): the fallback for a
+    /// TechnoType's nullable; the frames state 0 of the Chronosphere warp
+    /// waits (`0x007197DF`, `Ext/TechnoType/Hooks.Teleport.cpp:154-163`).
+    #[serde(default = "sixty")]
+    pub chrono_sphere_pre_delay: i32,
+    /// `[JumpjetControls] RotateOnCrash=` (`Valueable<bool>`, default **true**;
+    /// `Ext/Rules/Body.cpp:1355`, `Body.h:56,596`): the fallback for a
+    /// TechnoType's nullable `JumpjetRotateOnCrash=`; the Jumpjet crash's
+    /// facing spin (hook `0x54CB0E`).
+    #[serde(default = "truth")]
+    pub jumpjet_rotate_on_crash: bool,
     /// `[General] Sinkable=` (`Nullable<bool>`, unset; `Ext/Rules/Body.cpp:
     /// 484`, `Body.h:394,899`): the fallback for a UnitType's `Sinkable`;
     /// unset keeps the stock type-property gate.
@@ -1075,6 +1093,21 @@ fn aircraft_firing_force_scatter_default() -> bool {
     true
 }
 
+/// `BunkerStateUpdateDelay=`'s constructor value (`Ext/Rules/Body.h:1012`).
+fn fifteen() -> i32 {
+    15
+}
+
+/// `ChronoSpherePreDelay=`'s constructor value (`Ext/Rules/Body.h:579`).
+fn sixty() -> i32 {
+    60
+}
+
+/// `JumpjetRotateOnCrash=`'s constructor value (`Ext/Rules/Body.h:596`).
+fn truth() -> bool {
+    true
+}
+
 /// `CombatAlert.Interval=`'s constructor value (`Ext/Rules/Body.h:787`).
 fn combat_alert_interval_default() -> i32 {
     150
@@ -1152,6 +1185,9 @@ impl Default for PhobosGlobals {
             crush_slowdown_multiplier: crush_slowdown_default(),
             skip_crush_slowdown: false,
             aircraft_firing_force_scatter: aircraft_firing_force_scatter_default(),
+            bunker_state_update_delay: fifteen(),
+            chrono_sphere_pre_delay: sixty(),
+            jumpjet_rotate_on_crash: truth(),
             sinkable: None,
             sink_speed: 5,
             paradrop_mission: MissionType::Guard,
@@ -1645,6 +1681,13 @@ impl PhobosGlobals {
             "AircraftFiringForceScatter",
             globals.aircraft_firing_force_scatter,
         );
+        globals.bunker_state_update_delay =
+            general.read_int("BunkerStateUpdateDelay", globals.bunker_state_update_delay);
+        globals.chrono_sphere_pre_delay =
+            general.read_int("ChronoSpherePreDelay", globals.chrono_sphere_pre_delay);
+        globals.jumpjet_rotate_on_crash = ini
+            .section_or_empty("JumpjetControls")
+            .read_bool("RotateOnCrash", globals.jumpjet_rotate_on_crash);
         globals.sinkable = general.read_phobos_nullable_bool("Sinkable", globals.sinkable);
         globals.sink_speed = general.read_int("SinkSpeed", globals.sink_speed);
         globals.paradrop_mission = general.read_string_with(

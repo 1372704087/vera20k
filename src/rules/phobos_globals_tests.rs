@@ -745,6 +745,47 @@ fn self_heal_caps_and_gates_default_and_read() {
     assert!(set.gain_self_heal_from_allies);
 }
 
+/// `[General] BunkerStateUpdateDelay=` (`Ext/Rules/Body.cpp:617`,
+/// constructor **15** `Body.h:1012`).
+#[test]
+fn the_bunker_state_update_delay_defaults_to_fifteen() {
+    assert_eq!(PhobosGlobals::default().bunker_state_update_delay, 15);
+    assert_eq!(
+        read("[General]\nBunkerStateUpdateDelay=33\n").bunker_state_update_delay,
+        33
+    );
+    // `[General]` only.
+    assert_eq!(
+        read("[AudioVisual]\nBunkerStateUpdateDelay=33\n").bunker_state_update_delay,
+        15
+    );
+}
+
+/// `[General] ChronoSpherePreDelay=` (`Ext/Rules/Body.cpp:120`,
+/// constructor **60** `Body.h:579`).
+#[test]
+fn the_chrono_sphere_pre_delay_defaults_to_sixty() {
+    assert_eq!(PhobosGlobals::default().chrono_sphere_pre_delay, 60);
+    assert_eq!(
+        read("[General]\nChronoSpherePreDelay=45\n").chrono_sphere_pre_delay,
+        45
+    );
+    assert_eq!(
+        read("[AudioVisual]\nChronoSpherePreDelay=45\n").chrono_sphere_pre_delay,
+        60
+    );
+}
+
+/// `[JumpjetControls] RotateOnCrash=` (`Ext/Rules/Body.cpp:1355`,
+/// constructor **true** `Body.h:596`).
+#[test]
+fn the_jumpjet_rotate_on_crash_defaults_true() {
+    assert!(PhobosGlobals::default().jumpjet_rotate_on_crash);
+    assert!(!read("[JumpjetControls]\nRotateOnCrash=no\n").jumpjet_rotate_on_crash);
+    // `[JumpjetControls]` only.
+    assert!(read("[General]\nRotateOnCrash=no\n").jumpjet_rotate_on_crash);
+}
+
 /// `[General] AircraftFiringForceScatter=` (`Ext/Rules/Body.cpp:473`,
 /// constructor **true** `Body.h:888`).
 #[test]

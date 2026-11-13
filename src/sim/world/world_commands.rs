@@ -4571,6 +4571,36 @@ mod tests {
         }
     }
 
+    /// Phobos `BunkerableAnyway=` (`Ext/TechnoType/Body.cpp:1082`, ctor false
+    /// `Ext/TechnoType/Body.h:753`; hook `0x70FB73` at
+    /// `Ext/Techno/Hooks.Misc.cpp:913-929`): a `Bunkerable=` vehicle with no
+    /// turret, no weapon and `SpeedType=Hover` is admitted only when the flag
+    /// is set, and the same type without it is refused.
+    #[cfg(feature = "phobos")]
+    #[test]
+    fn bunkerable_anyway_admits_a_turretless_hover_vehicle() {
+        let rules = |anyway: &str| {
+            RuleSet::from_ini(&IniFile::from_str(&format!(
+                "[VehicleTypes]\n0=ODD\n\n[BuildingTypes]\n0=NATBNK\n\n\
+                 [ODD]\nStrength=400\nArmor=heavy\nSpeed=6\nTurret=no\nSpeedType=Hover\n{anyway}\
+                 [NATBNK]\nStrength=1000\nArmor=heavy\nBunker=yes\n"
+            )))
+            .expect("bunker rules")
+        };
+        let admit = |rules: &RuleSet| {
+            let mut sim = Simulation::new();
+            spawn_bunker_struct(&mut sim, 2, "Americans", 10, 10);
+            spawn_bunkerable(&mut sim, 1, "Americans", "ODD", 14, 14);
+            crate::sim::radio::receive::can_load_query(&sim, 2, 1, rules)
+        };
+        let anyway = rules("BunkerableAnyway=yes\n");
+        assert_eq!(anyway.object("ODD").unwrap().phobos_bunkerable_anyway, true);
+        assert_eq!(admit(&anyway), crate::sim::radio::RadioResponse::Roger);
+        let stock = rules("");
+        assert!(!stock.object("ODD").unwrap().phobos_bunkerable_anyway);
+        assert_ne!(admit(&stock), crate::sim::radio::RadioResponse::Roger);
+    }
+
     /// CAN_LOAD refuses a bunker under Construction or being sold
     /// (`0x0043C326..0x0043C346`) without mutating the tank's current seek
     /// or the target's ready latch. This compares the query only; no

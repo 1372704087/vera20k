@@ -559,6 +559,11 @@ pub struct WarheadType {
     /// Phobos `KillWeapon.*` (`Ext/WarheadType/Body.cpp:371-390`).
     #[cfg(feature = "phobos")]
     pub phobos_kill_weapon: crate::rules::phobos_kill_weapon::PhobosKillWeaponRules,
+    /// Phobos `SuppressRevengeWeapons=` / `.Types=`
+    /// (`Ext/WarheadType/Body.cpp:356-357`): the victim's revenge weapons do
+    /// not fire at this warhead's source.
+    #[cfg(feature = "phobos")]
+    pub phobos_revenge_weapon: crate::rules::phobos_revenge_weapon::SuppressRevengeWeaponsRules,
     /// Phobos `PenetratesTransport.*` (`Ext/WarheadType/Body.cpp:437-442`).
     #[cfg(feature = "phobos")]
     pub phobos_penetrates_transport:
@@ -600,16 +605,6 @@ pub struct WarheadType {
     /// suppression directly; unset uses `!Malicious || Nonprovocative`.
     #[cfg(feature = "phobos")]
     pub combat_alert_suppress: Option<bool>,
-    /// Phobos `SuppressRevengeWeapons=` (`Ext/WarheadType/Body.cpp:356`,
-    /// `Valueable<bool>` default `no`, `Body.h:201`): a hit with this warhead
-    /// skips the victim's revenge weapons.
-    #[cfg(feature = "phobos")]
-    pub suppress_revenge_weapons: bool,
-    /// `SuppressRevengeWeapons.Types=` (`Body.cpp:357`,
-    /// `ValueableVector<WeaponTypeClass*>`): with entries, only the named
-    /// revenge weapons are suppressed.
-    #[cfg(feature = "phobos")]
-    pub suppress_revenge_weapons_types: Vec<String>,
     /// Phobos `Parasite.ParticleSystem`/`.DisableParticleSystem`/
     /// `.CullingTarget`/`.GrappleAnim` (`Ext/WarheadType/Body.cpp:322-325`).
     #[cfg(feature = "phobos")]
@@ -786,22 +781,6 @@ impl WarheadType {
     #[cfg(feature = "phobos")]
     pub fn health_check(&self) -> bool {
         self.affects_above_percent > 0.0 || self.affects_below_percent < 1.0
-    }
-
-    /// Phobos `TechnoExt::ApplyRevengeWeapon`'s gate
-    /// (`Ext/Techno/WeaponHelpers.cpp:262-264`): `SuppressRevengeWeapons`
-    /// drops a revenge weapon unless a non-empty `.Types` list does not name
-    /// it.
-    #[cfg(feature = "phobos")]
-    pub fn suppresses_revenge_weapon(&self, weapon: &str) -> bool {
-        if !self.suppress_revenge_weapons {
-            return false;
-        }
-        self.suppress_revenge_weapons_types.is_empty()
-            || self
-                .suppress_revenge_weapons_types
-                .iter()
-                .any(|name| name.eq_ignore_ascii_case(weapon))
     }
 
     /// Phobos `VeterancyCheck`, derived after each read (`Body.cpp:410`).
@@ -1142,6 +1121,11 @@ impl WarheadType {
                 section,
             ),
             #[cfg(feature = "phobos")]
+            phobos_revenge_weapon:
+                crate::rules::phobos_revenge_weapon::SuppressRevengeWeaponsRules::from_section(
+                    section,
+                ),
+            #[cfg(feature = "phobos")]
             phobos_penetrates_transport:
                 crate::rules::phobos_penetrates_transport::PenetratesTransportWarheadRules::from_section(
                     section,
@@ -1167,18 +1151,6 @@ impl WarheadType {
             nonprovocative: section.read_bool("Nonprovocative", false),
             #[cfg(feature = "phobos")]
             combat_alert_suppress: section.read_phobos_nullable_bool("CombatAlert.Suppress", None),
-            // `WarheadTypeExt::LoadFromINI` reads the suppressor and its typed
-            // list together (`Ext/WarheadType/Body.cpp:356-357`).
-            #[cfg(feature = "phobos")]
-            suppress_revenge_weapons: section.read_bool("SuppressRevengeWeapons", false),
-            #[cfg(feature = "phobos")]
-            suppress_revenge_weapons_types:
-                crate::rules::native_processing::read_valueable_type_vector(
-                    section,
-                    "SuppressRevengeWeapons.Types",
-                    &[],
-                    |name| Some(name.to_owned()),
-                ),
             // `WarheadTypeExt::LoadFromINI` reads the four `UnlimboDetonate`
             // keys in this order (`Ext/WarheadType/Body.cpp:420-423`); their
             // constructor defaults are no/no/yes/yes (`Body.h:550-553`).

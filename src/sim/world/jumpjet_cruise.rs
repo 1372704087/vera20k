@@ -255,6 +255,24 @@ impl JumpjetFlightHost for CruiseHost<'_> {
     fn piggyback_active(&self) -> bool {
         self.owner().lift.swap_active()
     }
+
+    /// Phobos `JumpjetRotateOnCrash=` (`Ext/TechnoType/Body.h:421`, ctor
+    /// unset `:841`) over `[JumpjetControls] RotateOnCrash` (constructor true,
+    /// `Ext/Rules/Body.h:56,596`); hook `0x54CB0E`
+    /// (`Ext/Unit/Hooks.Jumpjet.cpp:153-158`).
+    fn jumpjet_rotate_on_crash(&self) -> bool {
+        #[cfg(not(feature = "phobos"))]
+        {
+            true
+        }
+        #[cfg(feature = "phobos")]
+        {
+            let object = self.sim.object_type(self.owner().type_ref(), self.rules);
+            object
+                .and_then(|object| object.phobos_jumpjet_rotate_on_crash)
+                .unwrap_or(self.rules.phobos_globals.jumpjet_rotate_on_crash)
+        }
+    }
     fn piggyback_arrival(&mut self, runtime: &mut JumpjetRuntime) {
         let Some(holder) = self.owner().lift.source() else {
             return;
@@ -1023,6 +1041,70 @@ mod tests {
             phase
         })
         .unwrap()
+    }
+
+    /// Phobos `JumpjetRotateOnCrash=` (`Ext/TechnoType/Body.h:421`, ctor unset
+    /// `:841`; `[JumpjetControls] RotateOnCrash` true `Ext/Rules/Body.h:596`):
+    /// hook `0x54CB0E` (`Ext/Unit/Hooks.Jumpjet.cpp:153-158`) sends state 5
+    /// past the `ADD CX,0x2D00` facing re-aim when the key is false.
+    #[cfg(feature = "phobos")]
+    #[test]
+    fn jumpjet_rotate_on_crash_false_skips_the_crash_spin() {
+        let run = |key: &str| {
+            let rules = RuleSet::from_ini(&crate::rules::ini_parser::IniFile::from_str(&format!(
+                "[VehicleTypes]\n0=JUMPJETUNIT\n\n[JUMPJETUNIT]\nStrength=200\n{key}"
+            )))
+            .expect("rules");
+            let mut sim = hovering_jumpjet(0x40);
+            sim.substrate
+                .entities
+                .get_mut(1)
+                .unwrap()
+                .crash
+                .set_crashing_for_test(true);
+            let facing = |sim: &Simulation| {
+                let entity = sim.substrate.entities.get(1).unwrap();
+                let runtime = entity
+                    .locomotor
+                    .as_ref()
+                    .unwrap()
+                    .jumpjet_runtime()
+                    .unwrap();
+                let flight = runtime.flight();
+                (flight.facing().current(0), flight.facing().destination())
+            };
+            let before = facing(&sim);
+            sim.with_jumpjet_process(1, |runtime, sim| {
+                let mut host = CruiseHost {
+                    sim,
+                    frame: 0,
+                    trig: TrigTable::embedded(),
+                    rules: &rules,
+                    registry: None,
+                    frame_effects: FrameEffects::default(),
+                    stable_id: 1,
+                    touched_down: false,
+                    impact: false,
+                    crash_latched: false,
+                    bridge_state_changed: false,
+                    per_cell_error: None,
+                };
+                let _ = jumpjet_flight::state5_crash(runtime, &mut host);
+            });
+            (before, facing(&sim))
+        };
+        let seeded = u16::from(0x40u8) << 8;
+        let (before, after) = run("");
+        assert_eq!(before.0, seeded);
+        assert_eq!(
+            after.1,
+            seeded.wrapping_add(0x2D00),
+            "the stock crash re-aims the facing by 0x2D00"
+        );
+        assert_ne!(after.0, before.0, "and the facing starts turning");
+        let (before, after) = run("JumpjetRotateOnCrash=no\n");
+        assert_eq!(before.0, seeded);
+        assert_eq!(after, before, "the key keeps the facing still");
     }
 
     #[test]

@@ -2885,17 +2885,18 @@ pub(crate) fn handle_death(
             if callbacks_enabled(world)
                 && let Some(attacker_id) = killing_attacker(world, damage_events, dead_id)
             {
-                // The warhead of the hit that killed, whose
-                // `SuppressRevengeWeapons` gates the shots
-                // (`Ext/Techno/WeaponHelpers.cpp:261-264`).
-                let killing_warhead = damage_events
+                // Phobos `SuppressRevengeWeapons=` on the killing warhead
+                // (`Ext/Techno/WeaponHelpers.cpp:281-282`).
+                let suppress = damage_events
                     .iter()
                     .rfind(|event| event.target_id == dead_id)
-                    .and_then(|event| rules.warhead(world.interner.resolve(event.warhead_ref)));
+                    .and_then(|event| rules.warhead(world.interner.resolve(event.warhead_ref)))
+                    .map(|warhead| warhead.phobos_revenge_weapon.clone())
+                    .unwrap_or_default();
                 world.apply_attach_effect_revenge_weapons(
                     dead_id,
                     attacker_id,
-                    killing_warhead,
+                    &suppress,
                     rules,
                     overlay_registry,
                     run.effects(),

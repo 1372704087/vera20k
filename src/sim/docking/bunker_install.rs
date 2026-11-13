@@ -67,9 +67,22 @@ pub struct BunkerRuntime {
 
 impl BunkerRuntime {
     /// The install machine's state; production reads only the transitions.
-    #[cfg(any(test, feature = "test-support"))]
     pub(crate) fn state(&self) -> BunkerState {
         self.state
+    }
+
+    /// Phobos `BunkerStateUpdateDelay` (`Ext/Building/Hooks.cpp:1481`): the
+    /// states between `Idle` and `Bunkered` are the ones whose Mission_Repair
+    /// return the delay replaces.
+    pub(crate) fn is_installing(&self) -> bool {
+        matches!(
+            self.state,
+            BunkerState::ClearWait
+                | BunkerState::TurnToBuilding
+                | BunkerState::TrackStep
+                | BunkerState::TurnSouth
+                | BunkerState::WallsUp
+        )
     }
 
     /// Install state 5's end (`0x00459301..0x00459337`): the links are made,

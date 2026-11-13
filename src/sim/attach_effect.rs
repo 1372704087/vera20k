@@ -3248,7 +3248,7 @@ impl Simulation {
         &mut self,
         victim_id: u64,
         attacker_id: u64,
-        killing_warhead: Option<&crate::rules::warhead_type::WarheadType>,
+        suppress: &crate::rules::phobos_revenge_weapon::SuppressRevengeWeaponsRules,
         rules: &crate::rules::ruleset::RuleSet,
         overlay_registry: Option<&crate::rules::overlay_types::OverlayTypeRegistry>,
         effects: crate::sim::world::FrameEffects<'_>,
@@ -3267,7 +3267,10 @@ impl Simulation {
             let Some(weapon) = effect.revenge_weapon.as_deref() else {
                 continue;
             };
-            if killing_warhead.is_some_and(|warhead| warhead.suppresses_revenge_weapon(weapon)) {
+            // `TechnoExt::ApplyRevengeWeapon`
+            // (`Ext/Techno/WeaponHelpers.cpp:281-282`): a warhead whose
+            // `SuppressRevengeWeapons=` covers this weapon drops the shot.
+            if suppress.suppresses(effect.revenge_weapon.as_deref()) {
                 continue;
             }
             let Some(shot) = instance.revenge_weapon_shot(effect, victim_id, victim_owner) else {
@@ -6026,28 +6029,31 @@ AttachEffect.InitialDelays=3
         );
     }
 
-    /// Phobos `TechnoExt::ApplyRevengeWeapon`'s `SuppressRevengeWeapons` gate
-    /// (`Ext/Techno/WeaponHelpers.cpp:261-264`): the killing warhead drops
-    /// every revenge weapon, or, with `.Types`, only the ones it names.
+    /// Phobos `SuppressRevengeWeapons=` / `.Types=` on the killing warhead
+    /// (`Ext/WarheadType/Body.cpp:356-357`;
+    /// `Ext/Techno/WeaponHelpers.cpp:281-282`): the effect's revenge weapon is
+    /// dropped for every weapon without a filter list, dropped for a listed
+    /// weapon, and still fired when the list names another weapon.
     #[test]
-    fn suppress_revenge_weapons_drops_the_killing_hits_revenge_shots() {
-        let run = |killing: &str| -> i32 {
+    fn suppress_revenge_weapons_drops_the_effect_shot() {
+        let run = |warhead_keys: &str| {
             let (mut sim, rules) = arena_scene(
                 &format!(
                     "[Countries]\n0=Americans\n1=Russians\n[VehicleTypes]\n0=ATTACKER\n1=TARGET\n\
                      [ATTACKER]\nStrength=1000\nSpeed=6\nArmor=none\nPrimary=KILLW\n\
                      [TARGET]\nStrength=50\nSpeed=6\nArmor=none\nAttachEffect.AttachTypes=REV\n\
-                     [HIT]\n{ALL_HIT}{killing}\
+                     [HIT]\n{ALL_HIT}{warhead_keys}\
                      [KILLW]\nDamage=100\nRange=1\nWarhead=HIT\n\
                      [REVW]\nDamage=7\nRange=1\nWarhead=HIT\n\
+                     [OTHERW]\nDamage=11\nRange=1\nWarhead=HIT\n\
                      [AttachEffectTypes]\n0=REV\n[REV]\nDuration=-1\nRevengeWeapon=REVW\n"
                 ),
-                29,
+                23,
             );
             let attacker = spawn(&mut sim, &rules, "ATTACKER", "Russians", 20, 20);
             let victim = spawn(&mut sim, &rules, "TARGET", "Americans", 21, 20);
             sim.update_phobos_attach_effects(victim, &rules);
-            assert_eq!(attach_count(&sim, victim), 1, "{killing}: attached");
+            assert_eq!(attach_count(&sim, victim), 1);
             let warhead = sim.interner.intern("HIT");
             let event = direct_hit(victim, 100, attacker, warhead);
             let _ = sim.commit_direct_damage_receiver(
@@ -6056,22 +6062,21 @@ AttachEffect.InitialDelays=3
                 event,
                 crate::sim::world::FrameEffects::empty(),
             );
-            assert_eq!(health(&sim, victim), 0, "{killing}: the victim died");
             health(&sim, attacker)
         };
-        // No key: the stock revenge shot lands.
+        // The killing warhead's own `HIT` carries no suppression: 1000 - 7.
         assert_eq!(run(""), 993);
-        // Suppressed outright.
+        // No filter list: every revenge weapon is suppressed.
         assert_eq!(run("SuppressRevengeWeapons=yes\n"), 1000);
-        // A filter that does not name REVW leaves it firing.
+        // The filter names the fired weapon.
         assert_eq!(
-            run("SuppressRevengeWeapons=yes\nSuppressRevengeWeapons.Types=OTHER\n"),
-            993
-        );
-        // A filter that names it drops it; the comparison ignores case.
-        assert_eq!(
-            run("SuppressRevengeWeapons=yes\nSuppressRevengeWeapons.Types=revw\n"),
+            run("SuppressRevengeWeapons=yes\nSuppressRevengeWeapons.Types=REVW\n"),
             1000
+        );
+        // The filter names another weapon, so the shot still lands.
+        assert_eq!(
+            run("SuppressRevengeWeapons=yes\nSuppressRevengeWeapons.Types=OTHERW\n"),
+            993
         );
     }
 

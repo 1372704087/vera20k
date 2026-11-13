@@ -196,6 +196,12 @@ pub struct PhobosGlobals {
     /// Drive/Ship crush slowdown (`0x4B1150`, `0x6A0813`).
     #[serde(default = "crush_slowdown_default")]
     pub crush_slowdown_multiplier: NativeF64Bits,
+    /// `[General] SkipCrushSlowdown=` (`Valueable<bool>`, default **false**;
+    /// `Ext/Rules/Body.cpp:274`, `Body.h:192,716`): the fallback for a
+    /// UnitType's `Nullable<bool>`; Drive and Ship skip the crush slowdown arm
+    /// when it is set (`0x4B1146`/`0x6A0809`, `Ext/Unit/Hooks.Crushing.cpp:104-109`).
+    #[serde(default)]
+    pub skip_crush_slowdown: bool,
     /// `[General] Sinkable=` (`Nullable<bool>`, unset; `Ext/Rules/Body.cpp:
     /// 484`, `Body.h:394,899`): the fallback for a UnitType's `Sinkable`;
     /// unset keeps the stock type-property gate.
@@ -1084,6 +1090,7 @@ impl Default for PhobosGlobals {
             art_image_swap: false,
             ai_guard_area_targeting_delay: None,
             crush_slowdown_multiplier: crush_slowdown_default(),
+            skip_crush_slowdown: false,
             sinkable: None,
             sink_speed: 5,
             paradrop_mission: MissionType::Guard,
@@ -1533,6 +1540,8 @@ impl PhobosGlobals {
             "CrushSlowdownMultiplier",
             globals.crush_slowdown_multiplier,
         );
+        globals.skip_crush_slowdown =
+            general.read_bool("SkipCrushSlowdown", globals.skip_crush_slowdown);
         globals.sinkable = general.read_phobos_nullable_bool("Sinkable", globals.sinkable);
         globals.sink_speed = general.read_int("SinkSpeed", globals.sink_speed);
         globals.paradrop_mission = general.read_string_with(

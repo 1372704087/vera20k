@@ -974,6 +974,13 @@ pub struct ObjectType {
     /// the Drive/Ship crush slowdown cap (`0x4B1150`, `0x6A0813`).
     #[cfg(feature = "phobos")]
     pub phobos_crush_slowdown_multiplier: Option<crate::util::native_x87::NativeF64Bits>,
+    /// Phobos `SkipCrushSlowdown` (`Nullable<bool>`, unset;
+    /// `Ext/UnitType/Body.cpp:74`, `Body.h:59`, constructed unset `Body.h:122`):
+    /// a Drive/Ship unit that sets it skips the crush slowdown arm whole
+    /// (`0x4B1146`/`0x6A0809`, `Ext/Unit/Hooks.Crushing.cpp:104-109`); unset
+    /// takes `[General] SkipCrushSlowdown`. Vehicle types only.
+    #[cfg(feature = "phobos")]
+    pub phobos_skip_crush_slowdown: Option<bool>,
     /// Phobos `FactoryPlant.AllowTypes` / `.DisallowTypes` / `.MaxCount`
     /// (`Ext/BuildingType/Body.cpp:224-226`, declarations `Body.h:74-76`,
     /// constructors `:199-201`): the restricted-plant settings.
@@ -6266,6 +6273,10 @@ impl ObjectType {
             phobos_crush_slowdown_multiplier: section
                 .read_phobos_nullable_double("CrushSlowdownMultiplier", None)
                 .map(|value| crate::util::native_x87::NativeF64Bits::from_bits(value.to_bits())),
+            #[cfg(feature = "phobos")]
+            phobos_skip_crush_slowdown: (category == ObjectCategory::Vehicle)
+                .then(|| section.read_phobos_nullable_bool("SkipCrushSlowdown", None))
+                .flatten(),
             // `BuildingTypeExt::LoadFromINI` reads these three only on a
             // BuildingType section; VERA's ObjectType reader is shared.
             #[cfg(feature = "phobos")]
@@ -7658,13 +7669,15 @@ mod tests {
         assert_eq!(object.phobos_set_tab_by_selecting, 3);
 
         let unit = IniFile::from_str(
-            "[UNT]\nStrength=100\nDeployingAnims=A,B,C\nCrushOverlayExtraForwardTilt=0.05\n",
+            "[UNT]\nStrength=100\nDeployingAnims=A,B,C\nCrushOverlayExtraForwardTilt=0.05\n\
+             SkipCrushSlowdown=yes\n",
         );
         let object = ObjectType::from_ini_section(
             "UNT",
             unit.section("UNT").unwrap(),
             ObjectCategory::Vehicle,
         );
+        assert_eq!(object.phobos_skip_crush_slowdown, Some(true));
         assert_eq!(object.phobos_deploying_anims, ["A", "B", "C"]);
         // Phobos `ReadDouble` writes a `float`; the literal therefore lands as
         // the nearest binary32 widened back to double.
@@ -7693,6 +7706,7 @@ mod tests {
             ObjectCategory::Vehicle,
         );
         assert_eq!(object.phobos_deploy_fire_delay, None);
+        assert_eq!(object.phobos_skip_crush_slowdown, None);
         assert_eq!(object.phobos_no_alpha_image_on_buildup, None);
         assert!(!object.phobos_no_build_area_on_buildup);
         assert_eq!(object.phobos_set_tab_by_selecting, -1);

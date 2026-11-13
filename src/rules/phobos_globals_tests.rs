@@ -708,6 +708,15 @@ fn the_buildup_alpha_and_paradrop_delay_globals_read() {
     assert_eq!(wrong.paradrop_delay, 5);
 }
 
+/// `[General] SkipCrushSlowdown=` (`Ext/Rules/Body.cpp:274`, constructor
+/// **false** `Body.h:716`) and its `[General]`-only placement.
+#[test]
+fn the_skip_crush_slowdown_global_defaults_false_and_reads_general() {
+    assert!(!PhobosGlobals::default().skip_crush_slowdown);
+    assert!(read("[General]\nSkipCrushSlowdown=yes\n").skip_crush_slowdown);
+    assert!(!read("[AudioVisual]\nSkipCrushSlowdown=yes\n").skip_crush_slowdown);
+}
+
 /// `[General] AircraftSpawnFromEdge=` (`Ext/Rules/Body.cpp:193`, constructor
 /// `Owner` `Body.h:636`): the fallback for an AircraftType's own nullable.
 #[test]

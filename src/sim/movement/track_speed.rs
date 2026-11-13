@@ -216,6 +216,18 @@ pub(super) fn advance(
                 super::drive_locomotion::CRUSH_SLOWDOWN_CAP
             }
         },
+        skip_crush_slowdown: {
+            #[cfg(feature = "phobos")]
+            {
+                object
+                    .and_then(|object| object.phobos_skip_crush_slowdown)
+                    .unwrap_or(rules.phobos_globals.skip_crush_slowdown)
+            }
+            #[cfg(not(feature = "phobos"))]
+            {
+                false
+            }
+        },
     };
     if let Some(target) = retained_target {
         let step = super::drive_locomotion::track_speed_prefix(
@@ -489,6 +501,7 @@ mod tests {
                 sinking: input["sinking"].as_bool().unwrap_or(false),
                 crush_slowdown: input["crush"].as_bool().unwrap_or(false),
                 crush_slowdown_cap: CRUSH_SLOWDOWN_CAP,
+                skip_crush_slowdown: input["skip_crush"].as_bool().unwrap_or(false),
             };
             let mut measured = false;
             let step = track_speed_prefix(

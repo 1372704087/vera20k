@@ -1246,13 +1246,6 @@ pub struct ObjectType {
     /// bonuses, each `None` inheriting the same-named `[General]` value.
     #[cfg(feature = "phobos")]
     pub phobos_extra_threat: crate::rules::phobos_extra_threat::PhobosExtraThreat,
-    /// Phobos `BunkerStateUpdateDelay=` (BuildingType, `Nullable<int>`, unset;
-    /// `Ext/BuildingType/Body.cpp:253`, `Body.h:102`, constructed unset
-    /// `Body.h:225`): the Mission_Repair return while a tank bunker installs
-    /// (`0x44C976`, `Ext/Building/Hooks.cpp:1474-1485`); unset takes
-    /// `[General] BunkerStateUpdateDelay=`. Buildings only.
-    #[cfg(feature = "phobos")]
-    pub phobos_bunker_state_update_delay: Option<i32>,
     /// Phobos `TiberiumEater.*` (`Ext/TechnoType/Body.cpp:1402-1414`,
     /// `New/Type/Affiliated/TiberiumEaterTypeClass.cpp`); `None` when the
     /// type has no non-negative `TiberiumEater.TransDelay`.
@@ -2943,6 +2936,13 @@ pub struct ObjectType {
     /// `Ext/Techno/Hooks.Misc.cpp:915-929`).
     #[cfg(feature = "phobos")]
     pub phobos_bunkerable_anyway: bool,
+    /// Phobos `BuildingTypeExt::BunkerStateUpdateDelay`
+    /// (`Ext/BuildingType/Body.cpp:253`, `Nullable<int>`, unset inherits
+    /// `[General] BunkerStateUpdateDelay`, default 15): the Mission_Repair
+    /// revisit delay while a tank bunker is mid-install (`0x44C976`,
+    /// `Ext/Building/Hooks.cpp:1475-1483`).
+    #[cfg(feature = "phobos")]
+    pub phobos_bunker_state_update_delay: Option<i32>,
 
     /// The native base weapon array (`TechnoTypeClass+0x898`, stride `0x1C`,
     /// `WEAPON_SLOT_COUNT` slots). Always that long; empty slots are `None`.

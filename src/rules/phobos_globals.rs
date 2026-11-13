@@ -58,6 +58,11 @@ fn zero_f64() -> NativeF64Bits {
     NativeF64Bits::POSITIVE_ZERO
 }
 
+/// The Phobos `[General] BunkerStateUpdateDelay=` constructor value.
+fn fifteen() -> i32 {
+    15
+}
+
 /// `section.read_phobos_double` kept as raw bits so `PhobosGlobals` stays
 /// `Eq + Hash`; the parser and its failed-read fallback are unchanged.
 fn read_double_bits(section: &IniSection, key: &str, current: NativeF64Bits) -> NativeF64Bits {
@@ -1093,11 +1098,6 @@ fn aircraft_firing_force_scatter_default() -> bool {
     true
 }
 
-/// `BunkerStateUpdateDelay=`'s constructor value (`Ext/Rules/Body.h:1012`).
-fn fifteen() -> i32 {
-    15
-}
-
 /// `ChronoSpherePreDelay=`'s constructor value (`Ext/Rules/Body.h:579`).
 fn sixty() -> i32 {
     60
@@ -1490,6 +1490,8 @@ impl PhobosGlobals {
             "BuildingGuardRetryDelay",
             globals.building_guard_retry_delay,
         );
+        globals.bunker_state_update_delay =
+            general.read_int("BunkerStateUpdateDelay", globals.bunker_state_update_delay);
         // `Ext/Rules/Body.cpp:521`: `Valueable<Mission>`; a named mission
         // replaces the constructor's `Hunt`, any other text keeps it
         // (`Utilities/TemplateDef.h:510-528`).

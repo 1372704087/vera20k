@@ -614,6 +614,12 @@ pub struct AnimTypeRuntimeConfig {
     pub report: Option<String>,
     pub start_sound: Option<String>,
     pub stop_sound: Option<String>,
+    /// Phobos `AnimTypeExt::DetachedReport` (`Ext/AnimType/Body.cpp:108`,
+    /// `ValueableIdx<VocClass>`): a one-shot positional report played at
+    /// `AnimClass::Start` outside the attached audio handle (`0x424CF1`,
+    /// `Ext/Anim/Hooks.cpp:269-276`).
+    #[cfg(feature = "phobos")]
+    pub detached_report: Option<String>,
 }
 
 /// Failures while binding native AnimType metadata to retail SHP assets.
@@ -1028,6 +1034,10 @@ fn parse_anim_runtime_config(section: &IniSection) -> AnimTypeRuntimeConfig {
             .map(str::to_ascii_uppercase),
         stop_sound: section
             .read_name("StopSound", 0x80)
+            .map(str::to_ascii_uppercase),
+        #[cfg(feature = "phobos")]
+        detached_report: section
+            .read_name("DetachedReport", 0x80)
             .map(str::to_ascii_uppercase),
     }
 }

@@ -362,6 +362,27 @@ pub struct AnimTypeRuntimeConfig {
         Option<crate::rules::phobos_anim_type_ext::LandTypeFlags>,
     #[cfg(feature = "phobos")]
     pub phobos_attach_fire_anims_to_parent: Option<bool>,
+    /// Phobos fire-spawn keys (`Ext/AnimType/Body.cpp:115,118-125`) behind
+    /// `AnimExt::SpawnFireAnims` (`Ext/Anim/Body.cpp:309-405`): the small and
+    /// large fire loops a `Scorch=`/`Flamer=` anim runs when it completes.
+    #[cfg(feature = "phobos")]
+    pub phobos_constrain_fire_anims_to_cell_spots: bool,
+    #[cfg(feature = "phobos")]
+    pub phobos_small_fire_count: Option<i32>,
+    #[cfg(feature = "phobos")]
+    pub phobos_small_fire_anims: Vec<String>,
+    #[cfg(feature = "phobos")]
+    pub phobos_small_fire_chances: Vec<NativeF64Bits>,
+    #[cfg(feature = "phobos")]
+    pub phobos_small_fire_distances: Vec<NativeF64Bits>,
+    #[cfg(feature = "phobos")]
+    pub phobos_large_fire_count: i32,
+    #[cfg(feature = "phobos")]
+    pub phobos_large_fire_anims: Vec<String>,
+    #[cfg(feature = "phobos")]
+    pub phobos_large_fire_chances: Vec<NativeF64Bits>,
+    #[cfg(feature = "phobos")]
+    pub phobos_large_fire_distances: Vec<NativeF64Bits>,
     #[cfg(feature = "phobos")]
     pub phobos_theater_palette: Option<bool>,
     /// Phobos `AnimTypeExt::HideIfNoOre_Threshold` (`src/Ext/AnimType/Body.h`,
@@ -1012,6 +1033,43 @@ fn parse_anim_runtime_config(section: &IniSection) -> AnimTypeRuntimeConfig {
             crate::rules::phobos_anim_type_ext::PhobosAnimTypeExt::attach_fire_anims_to_parent(
                 section,
             ),
+        #[cfg(feature = "phobos")]
+        phobos_constrain_fire_anims_to_cell_spots:
+            crate::rules::phobos_anim_type_ext::PhobosAnimTypeExt::constrain_fire_anims_to_cell_spots(
+                section,
+            ),
+        #[cfg(feature = "phobos")]
+        phobos_small_fire_count:
+            crate::rules::phobos_anim_type_ext::PhobosAnimTypeExt::small_fire_count(section),
+        #[cfg(feature = "phobos")]
+        phobos_small_fire_anims:
+            crate::rules::phobos_anim_type_ext::PhobosAnimTypeExt::small_fire_anims(section),
+        #[cfg(feature = "phobos")]
+        phobos_small_fire_chances: crate::rules::phobos_anim_type_ext::PhobosAnimTypeExt::small_fire_chances(section)
+            .into_iter()
+            .map(|value| NativeF64Bits::from_bits(value.to_bits()))
+            .collect(),
+        #[cfg(feature = "phobos")]
+        phobos_small_fire_distances: crate::rules::phobos_anim_type_ext::PhobosAnimTypeExt::small_fire_distances(section)
+            .into_iter()
+            .map(|value| NativeF64Bits::from_bits(value.to_bits()))
+            .collect(),
+        #[cfg(feature = "phobos")]
+        phobos_large_fire_count:
+            crate::rules::phobos_anim_type_ext::PhobosAnimTypeExt::large_fire_count(section),
+        #[cfg(feature = "phobos")]
+        phobos_large_fire_anims:
+            crate::rules::phobos_anim_type_ext::PhobosAnimTypeExt::large_fire_anims(section),
+        #[cfg(feature = "phobos")]
+        phobos_large_fire_chances: crate::rules::phobos_anim_type_ext::PhobosAnimTypeExt::large_fire_chances(section)
+            .into_iter()
+            .map(|value| NativeF64Bits::from_bits(value.to_bits()))
+            .collect(),
+        #[cfg(feature = "phobos")]
+        phobos_large_fire_distances: crate::rules::phobos_anim_type_ext::PhobosAnimTypeExt::large_fire_distances(section)
+            .into_iter()
+            .map(|value| NativeF64Bits::from_bits(value.to_bits()))
+            .collect(),
         #[cfg(feature = "phobos")]
         phobos_theater_palette:
             crate::rules::phobos_anim_type_ext::PhobosAnimTypeExt::theater_palette(section),

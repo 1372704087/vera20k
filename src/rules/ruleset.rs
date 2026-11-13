@@ -2282,6 +2282,14 @@ pub struct GeneralRules {
     /// [General] WeaponNullifyAnim (+350), constructor null; retained reader
     /// 66E2AF. Bullet46A2A1 uses it after AreaDamage returns IronCurtain (2).
     pub weapon_nullify_anim: String,
+    /// `[AudioVisual] SmallFire=` (`RulesClass` animation pointer, constructor
+    /// null, ReadAudioVisual): the stock anim Phobos's fire spawn falls back to
+    /// for an anim type that names no `SmallFireAnims=`
+    /// (`Ext/Anim/Body.cpp:393`, `:403`). Empty means null.
+    pub small_fire_anim: String,
+    /// `[AudioVisual] LargeFire=`: the `LargeFireAnims=` fallback
+    /// (`Ext/Anim/Body.cpp:399`). Empty means null.
+    pub large_fire_anim: String,
     /// Phobos `[AudioVisual] MissingCameo=` (default `XXICON.SHP`): the file
     /// a cameo with no art falls back to. The extension selects the loader —
     /// Phobos replaces the type's loaded `XXICON.SHP` handle when the name is
@@ -3157,6 +3165,8 @@ impl Default for GeneralRules {
             lightning_warhead: String::new(),
             weather_con_bolt_explosion: String::new(),
             weapon_nullify_anim: String::new(),
+            small_fire_anim: String::new(),
+            large_fire_anim: String::new(),
             #[cfg(feature = "phobos")]
             missing_cameo: DEFAULT_MISSING_CAMEO.to_owned(),
             ambient_change_rate_nonzero,
@@ -4596,6 +4606,8 @@ impl GeneralRules {
             lightning_warhead: defaults.lightning_warhead,
             weather_con_bolt_explosion: defaults.weather_con_bolt_explosion,
             weapon_nullify_anim: defaults.weapon_nullify_anim,
+            small_fire_anim: defaults.small_fire_anim,
+            large_fire_anim: defaults.large_fire_anim,
             // The compatibility projection drops keys no native reader takes,
             // so the Phobos read reaches `GeneralRules` through the retained
             // Rules scalar instead (`from_processed_rules`).
@@ -5589,6 +5601,9 @@ impl RuleSet {
         rules.general.weather_con_bolt_explosion = weather_anim.to_owned();
         rules.general.weapon_nullify_anim = nullify_anim.to_owned();
         rules.combat_damage.splash_list = splash.to_vec();
+        let (small_fire, large_fire) = processed.stock_fire_anims();
+        rules.general.small_fire_anim = small_fire.map_or_else(String::new, str::to_owned);
+        rules.general.large_fire_anim = large_fire.map_or_else(String::new, str::to_owned);
         rules.combat_damage.ammo_crate_damage = processed.ammo_crate_damage();
         rules.combat_damage.tiberium_explosion_damage = processed.tiberium_explosion_damage();
         rules.combat_damage.death_weapon =

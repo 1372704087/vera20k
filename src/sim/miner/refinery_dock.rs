@@ -198,12 +198,29 @@ fn unload_dumping(
     // integer stage crosses at ceil(rate × 900) (`GeneralRules`).
     if stage >= i32::from(rules.general.harvester_dump_frames) {
         crate::sim::world::building_anim::begin_refinery_unload_gate(sim, rules, building);
+        // Phobos `UnitClass_Mission_Unload_DumpAmount` (hook `0x73E411`,
+        // `Ext/Unit/Hooks.Harvester.cpp:115-131`): the type's
+        // `HarvesterDumpAmount` else `[General] HarvesterDumpAmount` caps one
+        // tick's removal; a non-positive cap keeps the whole-slot dump.
+        #[cfg(feature = "phobos")]
+        let dump_cap = Some(
+            sim.substrate
+                .entities
+                .get(id)
+                .and_then(|entity| sim.object_type(entity.type_ref(), rules))
+                .and_then(|object| object.phobos_harvester_dump_amount)
+                .unwrap_or(f32::from_bits(
+                    rules.phobos_globals.harvester_dump_amount.bits(),
+                )),
+        );
+        #[cfg(not(feature = "phobos"))]
+        let dump_cap = None;
         let drained = sim
             .substrate
             .entities
             .get_mut(id)
             .and_then(|entity| entity.miner.as_mut())
-            .and_then(|miner| drain_first_slot(&mut miner.cargo));
+            .and_then(|miner| drain_first_slot(&mut miner.cargo, dump_cap));
         if let Some((slot, bales)) = drained {
             // `UnitClass::Mission_Unload @ 0x0073E46D..0x0073E493`: when the
             // unloader's type has `Weeder=` (`Type+0xE0F`), native passes
@@ -511,13 +528,30 @@ fn epilogue(
 /// StorageClass FindFirstUsedSlot6C9820 scans native type slots in ascending
 /// order; RemoveAmount6C96B0 removes that slot only. Both vehicle Unload and
 /// slave deposit use this owner. Native controls: refinery_dock.json.
+///
+/// `dump_cap` is Phobos `0x73E411`'s per-tick amount: positive limits the
+/// drained bales, zero or negative dumps the whole slot.
+///
+/// RESIDUAL: native keeps float StorageClass amounts, so a cap may remove a
+/// fraction of one level and carry the remainder into the next tick. VERA
+/// keeps whole bales, so the cap truncates to whole bales and a positive
+/// sub-bale cap removes one.
 pub(crate) fn drain_first_slot(
     cargo: &mut Vec<super::CargoBale>,
+    dump_cap: Option<f32>,
 ) -> Option<(crate::rules::tiberium_type::TiberiumTypeId, i32)> {
     let slot = cargo.iter().map(|bale| bale.tiberium_type).min()?;
+    let total = cargo
+        .iter()
+        .filter(|bale| bale.tiberium_type == slot)
+        .count() as i32;
+    let limit = match dump_cap {
+        Some(cap) if cap > 0.0 && (total as f32) >= cap => (cap.trunc() as i32).clamp(1, total),
+        _ => total,
+    };
     let mut bales: i32 = 0;
     cargo.retain(|bale| {
-        if bale.tiberium_type == slot {
+        if bale.tiberium_type == slot && bales < limit {
             bales += 1;
             false
         } else {
@@ -599,6 +633,62 @@ fn purifier_bonus_amount(
         X87::mul(X87::load_i32(purifiers), X87::load_f32(bonus)),
         X87::load_f32(amount),
     ))
+}
+
+#[cfg(test)]
+mod drain_tests {
+    use super::super::{CargoBale, ResourceType};
+    use super::drain_first_slot;
+    use crate::rules::tiberium_type::TiberiumTypeId;
+
+    fn bale(tiberium_type: u8) -> CargoBale {
+        CargoBale {
+            tiberium_type: TiberiumTypeId(tiberium_type),
+            resource_type: ResourceType::Ore,
+            value: 25,
+        }
+    }
+
+    /// `0x73E411`: a positive cap drains only that many whole levels of the
+    /// first slot each call; once the slot is short the rest goes.
+    #[test]
+    fn a_positive_dump_cap_limits_each_slot_drain() {
+        let mut cargo = vec![bale(0), bale(0), bale(0), bale(0), bale(0), bale(1)];
+        assert_eq!(
+            drain_first_slot(&mut cargo, Some(2.5)),
+            Some((TiberiumTypeId(0), 2))
+        );
+        assert_eq!(
+            drain_first_slot(&mut cargo, Some(2.5)),
+            Some((TiberiumTypeId(0), 2))
+        );
+        assert_eq!(
+            drain_first_slot(&mut cargo, Some(2.5)),
+            Some((TiberiumTypeId(0), 1))
+        );
+        // A positive sub-bale cap still removes one whole bale.
+        assert_eq!(
+            drain_first_slot(&mut cargo, Some(0.5)),
+            Some((TiberiumTypeId(1), 1))
+        );
+        assert_eq!(drain_first_slot(&mut cargo, Some(2.5)), None);
+    }
+
+    /// A zero cap (the `Valueable<float>` default) keeps the stock whole-slot
+    /// dump, and an empty hold drains nothing.
+    #[test]
+    fn a_zero_dump_cap_drains_the_whole_first_slot() {
+        let mut cargo = vec![bale(1), bale(0), bale(1)];
+        assert_eq!(
+            drain_first_slot(&mut cargo, Some(0.0)),
+            Some((TiberiumTypeId(0), 1))
+        );
+        assert_eq!(
+            drain_first_slot(&mut cargo, Some(0.0)),
+            Some((TiberiumTypeId(1), 2))
+        );
+        assert_eq!(drain_first_slot(&mut cargo, Some(0.0)), None);
+    }
 }
 
 #[cfg(test)]

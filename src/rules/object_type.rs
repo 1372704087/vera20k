@@ -1146,6 +1146,17 @@ pub struct ObjectType {
     /// human-owned harvester may hold Area Guard.
     #[cfg(feature = "phobos")]
     pub phobos_harvester_guard: crate::rules::phobos_harvester_guard::PhobosHarvesterGuard,
+    /// Phobos `HarvesterDumpAmount=` (`Ext/UnitType/Body.cpp:39`,
+    /// `Nullable<float>`, `Body.h:24`): the ore amount one unload tick credits
+    /// (`0x73E411`); unset takes `[General] HarvesterDumpAmount`.
+    #[cfg(feature = "phobos")]
+    pub phobos_harvester_dump_amount: Option<f32>,
+    /// Phobos `HarvesterScanAfterUnload=` (`Ext/UnitType/Body.cpp:36`,
+    /// `Nullable<bool>`, `Body.h:21`): a harvester released from a refinery
+    /// redirects its focus to a nearer long-scan ore cell (`0x73E730`);
+    /// unset takes `[General] HarvesterScanAfterUnload`.
+    #[cfg(feature = "phobos")]
+    pub phobos_harvester_scan_after_unload: Option<bool>,
     /// Phobos `Convert.Health*` (`Ext/TechnoType/Body.cpp:1193-1197`): a Foot
     /// converts when its health ratio enters the band.
     #[cfg(feature = "phobos")]
@@ -6065,6 +6076,18 @@ impl ObjectType {
             phobos_harvester_guard:
                 crate::rules::phobos_harvester_guard::PhobosHarvesterGuard::from_section(section),
             #[cfg(feature = "phobos")]
+            phobos_harvester_dump_amount: (category == ObjectCategory::Vehicle)
+                .then(|| {
+                    section
+                        .read_phobos_nullable_double("HarvesterDumpAmount", None)
+                        .map(|value| value as f32)
+                })
+                .flatten(),
+            #[cfg(feature = "phobos")]
+            phobos_harvester_scan_after_unload: (category == ObjectCategory::Vehicle)
+                .then(|| section.read_phobos_nullable_bool("HarvesterScanAfterUnload", None))
+                .flatten(),
+            #[cfg(feature = "phobos")]
             phobos_convert_health:
                 crate::rules::phobos_convert_health::PhobosConvertHealth::from_section(section),
             #[cfg(feature = "phobos")]
@@ -7931,6 +7954,29 @@ mod tests {
         assert_eq!(vehicle.category, super::ObjectCategory::Vehicle);
         assert_eq!(vehicle.half_damage_smoke_location1, [0; 3]);
         assert_eq!(vehicle.half_damage_smoke_location2, [0; 3]);
+    }
+
+    /// `Ext/UnitType/Body.cpp:36,39`: both harvester keys are `Nullable` on a
+    /// UnitType; an Infantry section carrying them stays unset.
+    #[cfg(feature = "phobos")]
+    #[test]
+    fn harvester_dump_amount_and_scan_after_unload_read_unit_types_only() {
+        use crate::rules::ini_parser::IniFile;
+        use crate::rules::native_processing::RulesLayerStack;
+        use crate::rules::ruleset::RuleSet;
+
+        let layers = RulesLayerStack::new(IniFile::from_str(
+            "[VehicleTypes]\n0=HUTVEH\n[InfantryTypes]\n0=HUTINF\n\
+             [HUTVEH]\nHarvesterDumpAmount=2.5\nHarvesterScanAfterUnload=yes\n\
+             [HUTINF]\nHarvesterDumpAmount=7\nHarvesterScanAfterUnload=yes\n",
+        ));
+        let rules = RuleSet::from_rules_layers(&layers).expect("production layered rules");
+        let vehicle = rules.object("HUTVEH").expect("registered VehicleType");
+        assert_eq!(vehicle.phobos_harvester_dump_amount, Some(2.5));
+        assert_eq!(vehicle.phobos_harvester_scan_after_unload, Some(true));
+        let infantry = rules.object("HUTINF").expect("registered InfantryType");
+        assert_eq!(infantry.phobos_harvester_dump_amount, None);
+        assert_eq!(infantry.phobos_harvester_scan_after_unload, None);
     }
 
     #[test]

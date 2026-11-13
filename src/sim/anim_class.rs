@@ -39,7 +39,7 @@ use crate::rules::house_colors::HouseColorIndex;
 use crate::rules::overlay_types::TiberiumImageError;
 use crate::rules::ruleset::RuleSet;
 use crate::sim::bounce::{BounceOutcome, BounceState};
-use crate::sim::components::AnimClassSpawnDescriptor;
+use crate::sim::components::{AnimClassSpawnDescriptor, DriveCoord};
 use crate::sim::intern::InternedId;
 use crate::sim::movement::locomotor::MovementLayer;
 use crate::sim::occupancy::{RawCellKey, RawCellOccupationGrid, infantry_raw_occupation_mask};
@@ -4357,23 +4357,21 @@ impl Simulation {
                 .expect("restarting animation remains present")
                 .start_sound_active = false;
         }
-        // Phobos `AnimClass_Start_DetachedReport` (`0x424CF1`,
-        // `Ext/Anim/Hooks.cpp:269-276`): a set DetachedReport plays as a
-        // one-shot positional sound at Start, outside the anim's handle.
+        // Phobos `DetachedReport=` (`0x424CF1`, `Ext/Anim/Hooks.cpp:269-280`):
+        // `VocClass::PlayAt` at the animation's own coordinate, with no
+        // NoEffects gate in the hook.
         #[cfg(feature = "phobos")]
-        if let Some(sound_name) = config.detached_report.clone()
-            && self.anim(id).is_some_and(|anim| !anim.no_effects())
+        if let Some(sound_id) = config.detached_report.clone()
             && let Some(world) = self.anim_absolute_coord(id)
         {
-            let (rx, ry, sub_x, sub_y, _) = world.to_cell_sub_z();
-            self.sound_events.emit(SimSoundEvent::VocAt {
-                sound_id: sound_name,
-                audible_to: None,
-                rx,
-                ry,
-                sub_x,
-                sub_y,
-                world_z_leptons: world.z,
+            self.sound_events.emit(SimSoundEvent::VocAtCoord {
+                sound_id,
+                coordinate: DriveCoord {
+                    x: world.x,
+                    y: world.y,
+                    z: world.z,
+                },
+                flags: 0,
             });
         }
         if middle_frame(config).is_none() {
@@ -6500,60 +6498,63 @@ mod tests {
         assert_eq!(starts(&sim), 1, "Start runs once per delay");
     }
 
-    /// Phobos `AnimClass_Start_DetachedReport` (`0x424CF1`,
-    /// `Ext/Anim/Hooks.cpp:269-276`): a set `DetachedReport=` plays one
-    /// positional one-shot at Start, independent of the attached
-    /// Report/StartSound handle.
+    /// Phobos `DetachedReport=` (`Ext/AnimType/Body.h:63,115`,
+    /// `Ext/AnimType/Body.cpp:108`): `AnimClass::Start`'s hook `0x424CF1`
+    /// (`Ext/Anim/Hooks.cpp:269-280`) plays a positional `VocClass::PlayAt` cue
+    /// at the animation itself, alongside its own `Report=`.
     #[cfg(feature = "phobos")]
     #[test]
-    fn detached_report_plays_a_one_shot_at_start() {
+    fn detached_report_plays_a_positional_cue_from_start() {
         let rules = runtime_rules(
-            "[TWLT036]\nEnd=8\nDetachedReport=Detached06\n",
-            &[("TWLT036", 8)],
+            "[CUE]\nRate=900\nEnd=1\nReport=OwnCue\nDetachedReport=TestCue\n",
+            &[("CUE", 1)],
         );
-        let mut sim = Simulation::new();
-        let type_name = sim.interner.intern("TWLT036");
-        let descriptor = AnimClassSpawnDescriptor::new(
-            type_name,
-            7,
-            9,
-            crate::util::lepton::CELL_CENTER_LEPTON,
-            crate::util::lepton::CELL_CENTER_LEPTON,
-            0,
-        );
+        let mut sim = Simulation::with_seed(0);
+        let type_id = sim.interner.intern("CUE");
         let id = sim
-            .spawn_anim_object(&rules, descriptor)
+            .spawn_anim_object(
+                &rules,
+                AnimClassSpawnDescriptor::new(
+                    type_id,
+                    7,
+                    9,
+                    crate::util::lepton::CELL_CENTER_LEPTON,
+                    crate::util::lepton::CELL_CENTER_LEPTON,
+                    0,
+                ),
+            )
             .expect("bound art constructs");
-        let detached = |sim: &Simulation| {
+        let cues = sim
+            .sound_events
+            .iter()
+            .filter_map(|event| match event {
+                SimSoundEvent::VocAtCoord {
+                    sound_id,
+                    coordinate,
+                    ..
+                } => Some((sound_id.clone(), *coordinate)),
+                _ => None,
+            })
+            .collect::<Vec<_>>();
+        let world = sim.anim_absolute_coord(id).unwrap();
+        assert_eq!(
+            cues,
+            [(
+                "TESTCUE".to_owned(),
+                DriveCoord {
+                    x: world.x,
+                    y: world.y,
+                    z: world.z
+                }
+            )],
+            "the detached cue plays at the animation, next to its own Report="
+        );
+        assert!(
             sim.sound_events
                 .iter()
-                .filter(|event| {
-                    matches!(event, SimSoundEvent::VocAt { sound_id, .. } if sound_id == "DETACHED06")
-                })
-                .count()
-        };
-        assert_eq!(detached(&sim), 1, "Start plays the detached report once");
-        assert!(
-            !sim.sound_events.iter().any(
-                |event| matches!(event, SimSoundEvent::AnimationStarted { anim_id, .. } if *anim_id == id)
-            ),
-            "no attached start handle without Report/StartSound"
+                .any(|event| matches!(event, SimSoundEvent::AnimationStarted { anim_id, .. } if *anim_id == id)),
+            "the ordinary Report= still plays"
         );
-
-        let plain = runtime_rules("[TWLT036]\nEnd=8\n", &[("TWLT036", 8)]);
-        let mut sim = Simulation::new();
-        let type_name = sim.interner.intern("TWLT036");
-        let descriptor = AnimClassSpawnDescriptor::new(
-            type_name,
-            7,
-            9,
-            crate::util::lepton::CELL_CENTER_LEPTON,
-            crate::util::lepton::CELL_CENTER_LEPTON,
-            0,
-        );
-        sim.spawn_anim_object(&plain, descriptor)
-            .expect("bound art constructs");
-        assert_eq!(detached(&sim), 0, "the absent key plays nothing");
     }
 
     #[test]

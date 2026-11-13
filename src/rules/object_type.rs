@@ -1010,6 +1010,13 @@ pub struct ObjectType {
     /// unset takes `[General] ChronoSpherePreDelay=`.
     #[cfg(feature = "phobos")]
     pub phobos_chrono_sphere_pre_delay: Option<i32>,
+    /// Phobos `ChronoSphereDelay=` (`Nullable<int>`, unset;
+    /// `Ext/TechnoType/Body.h:132`, constructed unset `Body.h:533`): the extra
+    /// frames a chrono-sphered object stays warped out after the warp-in
+    /// (`Ext/TechnoType/Hooks.Teleport.cpp:165-188`); unset takes
+    /// `[General] ChronoSphereDelay=`.
+    #[cfg(feature = "phobos")]
+    pub phobos_chrono_sphere_delay: Option<i32>,
     /// Phobos `JumpjetRotateOnCrash=` (`Nullable<bool>`, unset;
     /// `Ext/TechnoType/Body.h:421`, constructed unset `Body.h:841`): state 5
     /// skips the `0x2D00` crash facing re-aim when false (hook `0x54CB0E`,
@@ -6587,6 +6594,9 @@ impl ObjectType {
             #[cfg(feature = "phobos")]
             phobos_chrono_sphere_pre_delay: section
                 .read_phobos_nullable_int("ChronoSpherePreDelay", None),
+            #[cfg(feature = "phobos")]
+            phobos_chrono_sphere_delay: section
+                .read_phobos_nullable_int("ChronoSphereDelay", None),
             #[cfg(feature = "phobos")]
             phobos_jumpjet_rotate_on_crash: section
                 .read_phobos_nullable_bool("JumpjetRotateOnCrash", None),

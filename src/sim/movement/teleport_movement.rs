@@ -488,6 +488,18 @@ pub struct ChronoWarp {
     /// Techno `+0x271` WarpingIn: set by state 2, cleared by TimerCheck's
     /// expiry and state 7.
     warping_in: bool,
+    /// Phobos `FootExt::IsBeingChronoSphered` (`Ext/Foot/Body.h:21`): set by
+    /// the Chronosphere pre-delay (`0x7197E4`), so reinforcement members and
+    /// later plain warps never take `ChronoSphereDelay`.
+    #[serde(default)]
+    chrono_sphered: bool,
+    /// Phobos `FootExt::HasRemainingWarpInDelay` (`Ext/Foot/Body.h:19`).
+    #[serde(default)]
+    warp_in_delay_pending: bool,
+    /// Phobos `FootExt::LastWarpInDelay` (`Ext/Foot/Body.h:20`): the frames
+    /// still to run, decremented once per tick (`Ext/Foot/Body.cpp:149-164`).
+    #[serde(default)]
+    warp_in_delay: i32,
 }
 
 impl std::hash::Hash for ChronoWarp {
@@ -503,6 +515,14 @@ impl std::hash::Hash for ChronoWarp {
         if self.pending_state != 0 {
             b"chrono-pending-v376".hash(state);
             self.pending_state.hash(state);
+        }
+        // Phobos's warp-in delay keeps every earlier byte's hash and adds its
+        // own fold only when one of its fields is non-default.
+        if self.chrono_sphered || self.warp_in_delay_pending || self.warp_in_delay != 0 {
+            b"chrono-sphere-in-delay-v1".hash(state);
+            self.chrono_sphered.hash(state);
+            self.warp_in_delay_pending.hash(state);
+            self.warp_in_delay.hash(state);
         }
     }
 }
@@ -522,6 +542,9 @@ impl ChronoWarp {
             latched: true,
             warped_out: false,
             warping_in: false,
+            chrono_sphered: true,
+            warp_in_delay_pending: false,
+            warp_in_delay: 0,
         }
     }
 
@@ -532,6 +555,9 @@ impl ChronoWarp {
         Self {
             latched: false,
             warping_in: true,
+            // Only the Chronosphere's own pre-delay sets the Phobos byte
+            // (`0x7197E4`); a reinforcement never runs it.
+            chrono_sphered: false,
             ..Self::new(destination, frame)
         }
     }
@@ -599,6 +625,41 @@ impl ChronoWarp {
     /// Techno `+0x271`, cleared by TimerCheck's expiry and state 7.
     pub(crate) fn set_warping_in(&mut self, warping_in: bool) {
         self.warping_in = warping_in;
+    }
+
+    /// Phobos `FootExt::IsBeingChronoSphered` (`Ext/Foot/Body.h:21`).
+    pub(crate) fn chrono_sphered(&self) -> bool {
+        self.chrono_sphered
+    }
+
+    /// Phobos `0x719BD9` (`Ext/TechnoType/Hooks.Teleport.cpp:165-188`): a
+    /// chrono-sphered arrival with a positive `ChronoSphereDelay` keeps the
+    /// object warped out, records `max(delay, LastWarpInDelay)` and leaves
+    /// every byte set until `Ext/Foot/Body.cpp:149-164` counts it down.
+    pub(crate) fn extend_warp_in_delay(&mut self, delay: i32) {
+        if delay > 0 {
+            self.warped_out = true;
+            self.warp_in_delay_pending = true;
+            self.warp_in_delay = self.warp_in_delay.max(delay);
+        } else {
+            self.chrono_sphered = false;
+        }
+    }
+
+    /// `FootExt::UpdateWarpInDelay` (`Ext/Foot/Body.cpp:149-164`): one tick's
+    /// countdown. Answers whether the delay is still running.
+    pub(crate) fn tick_warp_in_delay(&mut self) -> bool {
+        if !self.warp_in_delay_pending {
+            return false;
+        }
+        if self.warp_in_delay > 0 {
+            self.warp_in_delay -= 1;
+            return true;
+        }
+        self.warp_in_delay_pending = false;
+        self.chrono_sphered = false;
+        self.warped_out = false;
+        false
     }
 }
 

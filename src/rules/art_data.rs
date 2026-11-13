@@ -609,6 +609,12 @@ pub struct AnimTypeRuntimeConfig {
     /// `KTSTLEXP`, `PULSEFX1/2`, `EMP_FX01`, `BEHIND`.
     pub use_normal_light: bool,
     pub shadow: bool,
+    /// Phobos `ExtraShadow=` (`Ext/AnimType/Body.h:62`, `Valueable<bool>`
+    /// constructed **true** `Body.h:114`, read `Body.cpp:107`): the
+    /// `AnimClass::DrawIt` extra ground shadow (`0x423365`, hook
+    /// `Ext/Anim/Hooks.cpp:463-480`) is skipped when false. It never touches
+    /// `shadow`'s SHP second-half frame split.
+    pub extra_shadow: bool,
     pub ping_pong: bool,
     pub reverse: bool,
     pub report: Option<String>,
@@ -1024,6 +1030,7 @@ fn parse_anim_runtime_config(section: &IniSection) -> AnimTypeRuntimeConfig {
         // omitted key leaves it false.
         use_normal_light: section.read_bool("UseNormalLight", false),
         shadow: section.read_bool("Shadow", false),
+        extra_shadow: section.read_bool("ExtraShadow", true),
         ping_pong: section.read_bool("PingPong", false),
         reverse: section.read_bool("Reverse", false),
         report: section

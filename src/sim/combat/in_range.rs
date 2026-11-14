@@ -102,13 +102,13 @@ fn reach_leptons(
     interner: &StringInterner,
     entities: Option<&crate::sim::entity_store::EntityStore>,
 ) -> i64 {
-    let source =
-        crate::sim::attach_effect::range_modifier_source(attacker, entities, rules, interner);
-    let mut range_lep: i64 = i64::from(crate::sim::attach_effect::range_with_attach_effects(
-        source,
+    let mut range_lep: i64 = i64::from(crate::sim::attach_effect::get_range_with_modifiers(
+        rules,
+        interner,
+        entities,
+        attacker,
         &weapon.id,
         weapon.range_leptons,
-        rules,
     ));
     if target_flies_high
         && let Some(attacker_obj) = interner.object_type(attacker.type_ref(), rules)

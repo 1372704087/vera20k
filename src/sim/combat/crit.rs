@@ -756,7 +756,7 @@ fn get_crit_chance(
 }
 
 #[cfg(feature = "phobos")]
-fn has_phobos_ability(rank: VeterancyRank, object: &ObjectType, slot: usize) -> bool {
+pub(crate) fn has_phobos_ability(rank: VeterancyRank, object: &ObjectType, slot: usize) -> bool {
     match rank {
         VeterancyRank::Rookie => false,
         VeterancyRank::Veteran => object.phobos_abilities().has(slot, false),

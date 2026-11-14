@@ -301,7 +301,28 @@ fn spawn_ares_child(
     )
     // CreateBullet sets Range to the weapon's ProjectileRange, which only a
     // `Ranged=` type spends (as Fire_CreateBullet 1001ADE0 does).
-    .with_ares_range(child.ranged.then_some(weapon.ares_projectile_range));
+    .with_ares_range(child.ranged.then_some({
+        let range = weapon.ares_projectile_range;
+        #[cfg(feature = "phobos")]
+        {
+            if let Some(firer_entity) = world.substrate.entities.get(firer) {
+                crate::sim::attach_effect::initial_projectile_range(
+                    rules,
+                    &world.interner,
+                    Some(&world.substrate.entities),
+                    firer_entity,
+                    weapon,
+                    range,
+                )
+            } else {
+                range
+            }
+        }
+        #[cfg(not(feature = "phobos"))]
+        {
+            range
+        }
+    }));
     // 1001A6B0: one Scenario draw after the constructor.
     let velocity = crate::sim::projectile::launch::ares_airburst_launch_velocity(
         weapon.speed,

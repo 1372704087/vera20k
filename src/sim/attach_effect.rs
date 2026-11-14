@@ -842,6 +842,75 @@ fn safe_multiply(value: i32, multiplier: f64) -> i32 {
 /// `OpenTopped.UseTransportRangeModifiers` (defaulting to `[General]`) folds
 /// the transport's active effects instead of its own. `None` entities
 /// (mapless probes) keep the firer.
+/// `WeaponTypeExt::GetRangeWithModifiers` (`Ext/WeaponType/Body.cpp:398-443`)
+/// over a live firer: the `-512` always-in-range sentinel, the veteran
+/// `Range` ability's `VeteranRange` multiplier (max with 0), the open-topped
+/// transport's AttachEffect source, then the AttachEffect fold.
+#[cfg(feature = "phobos")]
+pub(crate) fn get_range_with_modifiers(
+    rules: &crate::rules::ruleset::RuleSet,
+    interner: &crate::sim::intern::StringInterner,
+    entities: Option<&crate::sim::entity_store::EntityStore>,
+    firer: &crate::sim::game_entity::GameEntity,
+    weapon: &str,
+    range: i32,
+) -> i32 {
+    const WEAPON_RANGE_ALWAYS_IN_RANGE_LEPTONS: i32 = -512;
+    if range == WEAPON_RANGE_ALWAYS_IN_RANGE_LEPTONS {
+        return range;
+    }
+    let mut range = range;
+    if interner.try_resolve(firer.type_ref()).is_some()
+        && let Some(object) = interner.object_type(firer.type_ref(), rules)
+        && crate::sim::combat::crit::has_phobos_ability(
+            firer.veterancy.rank_kind(),
+            object,
+            crate::rules::phobos_crit::PhobosAbilityFlags::RANGE,
+        )
+    {
+        let global = f64::from_bits(rules.phobos_globals.veteran_range.bits());
+        let multiplier = object.phobos_techno_extras.veteran_range_multiplier(global);
+        range = safe_multiply(range, multiplier.max(0.0));
+    }
+    let source = range_modifier_source(firer, entities, rules, interner);
+    range_with_attach_effects(source, weapon, range, rules)
+}
+
+/// Phobos `BulletClass_Update_Ranged`'s range gate: a `Ranged=` projectile's
+/// initial max range passes [`get_range_with_modifiers`] when the weapon's
+/// nullable key else `[CombatDamage] ProjectileRange.ApplyModifiers` (default
+/// true) admits it.
+#[cfg(feature = "phobos")]
+pub(crate) fn initial_projectile_range(
+    rules: &crate::rules::ruleset::RuleSet,
+    interner: &crate::sim::intern::StringInterner,
+    entities: Option<&crate::sim::entity_store::EntityStore>,
+    firer: &crate::sim::game_entity::GameEntity,
+    weapon: &crate::rules::weapon_type::WeaponType,
+    range: i32,
+) -> i32 {
+    let apply = weapon
+        .phobos_projectile_range_apply_modifiers
+        .unwrap_or(rules.combat_damage.phobos_projectile_range_apply_modifiers);
+    if apply {
+        get_range_with_modifiers(rules, interner, entities, firer, &weapon.id, range)
+    } else {
+        range
+    }
+}
+
+#[cfg(not(feature = "phobos"))]
+pub(crate) fn get_range_with_modifiers(
+    _rules: &crate::rules::ruleset::RuleSet,
+    _interner: &crate::sim::intern::StringInterner,
+    _entities: Option<&crate::sim::entity_store::EntityStore>,
+    _firer: &crate::sim::game_entity::GameEntity,
+    _weapon: &str,
+    range: i32,
+) -> i32 {
+    range
+}
+
 #[cfg(feature = "phobos")]
 pub(crate) fn range_modifier_source<'a>(
     entity: &'a crate::sim::game_entity::GameEntity,
@@ -1551,17 +1620,13 @@ impl Simulation {
                     Some(&self.house_alliances),
                 )?;
                 let range = selected.map_or(-1, |selected| {
-                    let source = range_modifier_source(
-                        entity,
-                        Some(&self.substrate.entities),
+                    get_range_with_modifiers(
                         rules,
                         &self.interner,
-                    );
-                    range_with_attach_effects(
-                        source,
+                        Some(&self.substrate.entities),
+                        entity,
                         &selected.weapon.id,
                         selected.weapon.range_leptons,
-                        rules,
                     )
                 });
                 Some((distance, range))
@@ -6756,6 +6821,185 @@ AttachEffect.InitialDelays=3
             ),
             0,
             "a matching DisallowWarheads list skips the effect"
+        );
+    }
+
+    /// Phobos `WeaponTypeExt::GetRangeWithModifiers` veteran arm:
+    /// `HasAdditionalAbility(Range)` at veteran/elite multiplies by the type's
+    /// `VeteranRange` else the `[General]` value (max with 0); a rookie is
+    /// untouched and the `-512` sentinel returns first.
+    #[cfg(feature = "phobos")]
+    #[test]
+    fn the_veteran_range_ability_scales_get_range_with_modifiers() {
+        use crate::rules::ini_parser::IniFile;
+        let rules =
+            crate::rules::ruleset::RuleSet::from_ini(&crate::sim::arena_fixture::clear_ground_ini(
+                "[Countries]
+0=Americans
+[VehicleTypes]
+0=VET
+1=PLAIN
+2=ELITEONLY
+                 [WeaponTypes]
+0=GUN
+[GUN]
+Range=5
+Damage=10
+ROF=20
+                 [VET]
+Strength=1000
+Speed=6
+Primary=GUN
+VeteranAbilities=RANGE
+VeteranRange=1.5
+                 [PLAIN]
+Strength=1000
+Speed=6
+Primary=GUN
+VeteranAbilities=RANGE
+                 [ELITEONLY]
+Strength=1000
+Speed=6
+Primary=GUN
+EliteAbilities=RANGE
+                 [General]
+VeteranRange=2.0
+",
+            ))
+            .expect("rules");
+        let mut sim = crate::sim::arena_fixture::rival_arena(&rules, 17);
+        sim.intern_rule_type_ids(&rules);
+        sim.resolve_type_handles(&rules);
+        let spawn = |sim: &mut Simulation, kind: &str, rank: u16, rx: u16| {
+            let id = sim
+                .spawn_object(kind, "Americans", rx, 20, 0, &rules)
+                .unwrap_or_else(|| panic!("spawn {kind}"));
+            sim.substrate
+                .entities
+                .get_mut(id)
+                .unwrap()
+                .veterancy
+                .set_rank_for_test(rank);
+            id
+        };
+        let range = |sim: &Simulation, id: u64, base: i32| {
+            super::get_range_with_modifiers(
+                &rules,
+                &sim.interner,
+                Some(&sim.substrate.entities),
+                sim.substrate.entities.get(id).unwrap(),
+                "GUN",
+                base,
+            )
+        };
+        let vet = spawn(&mut sim, "VET", 0, 20);
+        assert_eq!(range(&sim, vet, 1000), 1000, "a rookie has no ability");
+        sim.substrate
+            .entities
+            .get_mut(vet)
+            .unwrap()
+            .veterancy
+            .set_rank_for_test(100);
+        assert_eq!(range(&sim, vet, 1000), 1500, "the type's VeteranRange");
+        sim.substrate
+            .entities
+            .get_mut(vet)
+            .unwrap()
+            .veterancy
+            .set_rank_for_test(200);
+        assert_eq!(range(&sim, vet, 1000), 1500, "elite keeps the veteran tier");
+        let plain = spawn(&mut sim, "PLAIN", 100, 22);
+        assert_eq!(range(&sim, plain, 1000), 2000, "the global VeteranRange");
+        let elite_only = spawn(&mut sim, "ELITEONLY", 100, 24);
+        assert_eq!(
+            range(&sim, elite_only, 1000),
+            1000,
+            "a veteran does not read the elite tier"
+        );
+        sim.substrate
+            .entities
+            .get_mut(elite_only)
+            .unwrap()
+            .veterancy
+            .set_rank_for_test(200);
+        assert_eq!(range(&sim, elite_only, 1000), 2000);
+        assert_eq!(range(&sim, plain, -512), -512, "the sentinel returns first");
+    }
+
+    /// Phobos `ProjectileRange.ApplyModifiers` gates the fold for the
+    /// projectile's initial range: the weapon's nullable key else the
+    /// `[CombatDamage]` global (constructor true).
+    #[cfg(feature = "phobos")]
+    #[test]
+    fn initial_projectile_range_reads_the_global_and_weapon_keys() {
+        use crate::rules::ini_parser::IniFile;
+        let scene = |global: &str, weapon_key: &str| {
+            let rules = crate::rules::ruleset::RuleSet::from_ini(
+                &crate::sim::arena_fixture::clear_ground_ini(&format!(
+                    "[Countries]
+0=Americans
+[VehicleTypes]
+0=VET
+                     [WeaponTypes]
+0=GUN
+                     [GUN]
+Range=5
+Damage=10
+ROF=20
+{weapon_key}
+                     [VET]
+Strength=1000
+Speed=6
+Primary=GUN
+VeteranAbilities=RANGE
+                     VeteranRange=1.5
+                     [CombatDamage]
+{global}
+[General]
+VeteranRange=2.0
+"
+                )),
+            )
+            .expect("rules");
+            let mut sim = crate::sim::arena_fixture::rival_arena(&rules, 17);
+            sim.intern_rule_type_ids(&rules);
+            sim.resolve_type_handles(&rules);
+            let id = sim
+                .spawn_object("VET", "Americans", 20, 20, 0, &rules)
+                .expect("spawn");
+            sim.substrate
+                .entities
+                .get_mut(id)
+                .unwrap()
+                .veterancy
+                .set_rank_for_test(100);
+            let firer = sim.substrate.entities.get(id).unwrap();
+            super::initial_projectile_range(
+                &rules,
+                &sim.interner,
+                Some(&sim.substrate.entities),
+                firer,
+                rules.weapon("GUN").unwrap(),
+                1000,
+            )
+        };
+        assert_eq!(
+            scene("", ""),
+            1500,
+            "the constructor's true applies the fold"
+        );
+        assert_eq!(
+            scene("ProjectileRange.ApplyModifiers=no", ""),
+            1000,
+            "the global off skips the fold"
+        );
+        assert_eq!(
+            scene(
+                "ProjectileRange.ApplyModifiers=no",
+                "ProjectileRange.ApplyModifiers=yes"
+            ),
+            1500,
+            "the weapon key overrides the global"
         );
     }
 }

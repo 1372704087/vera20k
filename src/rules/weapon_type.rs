@@ -232,6 +232,12 @@ pub struct WeaponType {
     /// this weapon draws. `DiskLaser_Circle` (hook `0x4A757B`,
     /// `Ext/WeaponType/Hooks.DiskLaserRadius.cpp:27-42`) rebuilds the
     /// 16-point table when the value differs from the last applied radius.
+    /// Phobos `ProjectileRange.ApplyModifiers=` (`Ext/WeaponType/Body.cpp:88`,
+    /// `Nullable<bool>` unset at `Body.h:30,125`): whether a `Ranged=`
+    /// projectile's initial range folds `GetRangeWithModifiers`; unset takes
+    /// `[CombatDamage] ProjectileRange.ApplyModifiers` (default true).
+    #[cfg(feature = "phobos")]
+    pub phobos_projectile_range_apply_modifiers: Option<bool>,
     #[cfg(feature = "phobos")]
     pub phobos_disk_laser_radius: f64,
     /// Weapon draws a visible line to target (+0x14b).
@@ -907,6 +913,9 @@ impl WeaponType {
             disk_laser: section.read_bool("DiskLaser", false),
             #[cfg(feature = "phobos")]
             phobos_disk_laser_radius: section.read_double("DiskLaser.Radius", 240.0),
+            #[cfg(feature = "phobos")]
+            phobos_projectile_range_apply_modifiers: section
+                .read_phobos_nullable_bool("ProjectileRange.ApplyModifiers", None),
             is_line: section.read_bool("IsLine", false),
             is_big_laser: section.read_bool("IsBigLaser", false),
             is_house_color: section.read_bool("IsHouseColor", false),

@@ -129,6 +129,12 @@ pub struct CombatDamageDefaults {
     /// `Damage.ApplyFirepowerMult=` key.
     #[cfg(feature = "phobos")]
     pub anim_damage_apply_firepower_mult: bool,
+    /// Phobos `[CombatDamage] ProjectileRange.ApplyModifiers=`
+    /// (`Ext/Rules/Body.cpp:650`, `Valueable<bool>` constructed **true** at
+    /// `Ext/Rules/Body.h:544,1044`): a `Ranged=` bullet's max range passes
+    /// `GetRangeWithModifiers` before its travel budget is spent.
+    #[cfg(feature = "phobos")]
+    pub phobos_projectile_range_apply_modifiers: bool,
     /// Phobos `[CombatDamage] Psychedelic.StackingMode=`
     /// (`Ext/Rules/Body.cpp:551`, `Valueable<StackingMode>` with constructor
     /// `Override` at `Ext/Rules/Body.h:462,967`): how a Psychedelic hit
@@ -237,6 +243,9 @@ impl CombatDamageDefaults {
             anim_damage_apply_firepower_mult: section
                 .read_bool("AnimDamage.ApplyFirepowerMult", false),
             #[cfg(feature = "phobos")]
+            phobos_projectile_range_apply_modifiers: section
+                .read_bool("ProjectileRange.ApplyModifiers", true),
+            #[cfg(feature = "phobos")]
             phobos_psychedelic_stacking_mode:
                 crate::rules::phobos_stacking_mode::StackingMode::read_valueable(
                     section,
@@ -291,6 +300,8 @@ impl Default for CombatDamageDefaults {
             anim_damage_dealt_by_invoker: false,
             #[cfg(feature = "phobos")]
             anim_damage_apply_firepower_mult: false,
+            #[cfg(feature = "phobos")]
+            phobos_projectile_range_apply_modifiers: true,
             #[cfg(feature = "phobos")]
             phobos_psychedelic_stacking_mode:
                 crate::rules::phobos_stacking_mode::StackingMode::Override,

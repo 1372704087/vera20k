@@ -2712,11 +2712,24 @@ pub(super) fn emit_admitted_fire(
             // the bullet's Range is the weapon's ProjectileRange, which only
             // a `Ranged=` type spends.
             #[cfg(feature = "ares")]
-            let payload = payload.with_ares_range(
-                projectile_type
-                    .filter(|kind| kind.ranged)
-                    .map(|_| weapon.ares_projectile_range),
-            );
+            let payload =
+                payload.with_ares_range(projectile_type.filter(|kind| kind.ranged).map(|_| {
+                    let range = weapon.ares_projectile_range;
+                    #[cfg(feature = "phobos")]
+                    {
+                        if let Some(firer) = world.substrate.entities.get(snap.stable_id) {
+                            return crate::sim::attach_effect::initial_projectile_range(
+                                rules,
+                                &world.interner,
+                                Some(&world.substrate.entities),
+                                firer,
+                                weapon,
+                                range,
+                            );
+                        }
+                    }
+                    range
+                }));
             #[cfg(feature = "phobos")]
             let payload =
                 payload.with_firepower_multiplier(phobos_firepower_multiplier(&damage_stages));

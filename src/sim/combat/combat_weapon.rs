@@ -552,13 +552,13 @@ pub(crate) fn weapon_range(
     let Some(weapon) = get_weapon(entity, obj, index, entities, rules, interner) else {
         return 0;
     };
-    let source =
-        crate::sim::attach_effect::range_modifier_source(entity, Some(entities), rules, interner);
-    let range = crate::sim::attach_effect::range_with_attach_effects(
-        source,
+    let range = crate::sim::attach_effect::get_range_with_modifiers(
+        rules,
+        interner,
+        Some(entities),
+        entity,
         &weapon.id,
         weapon.range_leptons,
-        rules,
     );
     // Phobos `TechnoClass_WeaponRange @ 0x7012C2`
     // (`Ext/Techno/Hooks.WeaponRange.cpp:4-49`): `OpenTopped.IgnoreRangefinding`
@@ -606,17 +606,13 @@ pub(crate) fn open_topped_cargo_range(
             continue;
         };
         if let Some(weapon) = current_weapon(passenger, kind, entities, rules, interner) {
-            let source = crate::sim::attach_effect::range_modifier_source(
-                passenger,
-                Some(entities),
+            let range = crate::sim::attach_effect::get_range_with_modifiers(
                 rules,
                 interner,
-            );
-            let range = crate::sim::attach_effect::range_with_attach_effects(
-                source,
+                Some(entities),
+                passenger,
                 &weapon.id,
                 weapon.range_leptons,
-                rules,
             );
             shortest = Some(shortest.map_or(range, |shortest: i32| shortest.min(range)));
         }
@@ -1594,12 +1590,6 @@ fn phobos_force_weapon_index(
             let default_index =
                 what_weapon_should_i_use(rules, attacker_obj, attacker, Some(facts), resolve);
             let default_weapon = resolve(default_index);
-            let source = crate::sim::attach_effect::range_modifier_source(
-                attacker_entity,
-                Some(&world.substrate.entities),
-                rules,
-                interner,
-            );
             if let Some(distance) =
                 super::object_distance_to(attacker_entity.stable_id(), target, world)
             {
@@ -1622,8 +1612,13 @@ fn phobos_force_weapon_index(
                                 weapon.range_leptons
                             };
                             range = if apply {
-                                crate::sim::attach_effect::range_with_attach_effects(
-                                    source, &weapon.id, base, rules,
+                                crate::sim::attach_effect::get_range_with_modifiers(
+                                    rules,
+                                    interner,
+                                    Some(&world.substrate.entities),
+                                    attacker_entity,
+                                    &weapon.id,
+                                    base,
                                 )
                             } else {
                                 base

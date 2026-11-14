@@ -131,6 +131,7 @@ Supported extensions:
 - [FireUp.ResetInRetarget](phobos-fire-up-reset-in-retarget.md) (a turretless Unit clears its firing sequence on a new target unless the key is off and the target is already in range; 1 key)
 - [Gas.MaxDriftSpeed](phobos-gas-max-drift-speed.md) (a Gas particle type sets the ± bound its Velocity.X/Y clamp uses; 1 key)
 - [EBoltZAdjust.ClampInitialDepthForBuilding](phobos-ebolt-zadjust-building-clamp.md) (a building bolt keeps or clamps its positive initial-depth delta per weapon or `[AudioVisual]`; 2 keys)
+- [ProjectileRange.ApplyModifiers](phobos-projectile-range-apply-modifiers.md) (a `Ranged=` projectile's travel budget folds `GetRangeWithModifiers`'s veteran and AttachEffect arms per weapon or `[CombatDamage]`; 2 keys)
 - [Bolt.Duration / Bolt.FollowFLH](phobos-bolt-duration-follow-flh.md) (a weapon sets an electric bolt's lifetime exponent and whether its bolt follows a non-Unit firer; 2 keys)
 - [TeamMember.ConsideredAs](phobos-team-member-considered-as.md) (a TechnoType fills a TaskForce entry for the types it lists in the team add/liberate/recruit matches and the missing-type tally; 1 key)
 - [Anim Damage.ApplyFirepowerMult](phobos-anim-damage-firepower-mult.md) (an anim's invoker hands it its current firepower multiplier for loop damage, per AnimType over the `[CombatDamage]` global; 2 keys)

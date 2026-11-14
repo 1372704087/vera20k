@@ -38,6 +38,8 @@ pub mod spawn;
 pub mod system_ai;
 pub mod wind;
 
+#[cfg(all(test, feature = "ares"))]
+mod ares_gas_tests;
 #[cfg(test)]
 mod fire_native_tests;
 #[cfg(test)]
@@ -50,8 +52,6 @@ mod native_identity_tests;
 mod railgun_native_tests;
 #[cfg(test)]
 mod virus_tests;
-#[cfg(all(test, feature = "ares"))]
-mod ares_gas_tests;
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct ParticleSystem {
@@ -1148,3 +1148,7 @@ mod tests {
         assert_eq!(restored.particles[0].velocity().bits(), 0x4000_0000);
     }
 }
+
+#[cfg(test)]
+#[path = "alpha_shape_tests.rs"]
+mod alpha_shape_tests;

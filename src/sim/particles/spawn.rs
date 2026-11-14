@@ -768,7 +768,7 @@ mod tests {
             IVec3::new(512, 256, 0),
             rules.particle_type(kind),
             &mut sim,
-        &rules,
+            &rules,
         );
         assert_eq!(sim.scenario_rng.logical_state(), expected.logical_state());
     }

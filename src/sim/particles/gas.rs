@@ -115,8 +115,7 @@ pub(super) fn tick_system(
             let pt = rules.particle_type(p.type_id);
             if let Some(next) = pt.next_particle {
                 let coords = offset(p.coords, pt.next_particle_offset);
-                let mut child =
-                    Particle::new(
+                let mut child = Particle::new(
                     next,
                     coords,
                     IVec3::ZERO,

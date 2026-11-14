@@ -57,6 +57,13 @@ pub struct VoxelAnimObject {
     lifecycle: ObjectLifecycle,
     /// The embedded `BounceClass` at `+0xB0`.
     bounce: BounceState,
+    /// Phobos `VoxelAnimExt::TrailerSpawnTimer` (`Ext/VoxelAnim/Body.h`): the
+    /// countdown between trailer spawns. Starts expired and restarts after
+    /// every spawn (`VoxelAnimClass_AI_Trailer @ 0x74A70E`); saved with the
+    /// object like Phobos' extension.
+    #[cfg(feature = "phobos")]
+    #[serde(default)]
+    trailer_spawn_timer: crate::sim::timer::CdTimer,
     /// LogicClass membership, reconstructed from the serialized vector.
     #[serde(skip)]
     in_logic_vector: bool,
@@ -156,6 +163,30 @@ impl VoxelAnimObject {
 
     pub(crate) fn replace_bounce(&mut self, body: BounceState) {
         self.bounce = body;
+    }
+
+    /// Phobos `VoxelAnimClass_AI_Trailer @ 0x74A70E`: the trailer spawn timer
+    /// reads expired every `Trailer.SpawnDelay` game frames; a due visit
+    /// restarts it with the type's delay.
+    #[cfg(feature = "phobos")]
+    pub(crate) fn trailer_spawn_due(&mut self, now: i32, delay: i32) -> bool {
+        if !self.trailer_spawn_timer.expired(now) {
+            return false;
+        }
+        self.trailer_spawn_timer.start(now, delay);
+        true
+    }
+
+    /// The trailer countdown's hash fold. Only a running timer contributes,
+    /// so pieces that never spawned (all retail ones) keep their previous
+    /// state hash.
+    #[cfg(feature = "phobos")]
+    pub(crate) fn trailer_spawn_timer_hash(&self, hasher: &mut impl std::hash::Hasher) {
+        use std::hash::Hash;
+        if self.trailer_spawn_timer != crate::sim::timer::CdTimer::default() {
+            b"voxel-trailer-timer-v1".hash(hasher);
+            self.trailer_spawn_timer.hash(hasher);
+        }
     }
 
     /// Stopped74A7E4 / Water74A823 expire on the next AI visit.
@@ -375,6 +406,8 @@ pub fn spawn_debris_piece(
             location: launch.start.to_array(),
             lifecycle: ObjectLifecycle::default(),
             bounce,
+            #[cfg(feature = "phobos")]
+            trailer_spawn_timer: crate::sim::timer::CdTimer::default(),
             in_logic_vector: false,
         });
     }
@@ -435,6 +468,8 @@ pub fn spawn_debris_piece(
         location: origin.to_array(),
         lifecycle: ObjectLifecycle::default(),
         bounce,
+        #[cfg(feature = "phobos")]
+        trailer_spawn_timer: crate::sim::timer::CdTimer::default(),
         in_logic_vector: false,
     })
 }

@@ -1830,6 +1830,38 @@ impl Simulation {
         Some(id)
     }
 
+    /// Phobos `VoxelAnimClass_AI_Trailer @ 0x74A70E`
+    /// (`Ext/VoxelAnim/Hooks.cpp:47-67`): `GameCreate<AnimClass>(TrailerAnim,
+    /// Location, 1, 1)` then `SetAnimOwnerHouseKind(OwnerHouse, nullptr,
+    /// false, true)`. A null owner house leaves the anim unowned, as the
+    /// default kind does.
+    ///
+    /// RESIDUAL: a `MakeInfantry=`/`CreateUnit=` trailer type re-selects its
+    /// own owner kind in native, as [`Self::spawn_owned_anim`] records; this
+    /// keeps the invoker house like the combat producer.
+    #[cfg(feature = "phobos")]
+    pub(crate) fn spawn_trailer_anim(
+        &mut self,
+        rules: &RuleSet,
+        type_name: InternedId,
+        world_coord: AnimWorldCoord,
+        owner_house: Option<InternedId>,
+    ) -> Option<AnimId> {
+        let (rx, ry, sub_x, sub_y, z) = world_coord.to_cell_sub_z();
+        let descriptor = AnimClassSpawnDescriptor {
+            delay: 1,
+            draw_flags: TRAILER_DRAW_FLAGS,
+            ..AnimClassSpawnDescriptor::new(type_name, rx, ry, sub_x, sub_y, z)
+        };
+        let id = self
+            .spawn_anim_at_world(rules, descriptor, world_coord)
+            .ok()?;
+        if let Some(house) = owner_house {
+            self.install_anim_owner_house(rules, type_name, id, house);
+        }
+        Some(id)
+    }
+
     /// `AnimExt::CreateRandomAnim`'s name/random half
     /// (`Ext/Anim/Body.cpp:407-432`), shared by the Phobos consumers: an
     /// unresolvable `ValueableVector<AnimTypeClass*>` token never reached the

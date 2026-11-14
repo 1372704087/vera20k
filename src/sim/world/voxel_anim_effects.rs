@@ -146,6 +146,34 @@ impl Simulation {
             VoxelAnimAiStep::Flight => {}
         }
 
+        // Phobos `VoxelAnimClass_AI_Trailer @ 0x74A70E`
+        // (`Ext/VoxelAnim/Hooks.cpp:47-67`): on every flight visit a type with
+        // `TrailerAnim=` spawns it at the retained Location once the
+        // `Trailer.SpawnDelay` timer expires, with the piece's owner house
+        // installed after construction. The hook replaces the stock
+        // every-other-tick block.
+        #[cfg(feature = "phobos")]
+        {
+            let kind = rules.voxel_anim_type(type_id);
+            if let Some(trailer) = kind.trailer_anim.as_deref() {
+                let now = self.session.binary_frame() as i32;
+                let due =
+                    self.substrate.voxel_anims.get_mut(id).is_some_and(|piece| {
+                        piece.trailer_spawn_due(now, kind.trailer_spawn_delay)
+                    });
+                if due
+                    && let Some((coord, owner)) = self
+                        .substrate
+                        .voxel_anims
+                        .get(id)
+                        .map(|piece| (anim_coord(piece.world_coord()), piece.owner_house()))
+                {
+                    let trailer_id = self.interner.intern(trailer);
+                    self.spawn_trailer_anim(rules, trailer_id, coord, owner);
+                }
+            }
+        }
+
         // Copy only the numeric body for the terrain query. The live object
         // and its old Location remain observable during all later callbacks.
         let mut body = self.substrate.voxel_anims.get(id).unwrap().bounce();
@@ -573,3 +601,7 @@ fn anim_coord(coord: IVec3) -> AnimWorldCoord {
         z: coord.z,
     }
 }
+
+#[cfg(all(test, feature = "phobos"))]
+#[path = "voxel_trailer_tests.rs"]
+mod voxel_trailer_tests;

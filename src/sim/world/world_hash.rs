@@ -1650,6 +1650,8 @@ impl Simulation {
             debris.marked_for_deletion().hash(hasher);
             debris.owner_house().hash(hasher);
             debris.bounce().hash_bits(hasher);
+            #[cfg(feature = "phobos")]
+            debris.trailer_spawn_timer_hash(hasher);
         }
     }
 }

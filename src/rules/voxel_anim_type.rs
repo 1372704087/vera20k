@@ -97,6 +97,12 @@ pub struct VoxelAnimType {
     pub expire_anim: Option<String>,
     /// `+0x2EC`. `AnimType` played every other tick while alive.
     pub trailer_anim: Option<String>,
+    /// Phobos `Trailer.SpawnDelay=` (`Ext/VoxelAnimType/Body.cpp:18`,
+    /// `Valueable<int>` constructor 2 at `Body.h:34,43`): game frames between
+    /// trailer spawns. The AI starts the timer after every spawn
+    /// (`VoxelAnimClass_AI_Trailer @ 0x74A70E`).
+    #[cfg(feature = "phobos")]
+    pub trailer_spawn_delay: i32,
     /// `+0x2F0` / `+0x2F4` / `+0x2F8`. Area damage applied on expiry.
     pub damage: i32,
     pub damage_radius: i32,
@@ -140,6 +146,8 @@ impl VoxelAnimType {
             bounce_anim: None,
             expire_anim: None,
             trailer_anim: None,
+            #[cfg(feature = "phobos")]
+            trailer_spawn_delay: 2,
             damage: 0,
             damage_radius: 0,
             warhead: None,
@@ -163,6 +171,11 @@ impl VoxelAnimType {
         out.is_meteor = section.read_bool("IsMeteor", out.is_meteor);
         out.voxel_index = section.read_int("VoxelIndex", out.voxel_index);
         out.duration = section.read_int("Duration", out.duration);
+        #[cfg(feature = "phobos")]
+        {
+            out.trailer_spawn_delay =
+                section.read_int("Trailer.SpawnDelay", out.trailer_spawn_delay);
+        }
 
         out.elasticity = section.read_double_bits("Elasticity", out.elasticity);
         out.min_angular_velocity =

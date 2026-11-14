@@ -1446,3 +1446,132 @@ fn the_shield_ratio_selects_the_idle_band() {
     assert_eq!(idle_anims(&sim, "IDLE").len(), 0);
     assert_eq!(idle_anims(&sim, "IDLE2").len(), 1);
 }
+
+/// The committed `force_create` light request, i.e. the shield's
+/// `FlashbangWarheadAt` call; the warhead's own detonation flash would carry
+/// `force_create=false`.
+#[cfg(feature = "phobos")]
+fn shield_flash(sim: &Simulation) -> Option<(i32, u32, [i32; 3])> {
+    sim.combat_light_requests
+        .as_slice()
+        .iter()
+        .find_map(|request| match request {
+            crate::sim::combat::CombatLightRequest::Impact {
+                damage,
+                coord,
+                force_create,
+                flags,
+                ..
+            } => (*force_create).then_some((*damage, *flags, [coord.x, coord.y, coord.z])),
+            _ => None,
+        })
+}
+
+/// `ShieldClass.cpp:283..297`: an absorbed, non-breaking hit whose type sets
+/// `HitFlash=yes` and whose warhead leaves `Shield.HitFlash` on calls
+/// `MapClass::FlashbangWarheadAt` at the owner's location with `Force=true`
+/// and no channel disabled; the strength defaults to twice the clamped
+/// shield damage.
+#[cfg(feature = "phobos")]
+#[test]
+fn an_absorbed_hit_emits_the_shield_hit_flash() {
+    let fixture = rules("HitFlash=yes", "");
+    let (mut sim, _) = scene(&fixture);
+    let location = {
+        let entity = sim.substrate.entities.get(1).unwrap();
+        let point = crate::sim::movement::ground_pose::object_location(
+            entity,
+            sim.resolved_terrain.as_ref(),
+        );
+        [point.x, point.y, point.z]
+    };
+    hit(&mut sim, &fixture, 40);
+
+    let (damage, flags, coord) = shield_flash(&sim).expect("the absorbed hit flashed");
+    assert_eq!(
+        damage, 80,
+        "HitFlash.FixedSize defaults to 2 * shield damage"
+    );
+    assert_eq!(
+        flags, 0x1,
+        "the initialiser is NoColor even with every channel on"
+    );
+    assert_eq!(coord, location, "the light sits at the owner's Location");
+
+    // The default doubles the *clamped* damage: 40 raw becomes 20 absorbed.
+    let clamped = rules("HitFlash=yes\nAbsorbPercent=0.5", "");
+    let (mut sim, _) = scene(&clamped);
+    hit(&mut sim, &clamped, 40);
+    let (damage, _, _) = shield_flash(&sim).expect("the absorbed hit flashed");
+    assert_eq!(damage, 40, "2 * the clamped 20, not 2 * the raw 40");
+}
+
+/// `HitFlash.FixedSize` replaces the doubled damage; `HitFlash.Red/Green/Blue`
+/// answer `SpotlightFlags::NoRed/NoGreen/NoBlue` and `HitFlash.Black` answers
+/// `NoColor` (`ShieldClass.cpp:285..296`).
+#[cfg(feature = "phobos")]
+#[test]
+fn the_hit_flash_reads_fixed_size_and_channel_flags() {
+    let fixed = rules(
+        "HitFlash=yes\nHitFlash.FixedSize=123\nHitFlash.Red=no\nHitFlash.Blue=no",
+        "",
+    );
+    let (mut sim, _) = scene(&fixed);
+    hit(&mut sim, &fixed, 40);
+    let (damage, flags, _) = shield_flash(&sim).expect("the absorbed hit flashed");
+    assert_eq!(damage, 123, "the fixed size replaces the doubled damage");
+    assert_eq!(flags, 0xA, "NoRed | NoBlue");
+
+    let black = rules("HitFlash=yes\nHitFlash.Black=yes", "");
+    let (mut sim, _) = scene(&black);
+    hit(&mut sim, &black, 40);
+    let (_, flags, _) = shield_flash(&sim).expect("the absorbed hit flashed");
+    assert_eq!(flags, 0x1, "Black is SpotlightFlags::NoColor");
+}
+
+/// The type gate, the warhead's `Shield.HitFlash` gate and the breaking-hit
+/// arm all suppress the flash; the warhead's `CombatLightChance` still gates
+/// it at commit time.
+#[cfg(feature = "phobos")]
+#[test]
+fn the_hit_flash_gates_on_type_warhead_and_break() {
+    let off = rules("", "");
+    let (mut sim, _) = scene(&off);
+    hit(&mut sim, &off, 40);
+    assert!(
+        shield_flash(&sim).is_none(),
+        "HitFlash defaults to no on the type"
+    );
+
+    let warhead_off = rules("HitFlash=yes", "Shield.HitFlash=no");
+    let (mut sim, _) = scene(&warhead_off);
+    hit(&mut sim, &warhead_off, 40);
+    assert!(
+        shield_flash(&sim).is_none(),
+        "the warhead's Shield.HitFlash=no suppresses it"
+    );
+
+    let breaking = rules("HitFlash=yes", "");
+    let (mut sim, _) = scene(&breaking);
+    hit(&mut sim, &breaking, 150);
+    assert!(
+        shield_flash(&sim).is_none(),
+        "a shield-breaking hit does not flash"
+    );
+
+    let refused = rules("HitFlash=yes", "CombatLightChance=0");
+    let (mut sim, _) = scene(&refused);
+    hit(&mut sim, &refused, 40);
+    assert!(
+        shield_flash(&sim).is_none(),
+        "the FlashbangWarheadAt hook's CombatLightChance gate refuses"
+    );
+
+    let healing = rules("HitFlash=yes", "");
+    let (mut sim, _) = scene(&healing);
+    hit(&mut sim, &healing, -20);
+    assert!(
+        shield_flash(&sim).is_none(),
+        "a negative (healing) packet never reaches the flash arm"
+    );
+}

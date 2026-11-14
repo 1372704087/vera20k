@@ -547,6 +547,21 @@ pub(crate) struct BreakShot {
     pub(crate) impact: [i32; 3],
 }
 
+/// One `MapClass::FlashbangWarheadAt @ 0x48A620` call the absorbed-hit arm
+/// queued (`ShieldClass.cpp:275..295`): the shield owner's location, the
+/// type's `HitFlash.FixedSize` (default twice the clamped damage) and the
+/// caller's `SpotlightFlags`. The committing caller runs Phobos's
+/// `CombatLightChance` gate (`Misc/Hooks.LightEffects.cpp:69-74`, the same
+/// function's hook) before emitting the request.
+#[cfg(feature = "phobos")]
+#[derive(Debug, Clone)]
+struct ShieldHitFlash {
+    damage: i32,
+    warhead_ref: crate::sim::intern::InternedId,
+    coord: crate::sim::projectile::ProjectileCoord,
+    flags: u32,
+}
+
 /// The stage's deferred presentation: animations to construct and break
 /// weapons to detonate. `preview_receive_damage` drops it; every committing
 /// caller executes it exactly once.
@@ -554,6 +569,8 @@ pub(crate) struct BreakShot {
 pub(crate) struct ShieldEmissions {
     anims: Vec<PendingShieldAnim>,
     shots: Vec<BreakShot>,
+    #[cfg(feature = "phobos")]
+    flash: Option<ShieldHitFlash>,
 }
 
 impl ShieldEmissions {
@@ -613,6 +630,22 @@ pub(crate) fn pre_receive_damage(
     }
     if let Some(target) = sim.substrate.entities.get_mut(event.target_id) {
         target.shield = Some(state);
+    }
+    // `FlashbangWarheadAt` runs inside `ReceiveDamage`, before the absorbed
+    // hit's animation; its hook takes Phobos's `CombatLightChance` draw first.
+    #[cfg(feature = "phobos")]
+    if let Some(flash) = emissions.flash.take()
+        && crate::sim::combat::combat_light_chance_admits(sim, rules, flash.warhead_ref)
+    {
+        sim.combat_light_requests
+            .emit(crate::sim::combat::CombatLightRequest::Impact {
+                target_id: None,
+                damage: flash.damage,
+                warhead_ref: flash.warhead_ref,
+                coord: flash.coord,
+                force_create: true,
+                flags: flash.flags,
+            });
     }
     emissions.spawn_anims(sim, rules);
     Some(ShieldReceipt {
@@ -859,6 +892,40 @@ fn shield_stage(
                     remaining = actual_residue.wrapping_add(health_damage);
                 }
             } else {
+                // `pType->HitFlash && pWHExt->Shield_HitFlash`
+                // (`ShieldClass.cpp:275..295`): the absorbed hit's spotlight,
+                // queued before `WeaponNullifyAnim`.
+                #[cfg(feature = "phobos")]
+                if ty.hit_flash() && warhead.shield.hit_flash {
+                    // `ShieldClass.cpp:278..292`: the initialiser is
+                    // `NoColor` (0x1, the black lane); `HitFlash.Red=no`
+                    // *replaces* it with `NoRed` (0x2), while the green and
+                    // blue bits OR onto whatever the red test left.
+                    let flags = if ty.hit_flash_black() {
+                        0x1
+                    } else {
+                        let mut flags = if ty.hit_flash_red() { 0x1 } else { 0x2 };
+                        if !ty.hit_flash_green() {
+                            flags |= 0x4;
+                        }
+                        if !ty.hit_flash_blue() {
+                            flags |= 0x8;
+                        }
+                        flags
+                    };
+                    emissions.flash = Some(ShieldHitFlash {
+                        damage: ty
+                            .hit_flash_fixed_size()
+                            .unwrap_or_else(|| shield_damage.wrapping_mul(2)),
+                        warhead_ref: event.warhead_ref,
+                        coord: crate::sim::projectile::ProjectileCoord::new(
+                            shield_coord.x,
+                            shield_coord.y,
+                            shield_coord.z,
+                        ),
+                        flags,
+                    });
+                }
                 // `WeaponNullifyAnim(pWHExt->Shield_HitAnim)` under
                 // `!Shield.SkipHitAnim` (`ShieldClass.cpp:297..298`): the
                 // warhead's parsed list, else the type's `HitAnim`.

@@ -670,7 +670,7 @@ mod tests {
         let mut sim = Simulation::new();
         let mut detail = detail_with_frame_rate(60);
         for (name, caller_flags, expected) in
-            [("BLACK", 0, 0xE), ("BLACK", 2, 0xE), ("PLAIN", 2, 2)]
+            [("BLACK", 0, 0x1), ("BLACK", 2, 0x1), ("PLAIN", 2, 2)]
         {
             let request = CombatLightRequest::Impact {
                 target_id: None,

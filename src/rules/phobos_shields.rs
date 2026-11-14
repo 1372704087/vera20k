@@ -16,10 +16,11 @@
 //! `TechnoClass::ReceiveDamage @ 0x00701900` entry
 //! (installed hook `0x701900+0x6`, `src/Ext/Techno/Hooks.ReceiveDamage.cpp`).
 //!
-//! Read but not consumed here: `Pips*`, `IdleAnim*`, `HitFlash*` and
-//! `AllowTransfer*`. Those are separate presentation and transfer chains. The
-//! warhead-side shield keys live in [`ShieldWarheadRules`]; the simulation
-//! owner `sim::shield` consumes them.
+//! Read but not consumed here: `Pips*` (drawn by `app/presentation/ui_overlays`)
+//! and `AllowTransfer*` (a separate transfer chain). `IdleAnim*` is consumed by
+//! `sim::shield` and `HitFlash*` feeds `sim::combat::CombatLightRequest`
+//! through the same owner. The warhead-side shield keys live in
+//! [`ShieldWarheadRules`]; the simulation owner `sim::shield` consumes them.
 
 use crate::rules::attach_effect::AttachedAnimFlag;
 #[cfg(feature = "phobos")]
@@ -371,6 +372,40 @@ impl ShieldType {
 
     pub(crate) fn idle_anim_temporal_action(&self) -> AttachedAnimFlag {
         self.idle_anim_temporal_action
+    }
+
+    /// `ShieldTypeClass::HitFlash` (`ShieldTypeClass.h:40`, member
+    /// initialiser `false` `ShieldTypeClass.h:98`): the absorbed-hit
+    /// spotlight gate.
+    pub(crate) fn hit_flash(&self) -> bool {
+        self.hit_flash
+    }
+
+    /// `HitFlash.FixedSize` (`Nullable<int>`, `ShieldTypeClass.h:41`,
+    /// `:99`): the flash strength, defaulting to twice the clamped shield
+    /// damage.
+    pub(crate) fn hit_flash_fixed_size(&self) -> Option<i32> {
+        self.hit_flash_fixed_size
+    }
+
+    /// `HitFlash.Red` (`ShieldTypeClass.h:42`, default `true` `:100`).
+    pub(crate) fn hit_flash_red(&self) -> bool {
+        self.hit_flash_red
+    }
+
+    /// `HitFlash.Green` (`ShieldTypeClass.h:43`, default `true` `:101`).
+    pub(crate) fn hit_flash_green(&self) -> bool {
+        self.hit_flash_green
+    }
+
+    /// `HitFlash.Blue` (`ShieldTypeClass.h:44`, default `true` `:102`).
+    pub(crate) fn hit_flash_blue(&self) -> bool {
+        self.hit_flash_blue
+    }
+
+    /// `HitFlash.Black` (`ShieldTypeClass.h:45`, default `false` `:103`).
+    pub(crate) fn hit_flash_black(&self) -> bool {
+        self.hit_flash_black
     }
 
     pub fn has_tint(&self) -> bool {

@@ -106,10 +106,34 @@ combat-restart policy (`restart_recovery_in_combat`). Break animations reuse
 the shared `spawn_random_owned_anim` owner and break weapons the shared
 `weapon_detonation_at` shot builder.
 
+## Hit flash
+
+`ShieldClass.cpp:275..295`: a non-breaking absorbed hit whose shield type sets
+`HitFlash=yes` (`ShieldTypeClass.h:40`, default false `:98`) and whose warhead
+leaves `Shield.HitFlash` on calls
+`MapClass::FlashbangWarheadAt(size, pWH, pTechno->Location, true, flags)`
+before `WeaponNullifyAnim`. `size` is `HitFlash.FixedSize` (default twice the
+clamped shield damage); the flags start at `SpotlightFlags::NoColor` (1), are
+replaced by `NoRed` (2) when `HitFlash.Red=no`, and OR in `NoGreen` (4) /
+`NoBlue` (8). `0x48A620` is the function Phobos hooks in
+`Misc/Hooks.LightEffects.cpp:69-74`, so the call first spends
+`CombatLightChance`'s draw and then takes the detail/fps/`Bright` gates;
+`Force=true` bypasses only `Bright`.
+
+VERA's `sim::shield` queues the call in the absorbed arm and the committing
+`pre_receive_damage` runs `combat_light_chance_admits` before emitting a
+`CombatLightRequest::Impact { force_create: true, damage: size, flags, coord:
+owner Location }`. The presentation owner materializes it (detail level, fps,
+`CLIsBlack`, the channel blend). `NO_COLOR_SPOTLIGHT_FLAGS` is native
+`NoColor` = 1; the light's fps admission still reads `flags & 0xE`.
+
+Residual: `CombatLightChance` keeps the shared no-draw-at-1.0 deviation.
+The coordinate test pins the value to `object_location`; on the vehicle
+fixture `Location` and `GetCoords` coincide, so a building fixture would be
+needed to tell the two sources apart.
+
 ## Residuals
 
-- `Shield.HitFlash` gates the native `FlashbangWarheadAt` spotlight; VERA
-  reads the key but the flash is a render-side mechanism and stays unported.
 - `ShieldClass::WeaponNullifyAnim`'s `AreAnimsHidden` gate has no VERA reader;
   VERA always draws the absorbed-hit animation.
 - The break/respawn weapon detonates as a `DetonateAt` self shot. `DamageArea`'s

@@ -240,3 +240,53 @@ fn one_and_three_explicit_gas_births_match_original_constructors_and_rng() {
         );
     }
 }
+
+/// Phobos `Gas.MaxDriftSpeed=` (`Ext/ParticleType/Body.cpp:22`,
+/// constructor 2): the Gas AI's per-pass Velocity.X/Y clamp uses the type's
+/// value instead of the stock ±2 (`ParticleClass_Gas_AI_DriftSpeed`, hook
+/// `0x62BE30`, `Ext/ParticleType/Hooks.cpp:4-30`).
+#[cfg(feature = "phobos")]
+#[test]
+fn the_gas_drift_clamp_uses_the_particle_types_max_speed() {
+    use crate::rules::ini_parser::IniFile;
+    let drift_after = |keys: &str| {
+        let ini = IniFile::from_str(&format!(
+            "[Particles]\n0=CLOUD\n[ParticleSystems]\n0=CLOUDSYS\n\
+             [CLOUD]\nBehavesLike=Gas\nMaxDC=0\n{keys}\n\
+             [CLOUDSYS]\nBehavesLike=Gas\nSpawns=CLOUD\nSpawnsNumber=1\n"
+        ));
+        let rules = RuleSet::from_ini(&ini).expect("gas drift rules");
+        let kind = rules.p_type_id_by_name("CLOUD").expect("particle type");
+        let mut sim = Simulation::with_seed(1);
+        sim.resolved_terrain = Some(crate::map::resolved_terrain::test_grid(
+            32,
+            32,
+            test_flat_cell,
+        ));
+        sim.session.set_binary_frame_for_test(2);
+        let mut p = Particle::new(
+            kind,
+            IVec3::new(10 * 256, 10 * 256, 0),
+            IVec3::ZERO,
+            rules.particle_type(kind),
+            &mut sim,
+        );
+        p.drift_x = 7;
+        p.drift_y = -4;
+        crate::sim::particles::gas::tick_particle(
+            &mut p,
+            &mut sim,
+            &rules,
+            None,
+            None,
+            UninitContext::with_rules(&rules),
+        );
+        [p.drift_x, p.drift_y]
+    };
+    let [x, y] = drift_after("");
+    assert_eq!(x, 2, "the constructor's ±2 bound");
+    assert!((-2..=2).contains(&y));
+    let [x, y] = drift_after("Gas.MaxDriftSpeed=5\n");
+    assert_eq!(x, 5, "the keyed bound");
+    assert!((-5..=5).contains(&y), "{y}");
+}

@@ -1642,3 +1642,22 @@ fn ares_art_palettes_keep_the_named_file() {
     );
     assert_eq!(art.resolve_declared_cameo_palette("E1", "E1"), None);
 }
+
+/// Phobos `ZShapePointMove.OnBuildup=` (`Ext/BuildingType/Body.cpp:375`,
+/// ART): a `Valueable<bool>` whose constructor default is false, so an ART
+/// section with only `ZShapePointMove=` still skips the move while the
+/// building plays its build-up.
+#[test]
+fn phobos_zshape_point_move_on_buildup_reads_the_art_key() {
+    let registry = ArtRegistry::from_ini(&IniFile::from_str(
+        "[PLAIN]\nZShapePointMove=30,15\n[KEPT]\nZShapePointMove=30,15\nZShapePointMove.OnBuildup=yes\n",
+    ));
+    let plain = registry.get("PLAIN").expect("PLAIN");
+    assert_eq!(plain.z_shape_point_move, (30, 15));
+    assert!(!plain.z_shape_point_move_on_buildup);
+    assert_eq!(plain.z_shape_point_move_while_buildup(), (0, 0));
+
+    let kept = registry.get("KEPT").expect("KEPT");
+    assert!(kept.z_shape_point_move_on_buildup);
+    assert_eq!(kept.z_shape_point_move_while_buildup(), (30, 15));
+}

@@ -505,6 +505,7 @@ mod tests {
             undeploy_frames: None,
             deployed_fire_frames: None,
             z_shape_point_move: (0, 0),
+            z_shape_point_move_on_buildup: false,
             normal_z_adjust: 0,
             building_double_thick: false,
         }

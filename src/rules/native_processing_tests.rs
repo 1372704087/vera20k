@@ -443,6 +443,45 @@ fn phobos_shadow_indices_read_the_image_section_on_every_pass() {
     assert_eq!(read(&layers.process_with_fixed_art(&art).unwrap()), [0]);
 }
 
+/// Phobos `ShadowIndex.Frame=` (`Ext/TechnoType/Body.cpp:1338`, ART): a
+/// `Valueable<int>` constructed 0, read from the retained `Image=` section
+/// after the plural `ShadowIndices` tags, so a section without the key keeps
+/// the prior pass's value.
+#[cfg(feature = "phobos")]
+#[test]
+fn phobos_shadow_index_frame_reads_the_image_section_on_every_pass() {
+    use crate::rules::ruleset::RuleSet;
+    let art = IniFile::from_str("[FIRST]\nShadowIndex.Frame=3\n[OTHER]\n");
+    let mut layers = RulesLayerStack::new(IniFile::from_str(
+        "[AircraftTypes]\n0=JET\n[JET]\nImage=FIRST\n",
+    ));
+    let read = |processed: &ProcessedRulesLayers| {
+        RuleSet::from_processed_rules(processed)
+            .unwrap()
+            .object("JET")
+            .unwrap()
+            .phobos_shadow_index_frame()
+    };
+    assert_eq!(read(&layers.process_with_fixed_art(&art).unwrap()), 3);
+    layers.push(
+        RulesLayerKind::GameMode,
+        IniFile::from_str("[JET]\nImage=OTHER\n"),
+    );
+    assert_eq!(
+        read(&layers.process_with_fixed_art(&art).unwrap()),
+        3,
+        "a section without the key keeps the prior value"
+    );
+
+    // The constructor's 0 is the default before any ART read.
+    let cold = RulesLayerStack::new(IniFile::from_str(
+        "[AircraftTypes]\n0=JET\n[JET]\nShadowIndex=0\n",
+    ))
+    .process_with_fixed_art(&art)
+    .unwrap();
+    assert_eq!(read(&cold), 0);
+}
+
 /// Phobos `TurretShadow=` (`Ext/TechnoType/Body.cpp:1323`): read from the
 /// fixed ART section that pass's `Image=` selects, `Nullable<bool>` so a
 /// section without the key keeps the value the previous pass left.

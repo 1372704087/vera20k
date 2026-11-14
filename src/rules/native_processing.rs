@@ -1991,6 +1991,29 @@ impl ProcessedRulesLayers {
             })
     }
 
+    /// Phobos `ShadowIndex.Frame=` after every reached fixed-ART pass.
+    #[cfg(feature = "phobos")]
+    pub(crate) fn phobos_shadow_index_frame_states(
+        &self,
+    ) -> impl Iterator<Item = (ObjectCategory, &str, i32)> {
+        self.native_type_construction_trace
+            .registry_state()
+            .families
+            .iter()
+            .filter_map(|(family, members)| {
+                family.object_category().map(|category| (category, members))
+            })
+            .flat_map(|(category, members)| {
+                members.iter().map(move |member| {
+                    (
+                        category,
+                        member.native_stored_id.as_str(),
+                        member.phobos_shadow_index_frame,
+                    )
+                })
+            })
+    }
+
     /// Phobos `TurretShadow=` after every reached fixed-ART pass.
     #[cfg(feature = "phobos")]
     pub(crate) fn phobos_turret_shadow_states(
@@ -5332,6 +5355,12 @@ struct ProcessedType {
     #[serde(default)]
     #[cfg(feature = "phobos")]
     phobos_shadow_indices: Vec<i32>,
+    /// Phobos `ShadowIndex.Frame=` (`Ext/TechnoType/Body.cpp:1338`, ART):
+    /// `Valueable<int>` constructed 0 for the single-section shadow's HVA
+    /// frame (`0x7072A1`).
+    #[serde(default)]
+    #[cfg(feature = "phobos")]
+    phobos_shadow_index_frame: i32,
     /// Phobos `TurretShadow=` (`Ext/TechnoType/Body.cpp:1323`, ART, `Nullable<bool>`):
     /// whether a drawing unit adds the turret's own shadow stencil
     /// (`Ext/TechnoType/Hooks.MatrixOp.cpp:803,870`); unset takes
@@ -6127,6 +6156,8 @@ impl ProcessedType {
             voxel_shadow_index: 0,
             #[cfg(feature = "phobos")]
             phobos_shadow_indices: Vec::new(),
+            #[cfg(feature = "phobos")]
+            phobos_shadow_index_frame: 0,
             #[cfg(feature = "phobos")]
             phobos_turret_shadow: None,
             tech_level: crate::rules::object_type::DEFAULT_TECH_LEVEL,
@@ -8857,6 +8888,12 @@ impl RulesPassProcessor {
                         }
                     }
                     member.phobos_shadow_indices = indices;
+                    // `Ext/TechnoType/Body.cpp:1338`: `ShadowIndex.Frame` is
+                    // read right after the plural tags; `Valueable<int>`
+                    // keeps this member's current value as its default.
+                    member.phobos_shadow_index_frame = fixed_art
+                        .section_or_empty(&image)
+                        .read_int("ShadowIndex.Frame", member.phobos_shadow_index_frame);
                     // `Ext/TechnoType/Body.cpp:1323`: the ART `TurretShadow=`
                     // beside `TurretOffset=`, `Nullable<bool>` empty at
                     // construction (`Body.h:57`/`:495`); its consumer falls

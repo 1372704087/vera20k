@@ -792,6 +792,12 @@ pub struct ObjectType {
     /// the single `ShadowIndex`. Empty keeps the single-section path.
     #[cfg(feature = "phobos")]
     phobos_shadow_indices: Vec<i32>,
+    /// Phobos `ShadowIndex.Frame=` (`Valueable<int>` ctor 0,
+    /// `Ext/TechnoType/Body.cpp:1338`, `Body.h:58,497`, ART): the HVA frame
+    /// the single-section shadow draws at (`0x7072A1`'s `ChooseFrame`,
+    /// `Hooks.MatrixOp.cpp:1082-1084`); `-1` falls back to the walked frame.
+    #[cfg(feature = "phobos")]
+    phobos_shadow_index_frame: i32,
     /// `PitchSpeed=` (`TechnoType+0x3A8`): constructor `0.25`; each
     /// `TechnoTypeClass::ReadINI @ 0x00712170` pass uses this current double
     /// as `ReadDouble`'s default (`0x007123DA..0x007123E8`). Normal Fly
@@ -4774,6 +4780,17 @@ impl ObjectType {
         &self.phobos_shadow_indices
     }
 
+    /// Phobos `ShadowIndex.Frame`, default 0.
+    #[cfg(feature = "phobos")]
+    pub fn phobos_shadow_index_frame(&self) -> i32 {
+        self.phobos_shadow_index_frame
+    }
+
+    #[cfg(feature = "phobos")]
+    pub(crate) fn set_phobos_shadow_index_frame(&mut self, frame: i32) {
+        self.phobos_shadow_index_frame = frame;
+    }
+
     #[cfg(feature = "phobos")]
     pub(crate) fn set_phobos_shadow_indices(&mut self, indices: Vec<i32>) {
         self.phobos_shadow_indices = indices;
@@ -6668,6 +6685,8 @@ impl ObjectType {
             voxel_shadow_index: 0,
             #[cfg(feature = "phobos")]
             phobos_shadow_indices: Vec::new(),
+            #[cfg(feature = "phobos")]
+            phobos_shadow_index_frame: 0,
             pitch_speed: section.read_double_bits(
                 "PitchSpeed",
                 NativeF64Bits::from_bits(0x3fd0_0000_0000_0000),

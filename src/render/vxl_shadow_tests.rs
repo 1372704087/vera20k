@@ -63,8 +63,8 @@ fn shadow_indices_compose_around_the_primary_sections_center() {
             facing: step * 8,
             ..Default::default()
         };
-        let single = render(&vxl, Some(&hva), &params, 0, false).unwrap();
-        let listed = render_indices(&vxl, Some(&hva), &params, 0, &[0], false).unwrap();
+        let single = render(&vxl, Some(&hva), &params, 0, 0, false).unwrap();
+        let listed = render_indices(&vxl, Some(&hva), &params, 0, 0, &[0], false).unwrap();
         // Coverage is what the surrounding surface sees: every stencil pixel
         // at the same tactical position, whatever crop the two paths picked.
         let coverage = |sprite: &VxlSprite| {
@@ -81,11 +81,11 @@ fn shadow_indices_compose_around_the_primary_sections_center() {
         assert_eq!(coverage(&listed), coverage(&single), "step {step}");
         // A section the voxel does not have contributes no stencil.
         assert_eq!(
-            coverage(&render_indices(&vxl, Some(&hva), &params, 0, &[0, 4], false).unwrap()),
+            coverage(&render_indices(&vxl, Some(&hva), &params, 0, 0, &[0, 4], false).unwrap()),
             coverage(&single),
             "unreachable section is skipped"
         );
-        assert!(render_indices(&vxl, Some(&hva), &params, 0, &[4], false).is_none());
+        assert!(render_indices(&vxl, Some(&hva), &params, 0, 0, &[4], false).is_none());
     }
 }
 
@@ -107,6 +107,7 @@ fn native_generated_shadow_geometry_and_body_mask() {
                 facing: step * 8,
                 ..Default::default()
             },
+            0,
             0,
             false,
         )
@@ -137,6 +138,7 @@ fn native_generated_shadow_geometry_and_body_mask() {
                 ..Default::default()
             },
             0,
+            0,
             false,
         )
         .is_none()
@@ -149,6 +151,7 @@ fn native_generated_shadow_geometry_and_body_mask() {
                 slope_type: 17,
                 ..Default::default()
             },
+            0,
             0,
             false,
         )
@@ -189,13 +192,14 @@ fn native_aircraft_shadow_half_viewer_selected_section_and_slope() {
             Some(&hva),
             &aircraft_params(caller),
             case["shadow_index"].as_i64().unwrap() as i32,
+            0,
             case["considered_aircraft"].as_bool().unwrap(),
         )
         .unwrap();
         check(&sprite, case, &format!("aircraft generated {case}"));
     }
-    assert!(render(&vxl, Some(&hva), &Default::default(), -1, true).is_none());
-    assert!(render(&vxl, Some(&hva), &Default::default(), 4, true).is_none());
+    assert!(render(&vxl, Some(&hva), &Default::default(), -1, 0, true).is_none());
+    assert!(render(&vxl, Some(&hva), &Default::default(), 4, 0, true).is_none());
 }
 
 fn unit_shadow_params(caller: &Value) -> VxlRenderParams {
@@ -217,10 +221,10 @@ fn native_jumpjet_unit_shadow_low_flight_mask_offsets() {
     let body = bytes(data["body"].as_str().unwrap());
     for case in data["cases"].as_array().unwrap() {
         let caller = &fixture["callers"][case["caller"].as_u64().unwrap() as usize];
-        let mut sprite = render(&vxl, Some(&hva), &unit_shadow_params(caller), 0, true).unwrap();
+        let mut sprite = render(&vxl, Some(&hva), &unit_shadow_params(caller), 0, 0, true).unwrap();
         if caller["body_mask_present"].as_bool().unwrap() {
             let fractional_center =
-                center(&vxl, Some(&hva), &unit_shadow_params(caller), 0, true).unwrap();
+                center(&vxl, Some(&hva), &unit_shadow_params(caller), 0, 0, true).unwrap();
             let sample_offset = body_sample_offset(
                 fractional_center,
                 std::array::from_fn(|i| {
@@ -271,7 +275,7 @@ fn retail_kirov_shadow_matches_original_unit_caller_and_stencil() {
     let hva = HvaFile::from_bytes(assets.get_ref("ZEP.HVA").unwrap()).unwrap();
     for case in data["cases"].as_array().unwrap() {
         let caller = &fixture["callers"][case["caller"].as_u64().unwrap() as usize];
-        let sprite = render(&vxl, Some(&hva), &unit_shadow_params(caller), 0, true).unwrap();
+        let sprite = render(&vxl, Some(&hva), &unit_shadow_params(caller), 0, 0, true).unwrap();
         check(
             &sprite,
             case,
@@ -303,7 +307,7 @@ fn retail_harrier_shadow_matches_original_caller_and_stencil() {
     let hva = HvaFile::from_bytes(assets.get_ref("FALC.HVA").unwrap()).unwrap();
     for case in stock["cases"].as_array().unwrap() {
         let caller = &fixture["callers"][case["caller"].as_u64().unwrap() as usize];
-        let sprite = render(&vxl, Some(&hva), &aircraft_params(caller), 0, true).unwrap();
+        let sprite = render(&vxl, Some(&hva), &aircraft_params(caller), 0, 0, true).unwrap();
         check(
             &sprite,
             case,
@@ -381,6 +385,7 @@ fn stock_shadow_geometry_and_native_composed_body_masks() {
                     ..Default::default()
                 },
                 0,
+                0,
                 false,
             )
             .unwrap();
@@ -411,4 +416,54 @@ fn stock_shadow_geometry_and_native_composed_body_masks() {
     }
     assert_eq!(compared, 80);
     eprintln!("native stock shadow stencil/crop: 64 unmasked + 16 actual native body masks passed");
+}
+
+/// `0x7072A1`'s `ChooseFrame` (`Ext/TechnoType/Hooks.MatrixOp.cpp:1074-1104`):
+/// `ShadowIndex.Frame` selects the shadow section's HVA frame, modulo the
+/// file's frame count, and a cleared `-1` falls back to frame 0.
+#[test]
+fn shadow_index_frame_selects_the_sections_hva_frame() {
+    let fixture: Value = serde_json::from_str(crate::test_fixture::text(
+        "tools/voxel_oracle/shadow_fixtures.json",
+    ))
+    .unwrap();
+    let vxl = VxlFile::from_bytes(&bytes(fixture["vxl"].as_str().unwrap())).unwrap();
+    let one = HvaFile::from_bytes(&bytes(fixture["hva"].as_str().unwrap())).unwrap();
+    // The oracle HVA holds one frame; a second frame translates that section
+    // so the selected frame moves the stencil's placement.
+    let mut shifted = one.transforms[0];
+    shifted[3] += 32.0;
+    shifted[7] += 32.0;
+    let hva = HvaFile {
+        frame_count: 2,
+        section_count: one.section_count,
+        section_names: one.section_names.clone(),
+        transforms: vec![one.transforms[0], shifted],
+    };
+    let params = VxlRenderParams {
+        facing: 0,
+        ..Default::default()
+    };
+    let frame0 = render(&vxl, Some(&hva), &params, 0, 0, false).unwrap();
+    let frame1 = render(&vxl, Some(&hva), &params, 0, 1, false).unwrap();
+    assert_ne!(
+        [frame0.offset_x as i32, frame0.offset_y as i32],
+        [frame1.offset_x as i32, frame1.offset_y as i32],
+        "frame 1 draws the translated section"
+    );
+    // Frame indices wrap by the frame count.
+    let wrapped = render(&vxl, Some(&hva), &params, 0, 2, false).unwrap();
+    assert_eq!(
+        [wrapped.offset_x as i32, wrapped.offset_y as i32],
+        [frame0.offset_x as i32, frame0.offset_y as i32],
+        "frame 2 wraps to frame 0"
+    );
+    // `ShadowIndex.Frame=-1` is cleared: native falls through to the walked
+    // frame, which this pass keeps at 0.
+    let cleared = render(&vxl, Some(&hva), &params, 0, -1, false).unwrap();
+    assert_eq!(
+        [cleared.offset_x as i32, cleared.offset_y as i32],
+        [frame0.offset_x as i32, frame0.offset_y as i32],
+        "a cleared frame stays at frame 0"
+    );
 }

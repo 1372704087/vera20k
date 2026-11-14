@@ -1802,7 +1802,9 @@ fn building_zshape_point_move(
     art: Option<&crate::rules::art_data::ArtEntry>,
 ) -> (i32, i32) {
     if entity.building_up() || entity.building_down() {
-        (0, 0)
+        // `0x43D6E5`: Mission Construction (`0x12`) and Selling (`0x13`)
+        // skip the move unless the type sets `ZShapePointMove.OnBuildup=`.
+        art.map_or((0, 0), |art| art.z_shape_point_move_while_buildup())
     } else {
         art.map_or((0, 0), |art| art.z_shape_point_move)
     }

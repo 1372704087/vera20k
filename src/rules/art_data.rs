@@ -276,6 +276,13 @@ pub struct ArtEntry {
     /// (`BuildingClass_DrawBody 0x0043D6EF..0x0043D77A`). Retail sets it on
     /// ten tall structures; default 0,0.
     pub z_shape_point_move: (i32, i32),
+    /// Phobos `ZShapePointMove.OnBuildup=` (`Ext/BuildingType/Body.cpp:375`,
+    /// ART, `Valueable<bool>` constructed **false** `Body.h:64,196`): keep
+    /// applying `ZShapePointMove` while the building plays its build-up or
+    /// sell-down. Native `BuildingClass::Draw` (`0x43D6E5`,
+    /// `Ext/Building/Hooks.cpp:364-377`) skips the move for Mission
+    /// Construction (`0x12`) and Selling (`0x13`) unless this is set.
+    pub z_shape_point_move_on_buildup: bool,
     /// `NormalZAdjust=` (`BuildingTypeClass +0x1520`, read at `0x004613A6`):
     /// the building body's own Z term before the height lift is cancelled.
     /// Retail sets it only on GAFSDF (-10); default 0.
@@ -1400,6 +1407,19 @@ pub(crate) fn read_infantry_discharge_frames(section: &IniSection, frames: &mut 
     frames[3] = section.read_int("SecondaryProne", frames[3]);
 }
 
+impl ArtEntry {
+    /// `ZShapePointMove` as `BuildingClass::Draw` applies it while the
+    /// building is under construction or selling: the native hook
+    /// (`0x43D6E5`) skips the move unless `ZShapePointMove.OnBuildup=`.
+    pub fn z_shape_point_move_while_buildup(&self) -> (i32, i32) {
+        if self.z_shape_point_move_on_buildup {
+            self.z_shape_point_move
+        } else {
+            (0, 0)
+        }
+    }
+}
+
 impl ArtRegistry {
     /// Parse all sections from an art.ini IniFile into the registry.
     pub fn from_ini(ini: &IniFile) -> Self {
@@ -1593,6 +1613,10 @@ impl ArtRegistry {
             let remove_occupy = parse_numbered_cell_offsets(section, "RemoveOccupy");
             let [z_shape_x, z_shape_y] = section.read_minmax("ZShapePointMove", [0, 0]);
             let z_shape_point_move: (i32, i32) = (z_shape_x, z_shape_y);
+            // Phobos reads `ZShapePointMove.OnBuildup` straight after the
+            // move itself; `Valueable<bool>` keeps the constructor's false.
+            let z_shape_point_move_on_buildup: bool =
+                section.read_bool("ZShapePointMove.OnBuildup", false);
             let normal_z_adjust: i32 = section.read_int("NormalZAdjust", 0);
 
             let section_key = section_name.to_uppercase();
@@ -1685,6 +1709,7 @@ impl ArtRegistry {
                     undeploy_frames,
                     deployed_fire_frames,
                     z_shape_point_move,
+            z_shape_point_move_on_buildup,
                     normal_z_adjust,
                     building_double_thick: section.read_bool("DoubleThick", false),
                 },

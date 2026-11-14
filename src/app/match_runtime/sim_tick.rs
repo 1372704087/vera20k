@@ -2496,6 +2496,10 @@ pub(crate) fn apply_trigger_effects(state: &mut AppState, effects: &[TriggerEffe
             TriggerEffect::LocalizedMessage { csf_label } => {
                 crate::app::input::messages::post_trigger_message(state, csf_label);
             }
+            #[cfg(feature = "phobos")]
+            TriggerEffect::VariableValuePrinted { text } => {
+                crate::app::input::messages::post_variable_value_message(state, text);
+            }
             TriggerEffect::SelectSidebarTab { index } => {
                 refresh_sidebar = true;
                 let presentation = &mut state.match_state.match_presentation;

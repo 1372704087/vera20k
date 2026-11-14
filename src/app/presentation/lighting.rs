@@ -215,6 +215,23 @@ pub(crate) fn building_palette_light(
 /// (one row), not the player's 53-row scheme.
 /// RESIDUAL (dormant): the IsVeins arm that precedes these (00423122..0042317E:
 /// the player's scheme at cell common) is not ported; no retail anim sets it.
+/// `[AudioVisual] AnimRemapDefaultColorScheme=` lives in the Phobos rules
+/// block, so a build without the feature has no such key and ownerless
+/// `AltPalette` anims keep index 0 (`0x4232E2`, `Ext/Anim/Hooks.cpp:635`).
+pub(crate) fn alt_palette_default_scheme(rules: Option<&crate::rules::ruleset::RuleSet>) -> i32 {
+    #[cfg(feature = "phobos")]
+    {
+        rules.map_or(0, |rules| {
+            rules.phobos_globals.anim_remap_default_color_scheme
+        })
+    }
+    #[cfg(not(feature = "phobos"))]
+    {
+        let _ = rules;
+        0
+    }
+}
+
 pub(crate) fn anim_palette_light(
     grid: &CellLightGrid,
     cell: (u16, u16),
@@ -222,6 +239,7 @@ pub(crate) fn anim_palette_light(
     cell_drawer: bool,
     remap: Option<&crate::sim::anim_class::AnimRemap>,
     retained_intensity: i32,
+    remap_default_scheme: i32,
 ) -> crate::render::palette_light::PaletteLight {
     use crate::render::palette_light::PaletteLight;
     let brightness = if config.is_some_and(|c| c.use_normal_light) {
@@ -253,10 +271,21 @@ pub(crate) fn anim_palette_light(
         // are separate reader/load residuals, not encoded by ColorScheme.
         PaletteLight::color_scheme(grid.color_scheme_rgb(), brightness)
     } else if config.is_some_and(|c| c.alt_palette) {
-        // Default AltPalette uses B054D4[0], the neutral N1 ColorScheme.
-        //68C710 supplies RGB1000;53AD4D skips default schemes with N<=1.
+        // `0x004232E2` (`Ext/Anim/Hooks.cpp:632-645`) indexes
+        // `ColorScheme::Array[AnimRemapDefaultColorScheme]` when the anim has no
+        // owner and adds `AltPalette.ApplyLighting` to that index. `0x68C710`
+        // registers each `[Colors]` entry twice from the same HSV, with shade
+        // counts `1` (`0x6277D7`) and `0x35 = 53` (`0x627849`), so the plus one
+        // trades the one-row scheme for the fully shaded 53-row one. `0x68C4C4`
+        // widens a shade count of 1 to 53 only so the palette initialises fully
+        // (it keeps the anim from drawing over shroud); the row count comes from
+        // the selected scheme. `0x68C710` also supplies RGB 1000 and `0x53AD4D`
+        // skips default schemes with N <= 1, so the rgb scale stays neutral.
         // This differs from the cell Convert cache and N53 house schemes.
-        PaletteLight::new([1000; 3], 1, brightness, true)
+        let index =
+            remap_default_scheme + i32::from(config.is_some_and(|c| c.alt_palette_apply_lighting));
+        let rows = if index & 1 != 0 { 53 } else { 1 };
+        PaletteLight::new([1000; 3], rows, brightness, true)
     } else {
         PaletteLight::plain(53, brightness)
     }

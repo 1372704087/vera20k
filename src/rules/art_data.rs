@@ -684,6 +684,13 @@ pub struct AnimTypeRuntimeConfig {
     /// counts. The doc previously said 41, which no scan of the retail file
     /// reproduces.)
     pub alt_palette: bool,
+    /// Phobos art.ini `AltPalette.ApplyLighting=` (`Ext/AnimType/Body.cpp:105`,
+    /// `Nullable<bool>` with no global fallback, `Ext/AnimType/Body.h:112`): the
+    /// `0x4232E2` hook steps `ColorScheme::Array`'s index by one
+    /// (`Ext/Anim/Hooks.cpp:632-645`), from the colour's one-shade scheme to its
+    /// 53-shade scheme 鈥?`0x68C710`'s two per-`[Colors]`-entry call sites push
+    /// `1` (`0x6277D7`) and `0x35` (`0x627849`) with the same HSV.
+    pub alt_palette_apply_lighting: bool,
     /// art.ini `UseNormalLight=`. The retail art.ini documents this as "does this
     /// anim always draw at 100% brightness? (def=no)", and gamemd's animation draw
     /// matches: it initialises the shape's brightness argument to full
@@ -1178,6 +1185,8 @@ fn parse_anim_runtime_config(section: &IniSection) -> AnimTypeRuntimeConfig {
         translucency_detail_level: section.read_int("TranslucencyDetailLevel", 0),
         translucent: section.read_bool("Translucent", false),
         alt_palette: section.read_bool("AltPalette", false),
+        alt_palette_apply_lighting: section
+            .read_bool("AltPalette.ApplyLighting", false),
         // AnimTypeClass's constructor zeroes this field before the INI read and
         // the read passes the current field back as its own default, so an
         // omitted key leaves it false.
@@ -3128,6 +3137,44 @@ mod anim_runtime_metadata_tests {
                 .unwrap()
                 .random_rate_logic_frames,
             Some((1, 1))
+        );
+    }
+
+    /// Phobos art.ini `AltPalette.ApplyLighting=` (`Ext/AnimType/Body.cpp:105`,
+    /// `Nullable<bool>`, so an omitted key means no): the `0x4232E2` hook
+    /// (`Ext/Anim/Hooks.cpp:632-645`) steps the `ColorScheme::Array` index by
+    /// one, and `0x68C710`'s two per-entry call sites (`0x6277D7` pushing 1,
+    /// `0x627849` pushing 0x35) build the entry as a one-shade and a 53-shade
+    /// scheme from the same HSV.
+    #[test]
+    fn alt_palette_apply_lighting_reads_the_anim_section() {
+        let ini = IniFile::from_str(
+            "[UNSET]\n\
+             AltPalette=yes\n\
+             [LIT]\n\
+             AltPalette=yes\n\
+             AltPalette.ApplyLighting=yes\n\
+             [OFF]\n\
+             AltPalette=yes\n\
+             AltPalette.ApplyLighting=no\n",
+        );
+        let reg = ArtRegistry::from_ini(&ini);
+
+        assert!(
+            !reg.anim_runtime_config("UNSET")
+                .unwrap()
+                .alt_palette_apply_lighting,
+            "an unset key leaves the flag false"
+        );
+        assert!(
+            reg.anim_runtime_config("LIT")
+                .unwrap()
+                .alt_palette_apply_lighting
+        );
+        assert!(
+            !reg.anim_runtime_config("OFF")
+                .unwrap()
+                .alt_palette_apply_lighting
         );
     }
 

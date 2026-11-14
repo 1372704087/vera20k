@@ -43,6 +43,13 @@ use crate::rules::ini_parser::IniSection;
 /// The eight keys owned here.
 #[derive(Debug, Clone, PartialEq, Eq, Default)]
 pub struct PhobosWarheadExtras {
+    /// `[WarheadType] Particle.AlphaImageIsLightFlash=`
+    /// (`Ext/WarheadType/Body.cpp:345`, `Nullable<bool>`): the particles this
+    /// warhead's `Particle=` system spawns are light-flash alpha images, gated by
+    /// `LightFlashAlphaImageDetailLevel` at `0x005F5053` (`Ext/Anim/Hooks.cpp`
+    /// neighbours, `Misc/Hooks.LightEffects.cpp:12-50`). Unset falls back to
+    /// `[AudioVisual] WarheadParticleAlphaImageIsLightFlash=`.
+    pub particle_alpha_image_is_light_flash: Option<bool>,
     /// `RemoveMindControl=` (`Body.cpp:178`), default `no`: a target this
     /// warhead reaches is freed from mind control before every other
     /// per-target effect (`Detonate.cpp:207-208`).
@@ -102,6 +109,8 @@ impl PhobosWarheadExtras {
             combat_light_detail_level_check_colored: section
                 .read_phobos_nullable_bool("CombatLightDetailLevel.CheckColored", None),
             cl_is_black: section.read_bool("CLIsBlack", false),
+            particle_alpha_image_is_light_flash: section
+                .read_phobos_nullable_bool("Particle.AlphaImageIsLightFlash", None),
         }
     }
 

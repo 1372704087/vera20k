@@ -288,6 +288,19 @@ fn the_interceptor_globals_default_and_read_from_combat_damage() {
 
 /// `[AudioVisual] VisualScatter.Min/Max` (`Ext/Rules/Body.cpp:325-326`),
 /// constructed 8/32 leptons (`Ext/Rules/Body.h:758-759`).
+/// `[AudioVisual] AnimRemapDefaultColorScheme=` (`ValueableIdx<ColorScheme>`,
+/// constructor 0 at `Ext/Rules/Body.h:750`, read at `Ext/Rules/Body.cpp:174`):
+/// the `ColorScheme::Array` index an ownerless `AltPalette` anim draws with
+/// before `0x4232E2` adds `AltPalette.ApplyLighting`.
+#[test]
+fn the_alt_palette_default_scheme_reads_audio_visual() {
+    assert_eq!(PhobosGlobals::default().anim_remap_default_color_scheme, 0);
+    let set = read("[AudioVisual]\nAnimRemapDefaultColorScheme=3\n");
+    assert_eq!(set.anim_remap_default_color_scheme, 3);
+    let later = read("[AudioVisual]\nAnimRemapDefaultColorScheme=3\n[AudioVisual]\n");
+    assert_eq!(later.anim_remap_default_color_scheme, 3);
+}
+
 #[test]
 fn the_visual_scatter_bounds_default_and_read_from_audio_visual() {
     let defaults = PhobosGlobals::default();

@@ -185,6 +185,21 @@ pub struct PhobosGlobals {
     /// `ToolTipBlur` switch blurs the backing by. VERA reads it for parity and
     /// leaves the blur pass a residual.
     pub tooltip_background_blur_size: crate::util::native_x87::NativeF32Bits,
+    /// `[AudioVisual] AnimRemapDefaultColorScheme=`, default **0**
+    /// (`ValueableIdx<ColorScheme>`, `Ext/Rules/Body.h:750`, read at
+    /// `Ext/Rules/Body.cpp:174`): the `ColorScheme::Array` index an ownerless
+    /// `AltPalette` anim draws with (`0x4232E2`, `Ext/Anim/Hooks.cpp:635`).
+    /// `AltPalette.ApplyLighting` steps that index by one.
+    pub anim_remap_default_color_scheme: i32,
+    /// `[AudioVisual] WarheadParticleAlphaImageIsLightFlash=`, default **no**
+    /// (`Ext/Rules/Body.cpp:403`, `Ext/Rules/Body.h:819`): the fallback for a
+    /// warhead whose own `Particle.AlphaImageIsLightFlash=` is unset.
+    pub warhead_particle_alpha_image_is_light_flash: bool,
+    /// `[AudioVisual] LightFlashAlphaImageDetailLevel=`, default **0**
+    /// (`Ext/Rules/Body.cpp:406`, `Ext/Rules/Body.h:822`): a light-flash
+    /// particle AlphaImage above `GameOptions.DetailLevel` is not created
+    /// (`0x005F5053`).
+    pub light_flash_alpha_image_detail_level: i32,
     /// `[AudioVisual] HeightShadowScaling=`, default `no` (`Ext/Rules/Body.cpp:186`,
     /// constructor `Ext/Rules/Body.h:630`): a drawing unit scales its voxel
     /// shadow by its live height (`Ext/TechnoType/Hooks.MatrixOp.cpp:677`).
@@ -1322,6 +1337,9 @@ impl Default for PhobosGlobals {
             tooltip_background_color: [0, 0, 0],
             tooltip_background_opacity: 100,
             tooltip_background_blur_size: crate::util::native_x87::NativeF32Bits::POSITIVE_ZERO,
+            anim_remap_default_color_scheme: 0,
+            warhead_particle_alpha_image_is_light_flash: false,
+            light_flash_alpha_image_detail_level: 0,
             height_shadow_scaling: false,
             height_shadow_scaling_min_scale: NativeF64Bits::from_bits(0.0f64.to_bits()),
             air_shadow_base_scale_log: NativeF64Bits::from_bits(0.693_376_137f64.to_bits()),
@@ -1548,6 +1566,20 @@ impl PhobosGlobals {
         );
         globals.tooltip_background_blur_size =
             crate::util::native_x87::NativeF32Bits::from_bits((tooltip_blur as f32).to_bits());
+        // `Ext/Rules/Body.cpp:174`, same `[AudioVisual]` pass.
+        globals.anim_remap_default_color_scheme = audio_visual.read_int(
+            "AnimRemapDefaultColorScheme",
+            globals.anim_remap_default_color_scheme,
+        );
+        // `Ext/Rules/Body.cpp:403,406`, same `[AudioVisual]` pass.
+        globals.warhead_particle_alpha_image_is_light_flash = audio_visual.read_bool(
+            "WarheadParticleAlphaImageIsLightFlash",
+            globals.warhead_particle_alpha_image_is_light_flash,
+        );
+        globals.light_flash_alpha_image_detail_level = audio_visual.read_int(
+            "LightFlashAlphaImageDetailLevel",
+            globals.light_flash_alpha_image_detail_level,
+        );
         // `Ext/Rules/Body.cpp:291-297`: the income-label switch and cadence. A
         // read `DisplayIncome.Delay=0` would crash the native label, so the
         // reader forces it to 1.

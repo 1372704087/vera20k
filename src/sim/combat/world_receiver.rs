@@ -3958,6 +3958,23 @@ fn continue_area_damage(
     );
     //48A437..48A479 follows both the bridge and Explodes branches. WH.Particle
     //uses the outer sourceHouse and also constructs one immediate child.
+    //48A444 stores the light-flash mark before the system starts and 48A47E
+    //puts it back after the immediate child, so everything the window reveals
+    //keeps it and nothing outside the window does.
+    #[cfg(feature = "phobos")]
+    let light_flash = context
+        .warhead
+        .phobos_extras
+        .particle_alpha_image_is_light_flash
+        .unwrap_or(
+            rules
+                .phobos_globals
+                .warhead_particle_alpha_image_is_light_flash,
+        );
+    #[cfg(not(feature = "phobos"))]
+    let light_flash = false;
+    let outer_light_flash = world.particle_light_flash();
+    world.set_particle_light_flash(light_flash);
     if let Some(type_id) = context
         .warhead
         .particle_system
@@ -3975,6 +3992,7 @@ fn continue_area_damage(
     {
         world.spawn_particle_in_system(system, position, position, rules);
     }
+    world.set_particle_light_flash(outer_light_flash);
     (death, pings)
 }
 

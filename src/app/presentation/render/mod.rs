@@ -351,8 +351,24 @@ pub(crate) fn render_game(
                 .is_some_and(|house| house.is_defeated()),
         };
         let rules = &rt.resources.rules;
+        // `0x005F5053` skips a light-flash particle AlphaImage when
+        // `[Phobos] HideLightFlashEffects=` is on, and again when
+        // `[AudioVisual] LightFlashAlphaImageDetailLevel=` exceeds
+        // `GameOptions.DetailLevel`. VERA models no detail level, so only the
+        // first half applies here; the second is a recorded residual. Both are
+        // client decisions: the simulation owns neither.
+        #[cfg(feature = "phobos")]
+        let hide_light_flash_effects = state
+            .match_state
+            .match_presentation
+            .hide_light_flash_effects;
+        #[cfg(not(feature = "phobos"))]
+        let hide_light_flash_effects = false;
         shroud_buf.set_alpha_shapes(view.simulation().alpha_shapes().filter_map(
-            |(origin, image)| {
+            |(origin, image, light_flash)| {
+                if light_flash && hide_light_flash_effects {
+                    return None;
+                }
                 Some(crate::render::shroud_buffer::AlphaShapeDraw {
                     origin,
                     image: rules.alpha_image(image)?.clone(),

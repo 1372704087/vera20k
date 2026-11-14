@@ -564,6 +564,7 @@ pub(crate) fn build_display_effect_instances(
                 .and_then(|samples| samples.get(&stable_id))
                 .copied()
                 .unwrap_or(1000),
+            crate::app::presentation::lighting::alt_palette_default_scheme(Some(input.rules)),
         );
         let key = ShpSpriteKey {
             palette_context: if anim.use_cell_drawer() {

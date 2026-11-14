@@ -38,6 +38,8 @@ pub mod spawn;
 pub mod system_ai;
 pub mod wind;
 
+#[cfg(all(test, feature = "ares"))]
+mod ares_gas_tests;
 #[cfg(test)]
 mod fire_native_tests;
 #[cfg(test)]
@@ -50,8 +52,6 @@ mod native_identity_tests;
 mod railgun_native_tests;
 #[cfg(test)]
 mod virus_tests;
-#[cfg(all(test, feature = "ares"))]
-mod ares_gas_tests;
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct ParticleSystem {
@@ -362,12 +362,13 @@ impl Particle {
         target: IVec3,
         pt: &ParticleType,
         sim: &mut Simulation,
+        rules: &crate::rules::ruleset::RuleSet,
     ) -> Self {
         let particle = Self::new_with_ground(type_id, coords, target, pt, sim, |sim, x, y| {
             spark_world::constructor_ground_height(sim, x, y)
         })
         .expect("particle construction requires supported ground facts");
-        Simulation::reveal_particle(&mut sim.substrate, particle.stable_id);
+        sim.reveal_particle_with_alpha_shape(&particle, rules);
         particle
     }
 
@@ -1147,3 +1148,7 @@ mod tests {
         assert_eq!(restored.particles[0].velocity().bits(), 0x4000_0000);
     }
 }
+
+#[cfg(test)]
+#[path = "alpha_shape_tests.rs"]
+mod alpha_shape_tests;

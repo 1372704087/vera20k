@@ -176,6 +176,9 @@ fn frozen_building_pieces(
             native_z::pack_building_z_gradient(zshape, entry.extended)
         };
         if zshape {
+            // `FoggedObjectClass::DrawAll` carries no Mission/buildup state,
+            // so the `0x43D6E5` skip in the live `BuildingClass::Draw` does
+            // not apply here; the frozen snapshot always adds the point move.
             let origin = native_z::zshape_origin(
                 (x as i32, y as i32),
                 object.foundation.dimensions(),

@@ -411,6 +411,13 @@ pub struct WeaponType {
     /// 0): added to the electric-bolt zAdjust (`Ext/EBolt/Hooks.cpp:215`).
     #[cfg(feature = "phobos")]
     pub phobos_ebolt_z_adjust: Option<i32>,
+    /// Phobos `EBoltZAdjust.ClampInitialDepthForBuilding=`
+    /// (`Ext/WeaponType/Body.cpp:132`, `Nullable<bool>` unset at
+    /// `Body.h:62,157`): the weapon's override of the
+    /// `[AudioVisual] EBoltZAdjust.ClampInitialDepthForBuilding` clamp for a
+    /// building's bolt.
+    #[cfg(feature = "phobos")]
+    pub phobos_ebolt_clamp_initial_depth_for_building: Option<bool>,
     /// Phobos `WeaponTypeExt::Bolt_Duration` (`Ext/WeaponType/Body.cpp:101`,
     /// `Valueable<int>`, constructor `Body.h:131` stores 17): the EBolt
     /// lifetime exponent; `EBoltExt::CreateEBolt` stores
@@ -843,6 +850,9 @@ impl WeaponType {
             phobos_laser_z_adjust: section.read_phobos_nullable_int("LaserZAdjust", None),
             #[cfg(feature = "phobos")]
             phobos_ebolt_z_adjust: section.read_phobos_nullable_int("EBoltZAdjust", None),
+            #[cfg(feature = "phobos")]
+            phobos_ebolt_clamp_initial_depth_for_building: section
+                .read_phobos_nullable_bool("EBoltZAdjust.ClampInitialDepthForBuilding", None),
             #[cfg(feature = "phobos")]
             phobos_bolt_duration: section.read_int("Bolt.Duration", 17),
             #[cfg(feature = "phobos")]

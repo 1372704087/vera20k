@@ -17,8 +17,14 @@ fn the_global_z_adjusts_default_to_zero_and_read_audio_visual() {
         z_adjusts("[AudioVisual]\nLaserZAdjust=5\nEBoltZAdjust=-3\n"),
         BeamZAdjustGlobals {
             laser: 5,
-            ebolt: -3
+            ebolt: -3,
+            ebolt_clamp_initial_depth_for_building: true,
         }
+    );
+    assert!(
+        !z_adjusts("[AudioVisual]\nEBoltZAdjust.ClampInitialDepthForBuilding=no\n")
+            .ebolt_clamp_initial_depth_for_building,
+        "the clamp key defaults to the constructor's yes"
     );
 }
 

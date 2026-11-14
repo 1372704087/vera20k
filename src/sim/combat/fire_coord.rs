@@ -133,6 +133,7 @@ pub(crate) fn effect_z_adjust(
     source: &GameEntity,
     from: ProjectileCoord,
     projection: EffectDepthProjection,
+    clamp_positive: bool,
 ) -> i32 {
     if projection == EffectDepthProjection::ClampedBuilding
         && source.category() != EntityCategory::Structure
@@ -152,7 +153,15 @@ pub(crate) fn effect_z_adjust(
     let project_y = |x, y, z| crate::util::lepton::absolute_leptons_to_screen(x, y, z).1 as i32;
     let delta = project_y(from.x, from.y, from.z).wrapping_sub(project_y(base.x, base.y, base.z));
     match projection {
-        EffectDepthProjection::ClampedBuilding => delta.min(0),
+        // Stock `0x6FD4E4..0x6FD4ED` clamps a positive delta; Phobos'
+        // `EBoltZAdjust.ClampInitialDepthForBuilding=no` keeps it.
+        EffectDepthProjection::ClampedBuilding => {
+            if clamp_positive {
+                delta.min(0)
+            } else {
+                delta
+            }
+        }
         EffectDepthProjection::ChangedY => delta,
     }
 }

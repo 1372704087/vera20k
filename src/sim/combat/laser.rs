@@ -313,6 +313,7 @@ pub(crate) fn create<'w>(
                     source,
                     from,
                     super::fire_coord::EffectDepthProjection::ClampedBuilding,
+                    true,
                 ),
             )
         };

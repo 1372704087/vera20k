@@ -22,6 +22,12 @@ use crate::rules::ini_parser::IniFile;
 pub struct BeamZAdjustGlobals {
     pub laser: i32,
     pub ebolt: i32,
+    /// `[AudioVisual] EBoltZAdjust.ClampInitialDepthForBuilding=`
+    /// (`Ext/Rules/Body.cpp:279`, constructor **true** at
+    /// `Ext/Rules/Body.h:197,720`): with the key off, a building's bolt keeps
+    /// the positive initial-depth delta that stock clamps to zero
+    /// (`0x6FD4E4..0x6FD4ED`, Phobos hook `TechnoClass_FireEBolt_Building_ClampPositive`).
+    pub ebolt_clamp_initial_depth_for_building: bool,
 }
 
 impl BeamZAdjustGlobals {
@@ -30,6 +36,8 @@ impl BeamZAdjustGlobals {
         Self {
             laser: audio_visual.read_int("LaserZAdjust", 0),
             ebolt: audio_visual.read_int("EBoltZAdjust", 0),
+            ebolt_clamp_initial_depth_for_building: audio_visual
+                .read_bool("EBoltZAdjust.ClampInitialDepthForBuilding", true),
         }
     }
 }

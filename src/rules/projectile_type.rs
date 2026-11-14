@@ -267,6 +267,12 @@ pub struct ProjectileType {
     /// the stock `BulletClass::AI` arms.
     #[cfg(feature = "phobos")]
     pub phobos_trajectory: crate::rules::phobos_trajectory::PhobosTrajectoryRules,
+    /// Phobos `BulletTypeExt::LaserTrail_Types`
+    /// (`Ext/BulletType/Body.cpp:89..94`): the ART `LaserTrail.Types` index
+    /// list, by `[LaserTrailTypes]` name. Read from the `ImageFile` section
+    /// (`Image=` when authored, otherwise the type ID).
+    #[cfg(feature = "phobos")]
+    pub laser_trail_types: Vec<String>,
     /// Ares BulletTypeExt keys (`rules::ares_bullet_type`, read by
     /// `100193C0`).
     #[cfg(feature = "ares")]
@@ -320,6 +326,11 @@ pub(crate) struct ProjectileArtState {
     use_line_trail: bool,
     line_trail_color: [u8; 3],
     line_trail_color_decrement: i32,
+    /// `BulletTypeExt::LaserTrail_Types`, read from the ART `ImageFile`
+    /// section after the stock Bullet reads (`Ext/BulletType/Body.cpp:89..94`).
+    #[cfg(feature = "phobos")]
+    #[serde(default)]
+    laser_trail_types: Vec<String>,
 }
 
 impl ProjectileArtState {
@@ -340,6 +351,8 @@ impl ProjectileArtState {
             use_line_trail: false,
             line_trail_color: [128; 3],
             line_trail_color_decrement: 16,
+            #[cfg(feature = "phobos")]
+            laser_trail_types: Vec::new(),
         }
     }
 
@@ -430,6 +443,16 @@ impl ProjectileArtState {
         if image.voxel() {
             image.load_voxel();
         }
+        // BulletTypeExt::LoadFromINIFile reads `LaserTrail.Types` from the
+        // ART layer after the stock Bullet body, with the `ImageFile` section
+        // (`Ext/BulletType/Body.cpp:89..94`).
+        #[cfg(feature = "phobos")]
+        if let Some(section) = section {
+            self.laser_trail_types = crate::rules::phobos_laser_trail::read_laser_trail_types(
+                section,
+                std::mem::take(&mut self.laser_trail_types),
+            );
+        }
     }
 
     pub(crate) fn apply_to(&self, image: &ObjectImageState, projectile: &mut ProjectileType) {
@@ -454,6 +477,10 @@ impl ProjectileArtState {
         projectile.use_line_trail = self.use_line_trail;
         projectile.line_trail_color = self.line_trail_color;
         projectile.line_trail_color_decrement = self.line_trail_color_decrement;
+        #[cfg(feature = "phobos")]
+        {
+            projectile.laser_trail_types = self.laser_trail_types.clone();
+        }
     }
 }
 
@@ -654,6 +681,8 @@ impl ProjectileType {
                 section,
             ),
             #[cfg(feature = "phobos")]
+            laser_trail_types: Vec::new(),
+            #[cfg(feature = "phobos")]
             phobos_subject_to_ground: section.read_ares_bool("SubjectToGround", false),
             #[cfg(feature = "phobos")]
             phobos_parabomb: crate::rules::phobos_parabomb::PhobosParabomb::from_section(section),
@@ -705,6 +734,29 @@ impl ProjectileType {
 mod tests {
     use super::*;
     use crate::rules::ini_parser::IniFile;
+
+    /// `BulletTypeExt::LoadFromINIFile` reads `LaserTrail.Types` from the ART
+    /// `ImageFile` section: the authored `Image=` when present, otherwise the
+    /// type ID (`Ext/BulletType/Body.cpp:89..94`).
+    #[cfg(feature = "phobos")]
+    #[test]
+    fn laser_trail_types_come_from_the_art_image_section() {
+        let rules = IniFile::from_str("[RULES]\nImage=ARTNAME\n[PLAIN]\n");
+        let art =
+            IniFile::from_str("[ARTNAME]\nLaserTrail.Types=A, B\n[PLAIN]\nLaserTrail.Types=C\n");
+        let projectile = ProjectileType::from_ini_section(
+            "RULES",
+            rules.section("RULES").unwrap(),
+            art.section("ARTNAME"),
+        );
+        assert_eq!(projectile.laser_trail_types, ["A", "B"]);
+        let plain = ProjectileType::from_ini_section(
+            "PLAIN",
+            rules.section("PLAIN").unwrap(),
+            art.section("PLAIN"),
+        );
+        assert_eq!(plain.laser_trail_types, ["C"]);
+    }
 
     #[test]
     fn degenerates_retains_reader_defaults_through_layers_and_save() {

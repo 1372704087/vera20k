@@ -146,6 +146,12 @@ impl Simulation {
             VoxelAnimAiStep::Flight => {}
         }
 
+        // Phobos `VoxelAnimClass_AI_Additional` (`Ext/VoxelAnim/Hooks.cpp:5..27`),
+        // inside the same 0x74A70E hook as the trailer spawn and before the
+        // stock bounce update.
+        #[cfg(feature = "phobos")]
+        self.update_voxel_anim_laser_trails(id, rules);
+
         // Phobos `VoxelAnimClass_AI_Trailer @ 0x74A70E`
         // (`Ext/VoxelAnim/Hooks.cpp:47-67`): on every flight visit a type with
         // `TrailerAnim=` spawns it at the retained Location once the

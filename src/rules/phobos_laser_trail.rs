@@ -169,6 +169,32 @@ impl LaserTrailTypeRegistry {
     }
 }
 
+/// `ValueableIdxVector<LaserTrailTypeClass>::Read`
+/// (`Utilities/TemplateDef.h:2194..2204`) with `detail::parse_indexes`
+/// (`:1744..1759`): `ReadString` into the 2048-byte shared buffer, split on
+/// commas, trim `" \t\r"` from both ends, drop blank tokens, and resolve each
+/// remaining token through `LaserTrailTypeClass::FindIndex`
+/// (`Utilities/Enumerable.h:21..32`, case-insensitive name). An absent key
+/// keeps the previous pass's list; a present empty value does too, because
+/// `ReadString` returns zero. An unknown name is dropped at read.
+///
+/// VERA keeps the names instead: the catalog lives in `ArtRegistry`, which
+/// the type readers do not own. ART is fixed for the scenario, so resolving a
+/// name at trail update draws nothing for an unknown one, exactly as the
+/// native read dropped it.
+pub(crate) fn read_laser_trail_types(section: &IniSection, current: Vec<String>) -> Vec<String> {
+    section.read_string_with("LaserTrail.Types", 2048, current, |mut names, raw| {
+        names.clear();
+        for part in raw.split(',') {
+            let name = part.trim_matches([' ', '\t', '\r']);
+            if !name.is_empty() {
+                names.push(name.to_string());
+            }
+        }
+        names
+    })
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -212,6 +238,31 @@ mod tests {
             missing,
             &LaserTrailType::default(),
             "a listed name without a section keeps the constructor defaults"
+        );
+    }
+
+    /// `ValueableIdxVector::Read`'s `parse_indexes`: commas, `" \t\r"` trim,
+    /// blank tokens skipped, an absent or empty key keeping the prior list.
+    #[test]
+    fn laser_trail_types_reads_the_index_list() {
+        let ini = IniFile::from_str("[X]\nLaserTrail.Types= A , ,B\t\n[Y]\nLaserTrail.Types=\n");
+        let read = |section: &str, current: Vec<String>| {
+            read_laser_trail_types(ini.section(section).unwrap(), current)
+        };
+        assert_eq!(
+            read("X", Vec::new()),
+            vec!["A".to_string(), "B".to_string()]
+        );
+        let previous = vec!["KEPT".to_string()];
+        assert_eq!(
+            read("Y", previous.clone()),
+            previous,
+            "an empty value leaves the list alone"
+        );
+        assert_eq!(
+            read_laser_trail_types(IniSection::empty(), previous.clone()),
+            previous,
+            "an absent key leaves the list alone"
         );
     }
 }

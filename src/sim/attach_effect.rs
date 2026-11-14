@@ -1948,46 +1948,22 @@ impl Simulation {
                 instance.trail_last_location = Some(current);
                 continue;
             }
-            let Some(last) = instance.trail_last_location else {
-                instance.trail_last_location = Some(current);
-                continue;
-            };
-            let dx = i64::from(current[0]) - i64::from(last[0]);
-            let dy = i64::from(current[1]) - i64::from(last[1]);
-            let dz = i64::from(current[2]) - i64::from(last[2]);
-            let segment = f64::from(trail.segment_length);
-            if (dx * dx + dy * dy + dz * dz) as f64 <= segment * segment {
-                continue;
-            }
-            instance.trail_last_location = Some(current);
-            // EBolt and RadBeam trail types parse but their drawing systems
-            // are unported, so they add no laser.
-            if trail.draw_type != crate::rules::phobos_laser_trail::LaserTrailDrawType::Laser {
-                continue;
-            }
-            if cloak_state == 2 && !trail.cloak_visible {
-                continue;
-            }
-            if trail.ignore_vertical && dx.abs() <= 16 && dy.abs() <= 16 {
-                continue;
-            }
-            // Native constructs the LaserDraw with `CurrentColor`, then forces
-            // `IsHouseColor = true` (`LaserTrailClass.cpp:29..36`): every trail
-            // draws through the house/Special arm, where `Thickness` and
-            // `IsIntense` take effect.
-            let color = crate::sim::combat::laser::LaserColor::House(owner);
-            let birth = crate::sim::combat::laser::construct(
+            // The shared `LaserTrailClass::Update` owner: distance, visibility,
+            // `IgnoreVertical` and the one LaserDraw construction live in
+            // `sim::laser_trail`, also used by bullets and voxel debris.
+            let cloaked = cloak_state == 2 && !trail.cloak_visible;
+            crate::sim::laser_trail::update(
+                &mut instance.trail_last_location,
+                trail,
+                current,
+                true,
+                cloaked,
+                Some(owner),
+                rules.radiation.color,
                 &self.session,
+                &self.main_rng,
                 &mut self.lifecycle_outputs,
-                crate::sim::projectile::ProjectileCoord::new(last[0], last[1], last[2]),
-                crate::sim::projectile::ProjectileCoord::new(current[0], current[1], current[2]),
-                0,
-                trail.fade_duration(),
-                color,
-                crate::util::native_x87::NativeF32Bits::POSITIVE_ZERO,
             );
-            birth.width = trail.thickness;
-            birth.supported = trail.is_intense;
         }
         let entity = self
             .substrate
@@ -3718,10 +3694,11 @@ mod tests {
         assert_eq!(births[0].width, 2);
         assert_eq!(births[0].duration, 5);
         assert!(!births[0].supported);
-        assert!(matches!(
+        assert_eq!(
             births[0].color,
-            crate::sim::combat::laser::LaserColor::House(_)
-        ));
+            crate::sim::combat::laser::LaserColor::HouseStyle([1, 2, 3]),
+            "the trail type's Color is the DrawBeamSpecial RGB"
+        );
         assert_eq!(births[0].from.y, births[0].to.y, "moved along X");
         sim.update_phobos_laser_trails(tank, &rules);
         assert_eq!(lasers(&sim).len(), 1, "no movement adds no segment");

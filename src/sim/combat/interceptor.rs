@@ -225,6 +225,12 @@ impl Simulation {
             replacement_type,
             replacement_speed,
         );
+        // Phobos `InterceptBullet` (`Ext/Bullet/Body.cpp:68..72`): the new
+        // BulletType gets a fresh trail list unless it is `Inviso`.
+        if let Some(new_kind) = new_kind {
+            let names = (!new_kind.inviso).then_some(new_kind.laser_trail_types.as_slice());
+            self.projectiles.reset_phobos_laser_trails(target_id, names);
+        }
         // Lose the source's target if the replaced projectile no longer
         // qualifies for interception.
         if let Some(new_kind) = new_kind

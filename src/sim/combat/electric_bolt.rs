@@ -22,6 +22,10 @@ pub struct ElectricBoltBirth {
     /// replaces the palette colour of the first outer, second outer and
     /// centre strand. Always `None` in default builds.
     pub colors: [Option<[u8; 3]>; 3],
+    /// Phobos `EBoltExt::Arcs` (`Ext/EBolt/Body.h:19`, constructor 8):
+    /// `EBolt_DrawArcs` stops the subdivision loop once `plotIndex` reaches
+    /// this count (`Ext/EBolt/Hooks.cpp:57..64`).
+    pub arcs: i32,
     /// The firer [`fired`] names for `EBolt::SetOwner @ 0x004C2BD0`
     /// (bolt `+0x20`/`+0x24`); the app keeps it only while the Unit holds
     /// no other bolt (`+0x6DC`).
@@ -277,6 +281,12 @@ fn emit(
     let decay = 1_i32 << (weapon.phobos_bolt_duration.clamp(1, 31) - 1);
     #[cfg(not(feature = "phobos"))]
     let decay = 0x10000;
+    // `EBoltExt::CreateEBolt` copies the weapon's `Bolt.Arcs`
+    // (`Ext/EBolt/Body.cpp:29`); the constructor's 8 is the default.
+    #[cfg(feature = "phobos")]
+    let arcs = weapon.phobos_bolt_arcs;
+    #[cfg(not(feature = "phobos"))]
+    let arcs = 8;
     world
         .lifecycle_outputs
         .emit(crate::sim::world::LifecycleOutput::ElectricBoltCreated(
@@ -288,6 +298,7 @@ fn emit(
                 phase,
                 alternate_color,
                 colors,
+                arcs,
                 owner,
                 decay,
             },

@@ -10,10 +10,15 @@ use crate::sim::combat::electric_bolt;
 use crate::sim::world::LifecycleOutput;
 
 fn bolt_rules(follow: Option<bool>, duration: Option<i32>) -> RuleSet {
+    bolt_rules_with(follow, duration, None)
+}
+
+fn bolt_rules_with(follow: Option<bool>, duration: Option<i32>, arcs: Option<i32>) -> RuleSet {
     let follow = follow.map_or_else(String::new, |value| {
         format!("Bolt.FollowFLH={}\n", if value { "yes" } else { "no" })
     });
     let duration = duration.map_or_else(String::new, |value| format!("Bolt.Duration={value}\n"));
+    let arcs = arcs.map_or_else(String::new, |value| format!("Bolt.Arcs={value}\n"));
     RuleSet::from_ini(&IniFile::from_str(&format!(
         "[InfantryTypes]\n0=E1\n[VehicleTypes]\n0=TESLA\n1=TARGET\n\
          [AircraftTypes]\n[BuildingTypes]\n\
@@ -21,7 +26,7 @@ fn bolt_rules(follow: Option<bool>, duration: Option<i32>) -> RuleSet {
          [TESLA]\nStrength=300\nArmor=heavy\nPrimary=Coil\nSpeed=6\nSight=8\n\
          [TARGET]\nStrength=300\nArmor=heavy\n\
          [Coil]\nDamage=10\nROF=20\nRange=8\nWarhead=WH\nIsElectricBolt=yes\n\
-         {follow}{duration}\
+         {follow}{duration}{arcs}\
          [WH]\nVerses=100%,100%,100%,100%,100%,100%,100%,100%,100%,100%,100%\n"
     )))
     .expect("bolt key rules")
@@ -32,7 +37,16 @@ fn fired_birth(
     follow: Option<bool>,
     duration: Option<i32>,
 ) -> electric_bolt::ElectricBoltBirth {
-    let rules = bolt_rules(follow, duration);
+    fired_birth_with(firer_kind, follow, duration, None)
+}
+
+fn fired_birth_with(
+    firer_kind: &str,
+    follow: Option<bool>,
+    duration: Option<i32>,
+    arcs: Option<i32>,
+) -> electric_bolt::ElectricBoltBirth {
+    let rules = bolt_rules_with(follow, duration, arcs);
     let mut sim = crate::sim::arena_fixture::rival_arena(&rules, 0x6F_D5D7);
     sim.intern_rule_type_ids(&rules);
     sim.resolve_type_handles(&rules);
@@ -70,6 +84,13 @@ fn bolt_duration_sets_the_lifetime_exponent() {
     assert_eq!(fired_birth("TESLA", None, Some(0)).decay, 1);
     assert_eq!(fired_birth("TESLA", None, Some(31)).decay, 1 << 30);
     assert_eq!(fired_birth("TESLA", None, Some(40)).decay, 1 << 30);
+}
+
+/// `EBoltExt::CreateEBolt` copies the weapon's `Bolt.Arcs` (constructor 8).
+#[test]
+fn bolt_arcs_reach_the_birth() {
+    assert_eq!(fired_birth("TESLA", None, None).arcs, 8);
+    assert_eq!(fired_birth_with("TESLA", None, None, Some(3)).arcs, 3);
 }
 
 /// `EBoltExt::_SetOwner` links a bolt when `Bolt.FollowFLH` is set, else only

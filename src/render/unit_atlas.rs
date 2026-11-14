@@ -1562,7 +1562,6 @@ impl UnitModel {
                     body.hva(),
                     &params,
                     shadow.index,
-                    shadow.frame,
                     &shadow.indices,
                     &shadow.frames,
                     shadow.considered_aircraft,

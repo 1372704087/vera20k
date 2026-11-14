@@ -48,7 +48,9 @@ fn check(sprite: &VxlSprite, case: &Value, label: &str) {
 /// Phobos `ShadowIndices=`'s loop (`Ext/TechnoType/Hooks.MatrixOp.cpp:793-800`)
 /// draws one stencil per listed section; a list naming only the type's own
 /// `ShadowIndex` must answer exactly that single-section stencil, and an
-/// index the voxel has no section for draws nothing.
+/// index the voxel has no section for draws nothing. The shared anchor is the
+/// primary section's frame-0 center: native builds `shadowCenter` before
+/// `ChooseFrame` (`:726-727`), so the path takes no single-value frame.
 #[test]
 fn shadow_indices_compose_around_the_primary_sections_center() {
     let fixture: Value = serde_json::from_str(crate::test_fixture::text(
@@ -64,7 +66,7 @@ fn shadow_indices_compose_around_the_primary_sections_center() {
             ..Default::default()
         };
         let single = render(&vxl, Some(&hva), &params, 0, 0, false).unwrap();
-        let listed = render_indices(&vxl, Some(&hva), &params, 0, 0, &[0], &[], false).unwrap();
+        let listed = render_indices(&vxl, Some(&hva), &params, 0, &[0], &[], false).unwrap();
         // Coverage is what the surrounding surface sees: every stencil pixel
         // at the same tactical position, whatever crop the two paths picked.
         let coverage = |sprite: &VxlSprite| {
@@ -81,13 +83,11 @@ fn shadow_indices_compose_around_the_primary_sections_center() {
         assert_eq!(coverage(&listed), coverage(&single), "step {step}");
         // A section the voxel does not have contributes no stencil.
         assert_eq!(
-            coverage(
-                &render_indices(&vxl, Some(&hva), &params, 0, 0, &[0, 4], &[], false).unwrap()
-            ),
+            coverage(&render_indices(&vxl, Some(&hva), &params, 0, &[0, 4], &[], false).unwrap()),
             coverage(&single),
             "unreachable section is skipped"
         );
-        assert!(render_indices(&vxl, Some(&hva), &params, 0, 0, &[4], &[], false).is_none());
+        assert!(render_indices(&vxl, Some(&hva), &params, 0, &[4], &[], false).is_none());
     }
 }
 
@@ -422,7 +422,10 @@ fn stock_shadow_geometry_and_native_composed_body_masks() {
 
 /// `0x7072A1`'s `ChooseFrame` (`Ext/TechnoType/Hooks.MatrixOp.cpp:1074-1104`):
 /// `ShadowIndex.Frame` selects the shadow section's HVA frame, modulo the
-/// file's frame count, and a cleared `-1` falls back to frame 0.
+/// file's frame count. A cleared `-1` falls back to `WalkedFramesSoFar`;
+/// the shadow atlas is keyed by facing and slope with no walked-frame
+/// dimension, so this pass uses frame 0, which retail also reaches because the
+/// constructor value 0 never takes the `-1` arm.
 #[test]
 fn shadow_index_frame_selects_the_sections_hva_frame() {
     let fixture: Value = serde_json::from_str(crate::test_fixture::text(
@@ -461,7 +464,8 @@ fn shadow_index_frame_selects_the_sections_hva_frame() {
         "frame 2 wraps to frame 0"
     );
     // `ShadowIndex.Frame=-1` is cleared: native falls through to the walked
-    // frame, which this pass keeps at 0.
+    // frame, which the atlas cannot key; retail's constructor value 0 never
+    // takes this arm, so the pass keeps frame 0.
     let cleared = render(&vxl, Some(&hva), &params, 0, -1, false).unwrap();
     assert_eq!(
         [cleared.offset_x as i32, cleared.offset_y as i32],
@@ -474,8 +478,8 @@ fn shadow_index_frame_selects_the_sections_hva_frame() {
 /// every listed section its own `ChooseFrame` result: `0x7072A1` multiplies
 /// that section's HVA transform into the shared `&mtx`, so two entries at
 /// different frames must compose to the union of the two single-frame stencils.
-/// The `-1` the native resize fills in draws the walked frame, which this
-/// renderer holds at 0.
+/// The `-1` the native resize fills in draws the walked frame, which the atlas
+/// cannot key and holds at frame 0.
 #[test]
 fn shadow_indices_frames_draw_each_listed_section_at_its_own_hva_frame() {
     let fixture: Value = serde_json::from_str(crate::test_fixture::text(
@@ -535,9 +539,9 @@ fn shadow_indices_frames_draw_each_listed_section_at_its_own_hva_frame() {
         // the comparison is against the same composition, not two single
         // renders whose crops carry their own centers.
         let two_at_frame_0 =
-            render_indices(&vxl, Some(&hva), &params, 0, 0, &[0, 0], &[0, 0], false).unwrap();
+            render_indices(&vxl, Some(&hva), &params, 0, &[0, 0], &[0, 0], false).unwrap();
         let second_at_frame_1 =
-            render_indices(&vxl, Some(&hva), &params, 0, 0, &[0, 0], &[0, 1], false).unwrap();
+            render_indices(&vxl, Some(&hva), &params, 0, &[0, 0], &[0, 1], false).unwrap();
         assert_ne!(
             coverage(&two_at_frame_0),
             coverage(&second_at_frame_1),
@@ -549,18 +553,16 @@ fn shadow_indices_frames_draw_each_listed_section_at_its_own_hva_frame() {
             "two frame-0 entries keep the single-section stencil (step {step})"
         );
         // `-1` (the native resize placeholder) and a missing entry both draw
-        // the walked frame, which this renderer holds at 0.
+        // the walked frame, which the atlas cannot key and holds at 0.
         assert_eq!(
             coverage(
-                &render_indices(&vxl, Some(&hva), &params, 0, 0, &[0, 0], &[0, -1], false).unwrap()
+                &render_indices(&vxl, Some(&hva), &params, 0, &[0, 0], &[0, -1], false).unwrap()
             ),
             coverage(&two_at_frame_0),
             "the resize placeholder draws the walked frame (step {step})"
         );
         assert_eq!(
-            coverage(
-                &render_indices(&vxl, Some(&hva), &params, 0, 0, &[0, 0], &[0], false).unwrap()
-            ),
+            coverage(&render_indices(&vxl, Some(&hva), &params, 0, &[0, 0], &[0], false).unwrap()),
             coverage(&two_at_frame_0),
             "a short frame list keeps frame 0 (step {step})"
         );

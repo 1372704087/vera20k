@@ -25,8 +25,11 @@ mod tests;
 /// `0x7072A1`'s `ChooseFrame` (`Ext/TechnoType/Hooks.MatrixOp.cpp:1074-1104`):
 /// a non-negative `ShadowIndex.Frame` picks the shadow section's HVA frame,
 /// modulo the file's frame count. A cleared `-1` falls through to
-/// `WalkedFramesSoFar`, which this shadow pass keeps at frame 0; the
-/// `ShadowIndices.Frame` map is a separate residual.
+/// `WalkedFramesSoFar`, which this renderer cannot key: the shadow atlas is
+/// baked by facing and slope, with no walked-frame dimension. It therefore
+/// stays at frame 0, which is also what retail reaches because the constructor
+/// value 0 never takes the `-1` arm. `ShadowIndices.Frame` carries its own
+/// per-section frames and is not part of this function.
 fn shadow_hva_frame(frame: i32, hva: &HvaFile) -> u32 {
     u32::try_from(frame.max(0)).unwrap_or(0) % hva.frame_count.max(1)
 }
@@ -318,29 +321,31 @@ pub(crate) fn render_matrix(
 /// (`Ext/TechnoType/Hooks.MatrixOp.cpp:793-800`): every section is handed the
 /// same `&mtx`, then `0x7072A1` multiplies that section's own HVA transform
 /// into it, so each listed section draws at its own `ShadowIndices.Frame`
-/// (`Body.cpp:1327-1337`) around the primary section's projected center. Their
-/// two-byte columns compose in one 256-square, exactly the way the loop's
-/// repeated `DrawVoxelShadow` calls accumulate on the one surface. The crop is
-/// the union the composed pixels occupy, and its placement answers the same
-/// screen offset the single-section path does.
+/// (`Body.cpp:1327-1337`). Their two-byte columns compose in one 256-square,
+/// exactly the way the loop's repeated `DrawVoxelShadow` calls accumulate on
+/// the one surface. The crop is the union the composed pixels occupy, and its
+/// placement answers the same screen offset the single-section path does.
+///
+/// The shared anchor is the primary section's frame-0 center: native's
+/// `shadowCenter = *pt + ShadowPoint` (`:726-727`) is built before
+/// `ChooseFrame`, so a nonzero `ShadowIndex.Frame` never moves it.
 pub(crate) fn render_indices(
     vxl: &VxlFile,
     hva: Option<&HvaFile>,
     params: &VxlRenderParams,
     primary_index: i32,
-    primary_frame: i32,
     indices: &[i32],
     frames: &[i32],
     considered_aircraft: bool,
 ) -> Option<VxlSprite> {
     let draw = draw_rotation(vxl, params)?;
-    let primary_matrix = section_matrix(vxl, hva, draw, primary_index, primary_frame)?;
+    let primary_matrix = section_matrix(vxl, hva, draw, primary_index, 0)?;
     let center = center_of_matrix(vxl, primary_matrix, primary_index, considered_aircraft)?;
     let mut visibility = vec![0u8; 65536];
     let mut any = false;
     for (slot, &index) in indices.iter().enumerate() {
         // `-1` is the native resize placeholder; `ChooseFrame` then draws the
-        // walked frame, which this renderer holds at 0.
+        // walked frame, which this atlas cannot key and holds at 0.
         let frame = frames.get(slot).copied().unwrap_or(-1);
         let Some(matrix) = section_matrix(vxl, hva, draw, index, frame) else {
             continue;

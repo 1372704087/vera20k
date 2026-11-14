@@ -46,23 +46,34 @@ pub(crate) fn render(
     render_matrix(vxl, matrix, shadow_index, considered_aircraft)
 }
 
-fn draw_matrix(
-    vxl: &VxlFile,
-    hva: Option<&HvaFile>,
-    params: &VxlRenderParams,
-    shadow_index: i32,
-    frame: i32,
-) -> Option<super::Mat4> {
+/// `Matrix3D::VoxelDefaultMatrix * shadowMatrix`: the draw rotation the
+/// caller hands every section (`Ext/TechnoType/Hooks.MatrixOp.cpp:783-800`
+/// builds it once and passes `&mtx` to each `DrawVoxelShadow`).
+fn draw_rotation(vxl: &VxlFile, params: &VxlRenderParams) -> Option<super::Mat4> {
     if !supported(vxl, params) {
         return None;
     }
-    let limb_index = usize::try_from(shadow_index).ok()?;
-    vxl.limbs.get(limb_index)?;
-    let draw = super::voxel_draw_rotation_for_state(
+    Some(super::voxel_draw_rotation_for_state(
         params.slope_type,
         None,
         super::voxel_facing_step(params.facing),
-    );
+    ))
+}
+
+/// `*pMat * hva->Matrixes[section + LayerCount * ChooseFrame()]`
+/// (`Ext/TechnoType/Hooks.MatrixOp.cpp:1074-1104`, hooked in
+/// `VoxelClass::DrawVoxelShadow @ 0x7072A1`): the shared base matrix times
+/// this section's own HVA transform. `ChooseFrame` picks the section's
+/// `ShadowIndices.Frame`, `ShadowIndex.Frame` or the walked frame.
+fn section_matrix(
+    vxl: &VxlFile,
+    hva: Option<&HvaFile>,
+    draw: super::Mat4,
+    shadow_index: i32,
+    frame: i32,
+) -> Option<super::Mat4> {
+    let limb_index = usize::try_from(shadow_index).ok()?;
+    vxl.limbs.get(limb_index)?;
     if let Some(hva) = hva {
         let mut raw = *hva.get_transform(shadow_hva_frame(frame, hva), limb_index as u32)?;
         // The native HVA loader scales every section's translation by the
@@ -77,6 +88,17 @@ fn draw_matrix(
     }
 }
 
+fn draw_matrix(
+    vxl: &VxlFile,
+    hva: Option<&HvaFile>,
+    params: &VxlRenderParams,
+    shadow_index: i32,
+    frame: i32,
+) -> Option<super::Mat4> {
+    let draw = draw_rotation(vxl, params)?;
+    section_matrix(vxl, hva, draw, shadow_index, frame)
+}
+
 /// Fractional center retained by 754510 for 756860's body-surface queries.
 pub(crate) fn center(
     vxl: &VxlFile,
@@ -87,6 +109,16 @@ pub(crate) fn center(
     aircraft: bool,
 ) -> Option<[f32; 2]> {
     let matrix = draw_matrix(vxl, hva, params, index, frame)?;
+    center_of_matrix(vxl, matrix, index, aircraft)
+}
+
+/// The projected-bounds center of one section at a supplied matrix.
+fn center_of_matrix(
+    vxl: &VxlFile,
+    matrix: super::Mat4,
+    index: i32,
+    aircraft: bool,
+) -> Option<[f32; 2]> {
     let limb = vxl.limbs.get(usize::try_from(index).ok()?)?;
     let (_, lo, hi) = projected_quad(matrix, limb.bounds, aircraft)?;
     center_of_bounds(lo, hi)
@@ -282,13 +314,15 @@ pub(crate) fn render_matrix(
     )
 }
 
-/// Phobos `ShadowIndices=`'s extra sections as one stencil
-/// (`Ext/TechnoType/Hooks.MatrixOp.cpp:793-800`): each listed section is
-/// rasterized through the same `matrix` around the primary section's
-/// projected center, and their two-byte columns compose in one 256-square,
-/// exactly the way the loop's repeated `DrawVoxelShadow` calls accumulate on
-/// the one surface. The crop is the union the composed pixels occupy, and its
-/// placement answers the same screen offset the single-section path does.
+/// Phobos `ShadowIndices=`'s listed sections as one stencil
+/// (`Ext/TechnoType/Hooks.MatrixOp.cpp:793-800`): every section is handed the
+/// same `&mtx`, then `0x7072A1` multiplies that section's own HVA transform
+/// into it, so each listed section draws at its own `ShadowIndices.Frame`
+/// (`Body.cpp:1327-1337`) around the primary section's projected center. Their
+/// two-byte columns compose in one 256-square, exactly the way the loop's
+/// repeated `DrawVoxelShadow` calls accumulate on the one surface. The crop is
+/// the union the composed pixels occupy, and its placement answers the same
+/// screen offset the single-section path does.
 pub(crate) fn render_indices(
     vxl: &VxlFile,
     hva: Option<&HvaFile>,
@@ -296,24 +330,21 @@ pub(crate) fn render_indices(
     primary_index: i32,
     primary_frame: i32,
     indices: &[i32],
+    frames: &[i32],
     considered_aircraft: bool,
 ) -> Option<VxlSprite> {
-    // Native recomputes each section's matrix through `0x7072A1`, so a
-    // `ShadowIndices.Frame` entry would pick that section's own frame. The
-    // map is still unmodelled: every section shares the primary's matrix,
-    // which is the `ShadowIndex.Frame` selection.
-    let matrix = draw_matrix(vxl, hva, params, primary_index, primary_frame)?;
-    let center = center(
-        vxl,
-        hva,
-        params,
-        primary_index,
-        primary_frame,
-        considered_aircraft,
-    )?;
+    let draw = draw_rotation(vxl, params)?;
+    let primary_matrix = section_matrix(vxl, hva, draw, primary_index, primary_frame)?;
+    let center = center_of_matrix(vxl, primary_matrix, primary_index, considered_aircraft)?;
     let mut visibility = vec![0u8; 65536];
     let mut any = false;
-    for &index in indices {
+    for (slot, &index) in indices.iter().enumerate() {
+        // `-1` is the native resize placeholder; `ChooseFrame` then draws the
+        // walked frame, which this renderer holds at 0.
+        let frame = frames.get(slot).copied().unwrap_or(-1);
+        let Some(matrix) = section_matrix(vxl, hva, draw, index, frame) else {
+            continue;
+        };
         let Some(raster) = prepare_matrix_at(vxl, matrix, index, considered_aircraft, Some(center))
         else {
             continue;

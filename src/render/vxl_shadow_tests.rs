@@ -64,7 +64,7 @@ fn shadow_indices_compose_around_the_primary_sections_center() {
             ..Default::default()
         };
         let single = render(&vxl, Some(&hva), &params, 0, 0, false).unwrap();
-        let listed = render_indices(&vxl, Some(&hva), &params, 0, 0, &[0], false).unwrap();
+        let listed = render_indices(&vxl, Some(&hva), &params, 0, 0, &[0], &[], false).unwrap();
         // Coverage is what the surrounding surface sees: every stencil pixel
         // at the same tactical position, whatever crop the two paths picked.
         let coverage = |sprite: &VxlSprite| {
@@ -81,11 +81,13 @@ fn shadow_indices_compose_around_the_primary_sections_center() {
         assert_eq!(coverage(&listed), coverage(&single), "step {step}");
         // A section the voxel does not have contributes no stencil.
         assert_eq!(
-            coverage(&render_indices(&vxl, Some(&hva), &params, 0, 0, &[0, 4], false).unwrap()),
+            coverage(
+                &render_indices(&vxl, Some(&hva), &params, 0, 0, &[0, 4], &[], false).unwrap()
+            ),
             coverage(&single),
             "unreachable section is skipped"
         );
-        assert!(render_indices(&vxl, Some(&hva), &params, 0, 0, &[4], false).is_none());
+        assert!(render_indices(&vxl, Some(&hva), &params, 0, 0, &[4], &[], false).is_none());
     }
 }
 
@@ -466,4 +468,101 @@ fn shadow_index_frame_selects_the_sections_hva_frame() {
         [frame0.offset_x as i32, frame0.offset_y as i32],
         "a cleared frame stays at frame 0"
     );
+}
+
+/// Phobos `ShadowIndices.Frame=` (`Ext/TechnoType/Body.cpp:1327-1337`) gives
+/// every listed section its own `ChooseFrame` result: `0x7072A1` multiplies
+/// that section's HVA transform into the shared `&mtx`, so two entries at
+/// different frames must compose to the union of the two single-frame stencils.
+/// The `-1` the native resize fills in draws the walked frame, which this
+/// renderer holds at 0.
+#[test]
+fn shadow_indices_frames_draw_each_listed_section_at_its_own_hva_frame() {
+    let fixture: Value = serde_json::from_str(crate::test_fixture::text(
+        "tools/voxel_oracle/shadow_fixtures.json",
+    ))
+    .unwrap();
+    let vxl = VxlFile::from_bytes(&bytes(fixture["vxl"].as_str().unwrap())).unwrap();
+    assert_eq!(vxl.limbs.len(), 1, "the oracle fixture has one section");
+    // A two-frame HVA for that section: frame 1 moves it along X, the way a
+    // `ShadowIndices.Frame=` pose differs from the walked frame.
+    let mut hva_bytes = vec![0u8; 16];
+    hva_bytes[..9].copy_from_slice(b"ShadowHVA");
+    hva_bytes.extend_from_slice(&2u32.to_le_bytes());
+    hva_bytes.extend_from_slice(&1u32.to_le_bytes());
+    let mut section = [0u8; 16];
+    section[..5].copy_from_slice(b"BODY0");
+    hva_bytes.extend_from_slice(&section);
+    let identity: [f32; 12] = [1., 0., 0., 0., 0., 1., 0., 0., 0., 0., 1., 0.];
+    for value in identity {
+        hva_bytes.extend_from_slice(&value.to_le_bytes());
+    }
+    let mut moved = identity;
+    moved[3] = 64.;
+    for value in moved {
+        hva_bytes.extend_from_slice(&value.to_le_bytes());
+    }
+    let hva = HvaFile::from_bytes(&hva_bytes).unwrap();
+    assert_eq!(hva.frame_count, 2, "two frames");
+
+    let coverage = |sprite: &VxlSprite| {
+        let mut set = std::collections::BTreeSet::new();
+        for y in 0..sprite.height as i32 {
+            for x in 0..sprite.width as i32 {
+                if sprite.palette_indices[(y * sprite.width as i32 + x) as usize] != 0 {
+                    set.insert((sprite.offset_x as i32 + x, sprite.offset_y as i32 + y));
+                }
+            }
+        }
+        set
+    };
+    for step in [0u8, 7] {
+        let params = VxlRenderParams {
+            facing: step * 8,
+            ..Default::default()
+        };
+        let frame_0 = render(&vxl, Some(&hva), &params, 0, 0, false).unwrap();
+        let frame_1 = render(&vxl, Some(&hva), &params, 0, 1, false).unwrap();
+        assert_ne!(
+            coverage(&frame_0),
+            coverage(&frame_1),
+            "the fixture's second frame must move the stencil (step {step})"
+        );
+        // Each listed section runs its own `ChooseFrame`: the entry at frame 1
+        // must reach that section's HVA transform, so the composed stencil
+        // differs from two frame-0 entries. Both entries share the primary's
+        // projected center (`Hooks.MatrixOp.cpp:793-800` passes one `bnd`), so
+        // the comparison is against the same composition, not two single
+        // renders whose crops carry their own centers.
+        let two_at_frame_0 =
+            render_indices(&vxl, Some(&hva), &params, 0, 0, &[0, 0], &[0, 0], false).unwrap();
+        let second_at_frame_1 =
+            render_indices(&vxl, Some(&hva), &params, 0, 0, &[0, 0], &[0, 1], false).unwrap();
+        assert_ne!(
+            coverage(&two_at_frame_0),
+            coverage(&second_at_frame_1),
+            "the second entry's frame reaches that section's matrix (step {step})"
+        );
+        assert_eq!(
+            coverage(&two_at_frame_0),
+            coverage(&frame_0),
+            "two frame-0 entries keep the single-section stencil (step {step})"
+        );
+        // `-1` (the native resize placeholder) and a missing entry both draw
+        // the walked frame, which this renderer holds at 0.
+        assert_eq!(
+            coverage(
+                &render_indices(&vxl, Some(&hva), &params, 0, 0, &[0, 0], &[0, -1], false).unwrap()
+            ),
+            coverage(&two_at_frame_0),
+            "the resize placeholder draws the walked frame (step {step})"
+        );
+        assert_eq!(
+            coverage(
+                &render_indices(&vxl, Some(&hva), &params, 0, 0, &[0, 0], &[0], false).unwrap()
+            ),
+            coverage(&two_at_frame_0),
+            "a short frame list keeps frame 0 (step {step})"
+        );
+    }
 }

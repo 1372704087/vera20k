@@ -792,6 +792,11 @@ pub struct ObjectType {
     /// the single `ShadowIndex`. Empty keeps the single-section path.
     #[cfg(feature = "phobos")]
     phobos_shadow_indices: Vec<i32>,
+    /// Phobos `ShadowIndices.Frame=` (`Ext/TechnoType/Body.cpp:1327`, ART):
+    /// the HVA frame of each [`Self::phobos_shadow_indices`] entry, `-1`
+    /// where the type does not name one.
+    #[cfg(feature = "phobos")]
+    phobos_shadow_indices_frames: Vec<i32>,
     /// Phobos `ShadowIndex.Frame=` (`Valueable<int>` ctor 0,
     /// `Ext/TechnoType/Body.cpp:1338`, `Body.h:58,497`, ART): the HVA frame
     /// the single-section shadow draws at (`0x7072A1`'s `ChooseFrame`,
@@ -4792,8 +4797,14 @@ impl ObjectType {
     }
 
     #[cfg(feature = "phobos")]
-    pub(crate) fn set_phobos_shadow_indices(&mut self, indices: Vec<i32>) {
+    pub fn phobos_shadow_indices_frames(&self) -> &[i32] {
+        &self.phobos_shadow_indices_frames
+    }
+
+    #[cfg(feature = "phobos")]
+    pub(crate) fn set_phobos_shadow_indices(&mut self, indices: Vec<i32>, frames: Vec<i32>) {
         self.phobos_shadow_indices = indices;
+        self.phobos_shadow_indices_frames = frames;
     }
 
     /// Type+C95 also selects Fly's flat shadow-matrix arm (4CFB4B).
@@ -6685,6 +6696,8 @@ impl ObjectType {
             voxel_shadow_index: 0,
             #[cfg(feature = "phobos")]
             phobos_shadow_indices: Vec::new(),
+            #[cfg(feature = "phobos")]
+            phobos_shadow_indices_frames: Vec::new(),
             #[cfg(feature = "phobos")]
             phobos_shadow_index_frame: 0,
             pitch_speed: section.read_double_bits(

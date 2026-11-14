@@ -1344,6 +1344,9 @@ struct ShadowModel {
     /// Phobos `ShadowIndex.Frame=` (`Body.cpp:1338`): the HVA frame the
     /// single-section shadow draws at (`0x7072A1`); 0 in default builds.
     frame: i32,
+    /// Phobos `ShadowIndices.Frame=` (`Body.cpp:1327`): the HVA frame of each
+    /// entry in `indices`, `-1` where the type names none.
+    frames: Vec<i32>,
 }
 
 impl ShadowModel {
@@ -1380,6 +1383,10 @@ impl ShadowModel {
                 indices: object.phobos_shadow_indices().to_vec(),
                 #[cfg(not(feature = "phobos"))]
                 indices: Vec::new(),
+                #[cfg(feature = "phobos")]
+                frames: object.phobos_shadow_indices_frames().to_vec(),
+                #[cfg(not(feature = "phobos"))]
+                frames: Vec::new(),
                 #[cfg(feature = "phobos")]
                 frame: object.phobos_shadow_index_frame(),
                 #[cfg(not(feature = "phobos"))]
@@ -1557,6 +1564,7 @@ impl UnitModel {
                     shadow.index,
                     shadow.frame,
                     &shadow.indices,
+                    &shadow.frames,
                     shadow.considered_aircraft,
                 )
             };

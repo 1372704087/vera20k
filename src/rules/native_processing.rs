@@ -1972,7 +1972,7 @@ impl ProcessedRulesLayers {
     #[cfg(feature = "phobos")]
     pub(crate) fn phobos_shadow_index_states(
         &self,
-    ) -> impl Iterator<Item = (ObjectCategory, &str, &[i32])> {
+    ) -> impl Iterator<Item = (ObjectCategory, &str, &[i32], &[i32])> {
         self.native_type_construction_trace
             .registry_state()
             .families
@@ -1986,6 +1986,7 @@ impl ProcessedRulesLayers {
                         category,
                         member.native_stored_id.as_str(),
                         member.phobos_shadow_indices.as_slice(),
+                        member.phobos_shadow_indices_frames.as_slice(),
                     )
                 })
             })
@@ -5349,12 +5350,18 @@ struct ProcessedType {
     voxel_shadow_index: i32,
     /// Phobos `ShadowIndices=` (`Ext/TechnoType/Body.cpp:1325`): the ART
     /// section re-reads it on every pass, so a missing key leaves this pass's
-    /// list empty. `ShadowIndices.Frame` is read there too, but the hooked
-    /// `0x707280` loop (`Hooks.MatrixOp.cpp:795-799`) never consumes the
-    /// mapped frame, so it stays unmodelled.
+    /// list empty. Its frames are read beside it (`Body.cpp:1327`); the hooked
+    /// `0x7072A1` matrix build consumes the drawing section's own frame
+    /// (`Hooks.MatrixOp.cpp:1074-1104`).
     #[serde(default)]
     #[cfg(feature = "phobos")]
     phobos_shadow_indices: Vec<i32>,
+    /// Phobos `ShadowIndices.Frame=` (`Ext/TechnoType/Body.cpp:1327`): one
+    /// HVA frame per entry of the section list, `-1` where the native resize
+    /// filled a missing entry.
+    #[serde(default)]
+    #[cfg(feature = "phobos")]
+    phobos_shadow_indices_frames: Vec<i32>,
     /// Phobos `ShadowIndex.Frame=` (`Ext/TechnoType/Body.cpp:1338`, ART):
     /// `Valueable<int>` constructed 0 for the single-section shadow's HVA
     /// frame (`0x7072A1`).
@@ -6156,6 +6163,8 @@ impl ProcessedType {
             voxel_shadow_index: 0,
             #[cfg(feature = "phobos")]
             phobos_shadow_indices: Vec::new(),
+            #[cfg(feature = "phobos")]
+            phobos_shadow_indices_frames: Vec::new(),
             #[cfg(feature = "phobos")]
             phobos_shadow_index_frame: 0,
             #[cfg(feature = "phobos")]
@@ -8877,17 +8886,34 @@ impl RulesPassProcessor {
                 #[cfg(feature = "phobos")]
                 {
                     let mut indices = Vec::new();
+                    let mut frames = Vec::new();
                     if let Some(list) = fixed_art
                         .section_or_empty(&image)
                         .read_int_list("ShadowIndices")
                     {
-                        for index in list {
-                            if !indices.contains(&index) {
-                                indices.push(index);
+                        // `Ext/TechnoType/Body.cpp:1327-1337`: the frame list
+                        // is resized to the section list's length with -1 when
+                        // they differ, then zipped into the section->frame map
+                        // so a later duplicate section overwrites its frame.
+                        let mut frame_list = fixed_art
+                            .section_or_empty(&image)
+                            .read_int_list("ShadowIndices.Frame")
+                            .unwrap_or_default();
+                        if frame_list.len() != list.len() {
+                            frame_list.resize(list.len(), -1);
+                        }
+                        for (section, frame) in list.into_iter().zip(frame_list) {
+                            match indices.iter().position(|known| *known == section) {
+                                Some(position) => frames[position] = frame,
+                                None => {
+                                    indices.push(section);
+                                    frames.push(frame);
+                                }
                             }
                         }
                     }
                     member.phobos_shadow_indices = indices;
+                    member.phobos_shadow_indices_frames = frames;
                     // `Ext/TechnoType/Body.cpp:1338`: `ShadowIndex.Frame` is
                     // read right after the plural tags; `Valueable<int>`
                     // keeps this member's current value as its default.

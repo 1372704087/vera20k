@@ -4409,3 +4409,60 @@ fn ares_country_reads_start_in_multiplayer_with_const() {
     assert!(with_const("PARENT"));
     assert!(!with_const("CHILD") && !with_const("PLAIN"));
 }
+
+/// Phobos `ShadowIndices.Frame=` (`Ext/TechnoType/Body.cpp:1327-1337`) is
+/// read beside the section list and shares its `Image=` section: a shorter
+/// frame list is resized with `-1`, a repeated section overwrites its frame,
+/// and a pass whose Image section lacks the list keeps both empty.
+#[cfg(feature = "phobos")]
+#[test]
+fn phobos_shadow_indices_frames_read_the_image_section_on_every_pass() {
+    use crate::rules::ruleset::RuleSet;
+    let art = IniFile::from_str(
+        "[PAIRED]\nShadowIndices=2,1,2\nShadowIndices.Frame=0,1,5\n\
+         [SHORT]\nShadowIndices=2,1\nShadowIndices.Frame=3\n\
+         [NOFRAMES]\nShadowIndices=2,1\n\
+         [NOLIST]\nShadowIndices.Frame=8\n",
+    );
+    let mut layers = RulesLayerStack::new(IniFile::from_str(
+        "[AircraftTypes]\n0=JET\n[JET]\nImage=PAIRED\n",
+    ));
+    let read = |processed: &ProcessedRulesLayers| {
+        let object = RuleSet::from_processed_rules(processed)
+            .unwrap()
+            .object("JET")
+            .unwrap()
+            .phobos_shadow_indices_frames()
+            .to_vec();
+        object
+    };
+    // The repeated section 2 keeps its later frame 5.
+    assert_eq!(read(&layers.process_with_fixed_art(&art).unwrap()), [5, 1]);
+    layers.push(
+        RulesLayerKind::GameMode,
+        IniFile::from_str("[JET]\nImage=SHORT\n"),
+    );
+    assert_eq!(
+        read(&layers.process_with_fixed_art(&art).unwrap()),
+        [3, -1],
+        "a shorter frame list is resized with -1"
+    );
+    layers.push(
+        RulesLayerKind::Scenario,
+        IniFile::from_str("[JET]\nImage=NOFRAMES\n"),
+    );
+    assert_eq!(
+        read(&layers.process_with_fixed_art(&art).unwrap()),
+        [-1, -1],
+        "a section list without frames fills every entry with -1"
+    );
+    layers.push(
+        RulesLayerKind::GameMode,
+        IniFile::from_str("[JET]\nImage=NOLIST\n"),
+    );
+    assert_eq!(
+        read(&layers.process_with_fixed_art(&art).unwrap()),
+        Vec::<i32>::new(),
+        "frames without a section list stay empty"
+    );
+}

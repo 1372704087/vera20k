@@ -6037,13 +6037,13 @@ impl RuleSet {
             }
         }
         #[cfg(feature = "phobos")]
-        for (category, name, indices) in processed.phobos_shadow_index_states() {
+        for (category, name, indices, frames) in processed.phobos_shadow_index_states() {
             if let Some(object) = rules
                 .object_list
                 .iter_mut()
                 .find(|object| object.category == category && object.id == name)
             {
-                object.set_phobos_shadow_indices(indices.to_vec());
+                object.set_phobos_shadow_indices(indices.to_vec(), frames.to_vec());
             }
         }
         #[cfg(feature = "phobos")]

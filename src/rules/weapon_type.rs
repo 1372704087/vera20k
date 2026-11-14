@@ -543,6 +543,17 @@ impl WeaponType {
         self.phobos_extras.turret_recoil_suppress
     }
 
+    /// Phobos `Anim.Update=` (`Ext/WeaponType/Body.cpp:208`) over
+    /// `[AudioVisual] FiringAnim.Update=` (`Ext/Rules/Body.cpp:548`): a
+    /// muzzle anim from this weapon's `Anim=` list keeps following its
+    /// firer every frame (`Ext/Anim/Hooks.cpp:714-740`).
+    #[cfg(feature = "phobos")]
+    pub fn phobos_anim_update(&self, rules: &crate::rules::ruleset::RuleSet) -> bool {
+        self.phobos_extras
+            .anim_update
+            .unwrap_or(rules.phobos_globals.firing_anim_update)
+    }
+
     /// Phobos `FireOnce.ResetSequence=` (`Ext/WeaponType/Body.cpp:137`).
     #[cfg(feature = "phobos")]
     pub fn phobos_fire_once_reset_sequence(&self) -> bool {

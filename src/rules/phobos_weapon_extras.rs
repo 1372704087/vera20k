@@ -96,6 +96,11 @@ pub struct PhobosWeaponExtras {
     /// (`Ext/Techno/Hooks.Firing.cpp:936-976`); the real rearm keeps the
     /// native duration. Items `<= 0` keep the native value.
     pub charge_turret_delays: Vec<i32>,
+    /// `Anim.Update=` (`Ext/WeaponType/Body.cpp:208`, `Nullable<bool>`):
+    /// a muzzle anim this weapon's `Anim=` list produced keeps following
+    /// its firer every frame (`Ext/Anim/Hooks.cpp:714-740`). Unset falls
+    /// back to `[AudioVisual] FiringAnim.Update=` (`Ext/Rules/Body.cpp:548`).
+    pub anim_update: Option<bool>,
 }
 
 impl Default for PhobosWeaponExtras {
@@ -103,6 +108,7 @@ impl Default for PhobosWeaponExtras {
     /// (`Ext/WeaponType/Body.h:162`), so an empty section equals the default.
     fn default() -> Self {
         Self {
+            anim_update: None,
             feedback_weapon: None,
             visual_scatter: false,
             attack_no_threat_buildings: None,
@@ -134,6 +140,9 @@ impl PhobosWeaponExtras {
             charge_turret_delays: section
                 .read_ares_int_list("ChargeTurret.Delays")
                 .unwrap_or_default(),
+            // `Ext/WeaponType/Body.cpp:208`, `Nullable<bool>`: unset
+            // falls back to `[AudioVisual] FiringAnim.Update=`.
+            anim_update: section.read_phobos_nullable_bool("Anim.Update", None),
         }
     }
 

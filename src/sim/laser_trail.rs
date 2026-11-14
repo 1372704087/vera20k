@@ -80,7 +80,9 @@ impl LaserTrailState {
 /// - `RadBeam` emits the copied beam with `Beam.Color.Get(RadColor)`,
 ///   `FadeDuration.Get(15)` and `Beam.Amplitude` (`:65..75`).
 ///
-/// RESIDUAL: none for the copied colour; a trail with no owner House keeps
+/// RESIDUAL: `IsHideable` is parsed but the global
+/// `HideLaserTrailEffects` switch has no reader (its default is off, so the
+/// native gate is behaviourally identical). A trail with no owner House keeps
 /// the type's `Color`, as `CurrentColor` is not replaced without a House.
 pub(crate) fn update(
     last_location: &mut Option<[i32; 3]>,
@@ -181,11 +183,10 @@ pub(crate) fn update(
 }
 
 impl Simulation {
-    /// The `BulletClass::AI` head hook (`Ext/Bullet/Hooks.cpp:99..126`): a
-    /// bullet without a Phobos trajectory advances every trail to the drawn
-    /// coordinate `Location + Velocity`, one frame ahead of the stock move.
-    /// `Inviso` bullets never initialized a list, and a trajectory draws its
-    /// own trails after `OnAI` (so this skips them).
+    /// The `BulletClass::AI` head hook (`Ext/Bullet/Hooks.cpp:117..123`): a
+    /// bullet without a Phobos trajectory seeds each unset `LastLocation` at
+    /// its raw `Location`, then advances to `Location + Velocity`, one frame
+    /// ahead of the stock move. `Inviso` bullets never initialized a list.
     pub(crate) fn update_projectile_laser_trails(&mut self, id: u64, rules: &RuleSet) {
         let Some(projectile) = self.projectiles.get(id) else {
             return;
@@ -196,11 +197,42 @@ impl Simulation {
         let position = projectile.position();
         let velocity = projectile.velocity();
         let owner = projectile.phobos_firer_house();
+        let raw = [position.x, position.y, position.z];
         let location = [
             predicted_coord(position.x, velocity.x),
             predicted_coord(position.y, velocity.y),
             predicted_coord(position.z, velocity.z),
         ];
+        self.advance_projectile_laser_trails(id, rules, raw, location, owner);
+    }
+
+    /// The shared trajectory hook (`Ext/Bullet/Trajectories/PhobosTrajectory.cpp:502..531`):
+    /// after `OnAI` each trail seeds at the bullet's current `Location` and
+    /// advances to `Velocity + Location`.
+    pub(crate) fn update_trajectory_laser_trails(&mut self, id: u64, rules: &RuleSet) {
+        let Some(projectile) = self.projectiles.get(id) else {
+            return;
+        };
+        let position = projectile.position();
+        let velocity = projectile.velocity();
+        let owner = projectile.phobos_firer_house();
+        let raw = [position.x, position.y, position.z];
+        let location = [
+            predicted_coord(position.x, velocity.x),
+            predicted_coord(position.y, velocity.y),
+            predicted_coord(position.z, velocity.z),
+        ];
+        self.advance_projectile_laser_trails(id, rules, raw, location, owner);
+    }
+
+    fn advance_projectile_laser_trails(
+        &mut self,
+        id: u64,
+        rules: &RuleSet,
+        raw: [i32; 3],
+        location: [i32; 3],
+        owner: Option<InternedId>,
+    ) {
         let mut trails = std::mem::take(
             self.projectiles
                 .get_mut(id)
@@ -215,6 +247,9 @@ impl Simulation {
                 let Some(kind) = art.laser_trail(&trail.trail_type) else {
                     continue;
                 };
+                if trail.last_location.is_none() {
+                    trail.last_location = Some(raw);
+                }
                 update(
                     &mut trail.last_location,
                     kind,
@@ -336,13 +371,13 @@ mod tests {
         };
         trail.segment_length = 64;
         let owner = InternedId::from_index(0);
-        let mut draw = |sim: &mut Simulation,
-                        last: &mut Option<[i32; 3]>,
-                        trail: &LaserTrailType,
-                        location,
-                        visible,
-                        cloaked,
-                        owner| {
+        let draw = |sim: &mut Simulation,
+                    last: &mut Option<[i32; 3]>,
+                    trail: &LaserTrailType,
+                    location,
+                    visible,
+                    cloaked,
+                    owner| {
             update(
                 last,
                 trail,
@@ -423,8 +458,9 @@ mod tests {
         assert_eq!(last, Some([263, 0, 0]));
     }
 
-    /// A projectile with `LaserTrail.Types` advances at the drawn coordinate
-    /// `Location + Velocity`; an `Inviso=` type gets no list at all.
+    /// A projectile with `LaserTrail.Types` seeds at its raw `Location`, then
+    /// advances at the drawn `Location + Velocity`; an `Inviso=` type gets no
+    /// list at all (`Ext/Bullet/Hooks.cpp:117..123`).
     #[test]
     fn projectile_trails_use_the_predicted_drawn_coordinate() {
         let rules = rules(
@@ -473,18 +509,25 @@ mod tests {
             id,
             &rules,
         );
-        // Seed at Location + Velocity, then move one more step.
+        // Native seeds at the raw Location, then updates to Location +
+        // Velocity: the first frame already draws from the launch point.
         sim.update_projectile_laser_trails(id, &rules);
-        assert!(lasers(&sim).is_empty(), "the first update only seeds");
+        let first = lasers(&sim);
+        assert_eq!(
+            first.len(),
+            1,
+            "the first frame draws from the raw Location"
+        );
+        assert_eq!((first[0].from.x, first[0].to.x), (0, 64));
         sim.projectiles
             .get_mut(id)
             .unwrap()
             .set_position_for_test(ProjectileCoord::new(64, 0, 0));
         sim.update_projectile_laser_trails(id, &rules);
         let births = lasers(&sim);
-        assert_eq!(births.len(), 1, "one SegmentLength crossing");
-        assert_eq!(births[0].duration, 3);
-        assert_eq!((births[0].from.x, births[0].to.x), (64, 128));
+        assert_eq!(births.len(), 2, "one SegmentLength crossing per frame");
+        assert_eq!(births[1].duration, 3);
+        assert_eq!((births[1].from.x, births[1].to.x), (64, 128));
     }
 
     /// Voxel debris with `LaserTrail.Types` (rules layer) trails its retained

@@ -972,6 +972,13 @@ impl Simulation {
                     parabomb.fall_rate_step.hash(hasher);
                     parabomb.max_fall_rate.hash(hasher);
                 }
+                if !projectile.phobos_laser_trails().is_empty() {
+                    b"phobos-laser-trails-v1".hash(hasher);
+                    for trail in projectile.phobos_laser_trails() {
+                        trail.trail_type.hash(hasher);
+                        trail.last_location.hash(hasher);
+                    }
+                }
             }
 
             projectile.speed_leptons_per_frame().hash(hasher);
@@ -1652,6 +1659,14 @@ impl Simulation {
             debris.bounce().hash_bits(hasher);
             #[cfg(feature = "phobos")]
             debris.trailer_spawn_timer_hash(hasher);
+            #[cfg(feature = "phobos")]
+            if !debris.phobos_laser_trails().is_empty() {
+                b"phobos-laser-trails-v1".hash(hasher);
+                for trail in debris.phobos_laser_trails() {
+                    trail.trail_type.hash(hasher);
+                    trail.last_location.hash(hasher);
+                }
+            }
         }
     }
 }

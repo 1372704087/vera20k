@@ -265,6 +265,11 @@ impl Simulation {
             projectile.set_velocity(ProjectileVelocity::from_native(
                 velocity.map(|value| NativeF64Bits::from_bits(value.to_bits())),
             ));
+            // `BombardTrajectory.cpp:233..236`: the no-launch opening move
+            // starts every trail at this middle point.
+            if t.no_launch {
+                projectile.reset_phobos_laser_trail_locations([position.x, position.y, position.z]);
+            }
             projectile.set_phobos_trajectory(Some(state));
         }
     }
@@ -648,6 +653,13 @@ impl Simulation {
                             location.z,
                         );
                         velocity = [0.0, 0.0, 0.0];
+                    }
+                    // `BombardTrajectory.cpp:558..561`: the turn to the fall
+                    // phase restarts every trail at this middle point.
+                    if let Some(projectile) = self.projectiles.get_mut(bullet_id) {
+                        projectile.reset_phobos_laser_trail_locations([
+                            position.x, position.y, position.z,
+                        ]);
                     }
                     self.bombard_spawn_turning_point_anims(
                         rules, t, bullet_id, source_id, position,

@@ -521,6 +521,16 @@ impl Simulation {
             .is_some_and(|projectile| projectile.has_phobos_trajectory())
         {
             let trajectory = self.step_phobos_trajectory(id, rules, ctx.overlay_registry);
+            // The shared trajectory trail hook runs after `OnAI` with the
+            // bullet's current Location and Velocity
+            // (`PhobosTrajectory.cpp:502..531`); a detonation returned by
+            // `OnAI` jumps to the stock Detonate path before that hook.
+            if trajectory.detonations.is_empty()
+                && trajectory.extra_detonations.is_empty()
+                && !trajectory.expired
+            {
+                self.update_trajectory_laser_trails(id, rules);
+            }
             outcome.bridge_state_changed |= self.commit_logic_projectile_detonations(
                 rules,
                 ctx.overlay_registry,

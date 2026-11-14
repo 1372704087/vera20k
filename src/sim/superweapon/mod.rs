@@ -49,32 +49,32 @@ mod chronosphere_lunar_retail_tests;
 #[cfg(any(test, feature = "test-support"))]
 pub mod chronosphere_tests;
 
-#[cfg(all(test, feature = "phobos"))]
-#[path = "phobos_convert_pairs_tests.rs"]
-mod phobos_convert_pairs_tests;
-#[cfg(feature = "ares")]
-pub(crate) mod drop_pod;
-#[cfg(all(test, feature = "ares"))]
-mod drop_pod_tests;
 #[cfg(feature = "phobos")]
 mod chaining;
 #[cfg(feature = "phobos")]
 mod detonate;
 #[cfg(all(test, feature = "phobos"))]
 mod detonate_tests;
-#[cfg(feature = "phobos")]
-mod limbo;
+#[cfg(feature = "ares")]
+pub(crate) mod drop_pod;
 #[cfg(all(test, feature = "ares", feature = "phobos"))]
 mod drop_pod_phobos_tests;
-#[cfg(feature = "phobos")]
-pub(crate) mod launch_sw;
-#[cfg(all(test, feature = "phobos"))]
-mod launch_sw_tests;
+#[cfg(all(test, feature = "ares"))]
+mod drop_pod_tests;
 #[cfg(feature = "ares")]
 mod emp_pulse;
 #[cfg(all(test, feature = "ares"))]
 mod emp_pulse_tests;
 mod fire;
+#[cfg(feature = "phobos")]
+pub(crate) mod launch_sw;
+#[cfg(all(test, feature = "phobos"))]
+mod launch_sw_tests;
+#[cfg(feature = "phobos")]
+mod limbo;
+#[cfg(all(test, feature = "phobos"))]
+#[path = "phobos_convert_pairs_tests.rs"]
+mod phobos_convert_pairs_tests;
 #[cfg(feature = "phobos")]
 pub(crate) use fire::launch_super_preserving_charge;
 #[cfg(feature = "ares")]
@@ -1445,6 +1445,11 @@ pub struct SuperTimerView {
     on_hold: bool,
     recharge_frames: i32,
     place: u32,
+    /// Phobos `ShowTimer.Percentage` (else `[AudioVisual]
+    /// SuperWeaponTimer.Percentage`): the line prints its elapsed share.
+    percentage: bool,
+    /// Phobos `ShowTimer.Priority`: the list's sort rank.
+    priority: i32,
 }
 
 impl SuperTimerView {
@@ -1464,7 +1469,17 @@ impl SuperTimerView {
             on_hold,
             recharge_frames,
             place,
+            percentage: false,
+            priority: 0,
         }
+    }
+
+    /// The two Phobos `ShowTimer` decisions, for tests and fixtures.
+    #[cfg(any(test, feature = "test-support"))]
+    pub fn with_timer_options(mut self, percentage: bool, priority: i32) -> Self {
+        self.percentage = percentage;
+        self.priority = priority;
+        self
     }
 
     pub fn owner(self) -> InternedId {
@@ -1495,9 +1510,47 @@ impl SuperTimerView {
     pub fn place(self) -> u32 {
         self.place
     }
+
+    /// Phobos `ShowTimer.Percentage` resolved against the global.
+    pub fn percentage(self) -> bool {
+        self.percentage
+    }
 }
 
-/// The timer list, in its order.
+/// The shown list's order: `SuperClass_Grant_ShowTimer` sorts by
+/// `ShowTimer.Priority` descending (`0x6CB5EB`), and `place` breaks the ties
+/// the native `std::sort` leaves unspecified. Without Phobos every type has
+/// priority 0, so the grant order alone decides.
+fn sort_timer_views(views: &mut [SuperTimerView]) {
+    views.sort_by_key(|view| (std::cmp::Reverse(view.priority), view.place));
+}
+
+/// `ShowTimer.Percentage`, else the `[AudioVisual]` global; no Phobos, no
+/// percentage lines.
+fn timer_percentage(sw: Option<&SuperWeaponType>, rules: &RuleSet) -> bool {
+    #[cfg(feature = "phobos")]
+    if let Some(sw) = sw {
+        return sw.phobos_show_timer_percentage(rules);
+    }
+    let _ = (sw, rules);
+    false
+}
+
+/// `ShowTimer.Priority`; 0 without Phobos.
+fn timer_priority(sw: Option<&SuperWeaponType>) -> i32 {
+    #[cfg(feature = "phobos")]
+    if let Some(sw) = sw {
+        return sw.phobos_show_timer_priority;
+    }
+    let _ = sw;
+    0
+}
+
+/// The timer list, in its order: Phobos `SuperClass_Grant_ShowTimer`
+/// (`0x6CB5EB`, `Ext/SWType/Hooks.cpp:36-50`) sorts the shown list by
+/// `ShowTimer.Priority` descending after each grant. The native `std::sort`
+/// comparator compares only priority; this ties equal priorities by the
+/// grant order (`place`) so the order stays deterministic.
 pub fn super_timer_views(sim: &Simulation, rules: &RuleSet) -> Vec<SuperTimerView> {
     let frame = sim.session.binary_frame() as i32;
     let mut views: Vec<SuperTimerView> = sim
@@ -1508,20 +1561,21 @@ pub fn super_timer_views(sim: &Simulation, rules: &RuleSet) -> Vec<SuperTimerVie
                 if !instance.is_active {
                     return None;
                 }
+                let sw = rules.super_weapon(sim.interner.resolve(instance.type_id));
                 Some(SuperTimerView {
                     owner,
                     sw_type: instance.type_id,
                     frames_left: instance.charge_remaining(frame),
                     on_hold: instance.is_suspended,
-                    recharge_frames: rules
-                        .super_weapon(sim.interner.resolve(instance.type_id))
-                        .map_or(0, |sw| instance.recharge_time(sw)),
+                    recharge_frames: sw.map_or(0, |sw| instance.recharge_time(sw)),
+                    percentage: timer_percentage(sw, rules),
+                    priority: timer_priority(sw),
                     place: instance.timer_place?,
                 })
             })
         })
         .collect();
-    views.sort_by_key(|view| view.place);
+    sort_timer_views(&mut views);
     views
 }
 
@@ -2895,4 +2949,60 @@ pub(crate) fn trigger_grant_super(
             .can_lose = false;
     }
     true
+}
+
+#[cfg(test)]
+mod show_timer_priority_tests {
+    use super::*;
+
+    /// `0x6CB5EB`: the shown list sorts by `ShowTimer.Priority` descending,
+    /// and the grant order breaks equal priorities.
+    #[test]
+    fn show_timer_priority_sorts_the_list_highest_first() {
+        let mut views = vec![
+            SuperTimerView::for_test(
+                InternedId::from_index(0),
+                InternedId::from_index(0),
+                0,
+                false,
+                100,
+                0,
+            )
+            .with_timer_options(false, 0),
+            SuperTimerView::for_test(
+                InternedId::from_index(0),
+                InternedId::from_index(1),
+                0,
+                false,
+                100,
+                1,
+            )
+            .with_timer_options(false, 2),
+            SuperTimerView::for_test(
+                InternedId::from_index(0),
+                InternedId::from_index(2),
+                0,
+                false,
+                100,
+                2,
+            )
+            .with_timer_options(false, 1),
+            SuperTimerView::for_test(
+                InternedId::from_index(0),
+                InternedId::from_index(3),
+                0,
+                false,
+                100,
+                3,
+            )
+            .with_timer_options(false, 2),
+        ];
+        sort_timer_views(&mut views);
+        let order: Vec<u32> = views.iter().map(|view| view.place()).collect();
+        assert_eq!(
+            order,
+            vec![1, 3, 2, 0],
+            "priority 2, 2, 1, 0 by grant order"
+        );
+    }
 }

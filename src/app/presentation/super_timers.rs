@@ -52,11 +52,14 @@ pub(crate) enum TimerSource {
 }
 
 /// One timer line; its index is its place in [`timer_lines`]' answer.
-#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+#[derive(Debug, Clone, Copy, PartialEq)]
 pub(crate) struct TimerLine {
     pub(crate) source: TimerSource,
     /// Whole seconds left: the frames left over 15, truncated.
     pub(crate) seconds: i32,
+    /// Phobos percentage mode: the elapsed share of the recharge, printed
+    /// instead of `seconds` (`0x6D4A10`).
+    pub(crate) fraction: Option<f64>,
 }
 
 /// The clock a timer line's seconds come from. Stock native divides the
@@ -185,6 +188,7 @@ pub(crate) fn timer_lines(
     let line = |source, frames: i32| TimerLine {
         source,
         seconds: timer_seconds(frames, clock),
+        fraction: None,
     };
     let scenario = scenario_left.map(|left| line(TimerSource::Scenario, left));
     let supers = supers
@@ -192,7 +196,19 @@ pub(crate) fn timer_lines(
         .filter(|view| {
             !(campaign && view.on_hold() && view.frames_left() == view.recharge_frames())
         })
-        .map(|view| line(TimerSource::Super(*view), view.frames_left()));
+        .map(|view| TimerLine {
+            // `0x6D4A10`: `min((recharge - timeLeft) / recharge, 1.0)`, and
+            // exactly 1.0 when the recharge time is zero.
+            fraction: view.percentage().then(|| {
+                let recharge = view.recharge_frames();
+                if recharge > 0 {
+                    ((recharge - view.frames_left()) as f64 / recharge as f64).min(1.0)
+                } else {
+                    1.0
+                }
+            }),
+            ..line(TimerSource::Super(*view), view.frames_left())
+        });
     let blackouts = blackouts
         .into_iter()
         .filter(|&(_, left)| left > 0)
@@ -213,6 +229,12 @@ pub(crate) fn time_text(seconds: i32) -> String {
     } else {
         format!("{minutes:02}:{seconds:02}")
     }
+}
+
+/// `0x6D4A10`'s percentage text: `swprintf("%.2lf%s", fraction * 100, "%")`
+/// (`Misc/Hooks.UI.cpp:646-649`), so two decimals always.
+pub(crate) fn percentage_text(fraction: f64) -> String {
+    format!("{:.2}%", fraction * 100.0)
 }
 
 /// `0x006D4B50`'s label: `%s  ` (`0x00842ACC`).
@@ -621,7 +643,9 @@ pub(crate) fn build_super_timer_instances(
             continue;
         };
         let label = label_text(label);
-        let time = time_text(line.seconds);
+        let time = line
+            .fraction
+            .map_or_else(|| time_text(line.seconds), percentage_text);
         let (label_at, time_at) = place_line(
             position,
             [view_w as i32, view_h as i32],

@@ -704,6 +704,19 @@ pub struct SuperWeaponType {
     /// `1` (`GeneralUtils::IntValidCheck`).
     #[cfg(feature = "phobos")]
     pub phobos_tab_index: crate::rules::phobos_sw_tab_index::PhobosSwTabIndex,
+    /// Phobos `ShowTimer.Priority=` (`Ext/SWType/Body.cpp:176`,
+    /// `Valueable<int>` constructor `Ext/SWType/Body.h:78,183` default 0):
+    /// the timer list sorts higher first
+    /// (`SuperClass_Grant_ShowTimer @ 0x6CB5EB`, `Ext/SWType/Hooks.cpp:36-50`).
+    #[cfg(feature = "phobos")]
+    pub phobos_show_timer_priority: i32,
+    /// Phobos `ShowTimer.Percentage=` (`Ext/SWType/Body.cpp:177`,
+    /// `Nullable<bool>` constructor set false `Ext/SWType/Body.h:79,184`):
+    /// the Super's tactical timer prints its elapsed share instead of the
+    /// time left (`0x6D4A10`). A cleared value inherits
+    /// `[AudioVisual] SuperWeaponTimer.Percentage=`.
+    #[cfg(feature = "phobos")]
+    pub phobos_show_timer_percentage: Option<bool>,
     /// Phobos `ShowDesignatorRange=` (`Ext/SWType/Body.cpp:283`, constructor
     /// `Ext/SWType/Body.h:86,186`), default `yes`: this superweapon draws its
     /// designator/inhibitor range rings while armed
@@ -812,6 +825,17 @@ pub struct SuperWeaponType {
 }
 
 impl SuperWeaponType {
+    /// Phobos `ShowTimer.Percentage=` resolved against
+    /// `[AudioVisual] SuperWeaponTimer.Percentage=`
+    /// (`TacticalClass_Render_DrawSuperTimer_PercentageTimer @ 0x6D4A10`,
+    /// `Misc/Hooks.UI.cpp:623` reads the global through
+    /// `RulesExt::Global()->SuperWeaponTimer_Percentage`).
+    #[cfg(feature = "phobos")]
+    pub fn phobos_show_timer_percentage(&self, rules: &crate::rules::ruleset::RuleSet) -> bool {
+        self.phobos_show_timer_percentage
+            .unwrap_or(rules.phobos_globals.super_weapon_timer_percentage)
+    }
+
     #[cfg(feature = "ares")]
     pub fn ares_messages(&self) -> &AresSuperWeaponMessages {
         &self.presentation.messages
@@ -999,6 +1023,11 @@ impl SuperWeaponType {
             ),
             #[cfg(feature = "phobos")]
             show_designator_range: section.read_bool("ShowDesignatorRange", true),
+            #[cfg(feature = "phobos")]
+            phobos_show_timer_priority: section.read_int("ShowTimer.Priority", 0),
+            #[cfg(feature = "phobos")]
+            phobos_show_timer_percentage: section
+                .read_phobos_nullable_bool("ShowTimer.Percentage", Some(false)),
             #[cfg(feature = "phobos")]
             use_weeds_amount: section.read_phobos_nullable_int("UseWeeds.Amount", None),
             #[cfg(feature = "phobos")]
@@ -2808,5 +2837,44 @@ Type=BogusType
         let sw = SuperWeaponType::from_ini_section("Drop", ini.section("Drop").unwrap());
         assert_eq!(sw.kind, SuperWeaponKind::NoEffect);
         assert!(!sw.kind.is_extension());
+    }
+
+    #[cfg(feature = "phobos")]
+    #[test]
+    fn phobos_show_timer_keys_read_priority_and_percentage() {
+        let read = |text: &str| {
+            let ini = crate::rules::ini_parser::IniFile::from_str(text);
+            crate::rules::ruleset::RuleSet::from_ini(&ini).expect("rules")
+        };
+        // `ShowTimer.Priority=` is a `Valueable<int>` constructed 0
+        // (`Ext/SWType/Body.cpp:176`, `Body.h:78,183`).
+        let rules = read("[SuperWeaponTypes]\n0=A\n[A]\nType=NukeSpecial\n");
+        let sw = rules.super_weapon("A").expect("A");
+        assert_eq!(sw.phobos_show_timer_priority, 0);
+
+        // `ShowTimer.Percentage=` is a `Nullable<bool>` constructed
+        // **false** (`Body.cpp:177`, `Body.h:79,184`), so an unset key is
+        // false, not the `[AudioVisual]` global.
+        assert_eq!(sw.phobos_show_timer_percentage, Some(false));
+        assert!(!sw.phobos_show_timer_percentage(&rules));
+
+        let rules = read(
+            "[SuperWeaponTypes]\n0=A\n[A]\nType=NukeSpecial\n\
+             ShowTimer.Priority=3\nShowTimer.Percentage=yes\n",
+        );
+        let sw = rules.super_weapon("A").expect("A");
+        assert_eq!(sw.phobos_show_timer_priority, 3);
+        assert_eq!(sw.phobos_show_timer_percentage, Some(true));
+        assert!(sw.phobos_show_timer_percentage(&rules));
+
+        // A cleared value inherits `[AudioVisual] SuperWeaponTimer.Percentage=`
+        // (`Ext/Rules/Body.cpp:144`, `Body.h:605`, constructed no).
+        let rules = read(
+            "[SuperWeaponTypes]\n0=A\n[A]\nType=NukeSpecial\n\
+             ShowTimer.Percentage=<default>\n[AudioVisual]\nSuperWeaponTimer.Percentage=yes\n",
+        );
+        let sw = rules.super_weapon("A").expect("A");
+        assert_eq!(sw.phobos_show_timer_percentage, None);
+        assert!(sw.phobos_show_timer_percentage(&rules));
     }
 }

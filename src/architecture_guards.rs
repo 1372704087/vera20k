@@ -2285,6 +2285,12 @@ fn mutable_handouts_and_setters_are_owner_operations() {
             "set_crumbling",
             "the terrain crumbling latch, stored when the object starts crumbling",
         ),
+        (
+            "sim/world/alpha_shape.rs",
+            "set_particle_light_flash",
+            "the particle constructor stores the 0x48A444..0x48A47E WH.Particle window \
+             mark on its own AlphaShape record",
+        ),
     ];
     let src_root = Path::new(env!("CARGO_MANIFEST_DIR")).join("src");
     let files = source_files(&src_root);

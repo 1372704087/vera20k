@@ -105,3 +105,9 @@ missing-warhead skip does.
 
 Building radiation currently uses the neutral direct receiver.
 This feature does not load Phobos DLLs or establish complete mod compatibility.
+
+## Residuals
+
+A **building** victim takes the neutral direct receiver rather than the target-taking form, so the
+warhead's own `CellSpread`, verses and effects do not run around it; every non-building victim uses
+the target form.

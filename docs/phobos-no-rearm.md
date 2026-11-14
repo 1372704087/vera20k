@@ -62,6 +62,11 @@ draws and touches no other timer (`ForceShield` and the rest are untouched).
   reads), matching the retail layers: the four globals are read on every
   rules pass from the merged `[General]` state.
 
+## Residuals
+
+None recorded. The hold runs on the techno's own early update, resumes at the stored countdown and
+consumes no RNG draw and no other timer.
+
 ## Tests
 
 `sim::world::techno_ai` drives `techno_common_post` on an EMP'd and on a

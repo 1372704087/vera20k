@@ -23,6 +23,11 @@ Reader `Ext/TechnoType/Body.cpp:1205`, global `Ext/Rules/Body.cpp:289`
 - A true control releases the parasite and clears the victim's own link; a
   false one leaves both in place.
 
+## Residuals
+
+The cloak/decloak anim is spawned on the next AI visit after a transition that happens outside the
+cloak AI, one frame later than native. Presentation only: no state, timer or RNG draw shifts.
+
 ## Where VERA20K owns it
 
 `rules::phobos_globals::cloak_kick_out_parasite` and

@@ -35,6 +35,11 @@ Source: `src/Ext/WarheadType/Hooks.cpp`, `src/Ext/WarheadType/Body.cpp`,
 `src/Ext/Rules/Body.cpp` (the toggle, by Starkku) and
 `src/Misc/Hooks.BugFixes.cpp` (the airborne fix, by NetsuNegi).
 
+## Residuals
+
+None recorded. Both admissions (ground/deck and airborne) and the building receive prelude read the
+same resolved flag, so a warhead cannot differ between them.
+
 ## Where VERA20K owns it
 
 - `rules/warhead_type.rs`: the per-warhead `AllowDamageOnSelf`.

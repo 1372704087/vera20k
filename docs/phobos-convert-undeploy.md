@@ -26,6 +26,11 @@ type sets the matching key and its latch (`HasDeployConverted` /
 (`:52-66`) whenever the current `SequenceAnim` is neither Deploy nor
 Undeploy, so the next matching sequence converts again.
 
+## Residuals
+
+The deploy and undeploy latches are separate persisted fields: each arm sets its own and clears the
+other, and the `0x520E75` reset clears both. Nothing else in the conversion shares them.
+
 ## Where VERA20K owns it
 
 `rules::phobos_convert` reads the key. `Simulation::infantry_deploy_completion`

@@ -24,6 +24,11 @@ Reader `Ext/WarheadType/Body.cpp:188-189`, declarations
 - The result feeds the same area-rocker path (`area_rocker.rs`) for every
   in-radius Techno.
 
+## Residuals
+
+None recorded. The new keys feed the single area-rocker owner, and the existing native oracle still
+matches with the default keys.
+
 ## Where VERA20K owns it
 
 `WarheadType::phobos_rocker_amplitude_*` feed

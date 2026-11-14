@@ -25,6 +25,11 @@ The cameo itself is drawn by `TechnoTypeClass::GetCameo @ 0x00712040`, which is 
 (`StripClass::Draw @ 0x006A9540`). The veteran arm that mis-reads a building is Ares-side
 (`TechnoTypeExt::CameoIsVeteran`), so no gamemd address is cited for the fix.
 
+## Residuals
+
+VERA models one ground veteran flag (`HouseState::veteran_units`), so the naval variant Phobos reads
+separately cannot differ here.
+
 ## Where VERA20K owns it
 
 - `app/presentation/sidebar_render.rs` — `shows_alt_cameo` and

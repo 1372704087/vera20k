@@ -49,6 +49,12 @@ Phobos.
   ("Allow airstrike flare draw to foot") skips that gate, so the line reaches
   a foot target as well.
 
+## Residuals
+
+The designation cursor answers `AllowAirstrike` from the same eligibility helper, but it does not
+apply the C4 clause the weapon choice uses for a secondary-only building; native's cursor is the same
+way, so this is a cursor-versus-fire asymmetry rather than a port gap.
+
 ## Where VERA20K owns it
 
 - `rules/airstrike_targets.rs` — the bit set, its name list and the

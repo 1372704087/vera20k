@@ -33,6 +33,11 @@ Source: `src/Ext/Techno/Hooks.ReceiveDamage.cpp`,
 `src/New/Entity/ShieldClass.cpp`, `src/Ext/WarheadType/Body.cpp` and
 `src/Ext/Rules/Body.cpp`, by Starkku.
 
+## Residuals
+
+None recorded. Both damage paths reach the single `start_uncloaking_for_damage` owner, so a weapon
+cannot decloak through one path and not the other.
+
 ## Where VERA20K owns it
 
 - `rules/warhead_type.rs`: the per-warhead `DecloakDamagedTargets`.

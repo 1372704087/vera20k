@@ -33,6 +33,11 @@ and stores the new sample at `0x43FBEF`. Phobos
 The edge is what triggers it: a building that is already offline, or that
 stays powered, never runs the kill.
 
+## Residuals
+
+The change-edge call runs ahead of the stored sample, so a power transition and the kill in the same
+visit read the `operational` value of the previous sample, exactly as the native AI visit does.
+
 ## Where VERA20K owns it
 
 `rules::object_type::ObjectType::phobos_powered_kill_spawns` (Building types

@@ -86,6 +86,11 @@ return weapon → `UnlimboDetonate` → airburst). It reuses
 `super::phobos_airburst::admit_firing_effects`, which the airburst emitter
 shares.
 
+## Residuals
+
+None recorded. The returned weapon is fired at the impact coordinate through the stock bullet path,
+and only the type name is deferred to load-time resolution.
+
 ## Tests
 
 - `src/rules/phobos_return_weapon_tests.rs` — the pair of type keys, the

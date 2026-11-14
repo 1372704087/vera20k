@@ -16,6 +16,11 @@ A selection flashes when both settings allow it: the client switch must be
 the current player (`GetOwningHouse()->IsControlledByCurrentPlayer()`).
 Computer-owned units never flash.
 
+## Residuals
+
+Phobos reads `RA2MD.INI [Phobos] ShowFlashOnSelecting` directly; VERA imports that file into
+`VERA.INI` first, so a profile edited outside the game takes effect after the next import.
+
 ## Where VERA20K owns it
 
 - `rules/phobos_selection_flash.rs`: `[AudioVisual]

@@ -49,6 +49,12 @@ the Ares gates stay in place and the Phobos ones wrap them. The techno vectors a
 absent key retains it. The listed building gates — retail `AuxBuilding=` and Ares
 `SW.AuxBuildings`/`SW.NegBuildings` — stay with their existing owners.
 
+## Residuals
+
+None in the gate itself: it is a pure predicate over the projected lists. The projection covers
+registered superweapon types whose effect body VERA has not ported yet, so those types pass or fail
+the gate without their effect existing.
+
 ## Where VERA20K owns it
 
 - `rules/native_processing.rs` reads the three keys in the same ordered per-pass body as the Ares

@@ -37,6 +37,11 @@ The production cameo construction is `super_cameo`
 `SidebarTab::for_sw_tab_index(kind.phobos_tab_index.index())`. A stock build
 keeps the hardcoded Defense strip.
 
+## Residuals
+
+An out-of-range or blank `TabIndex` resets to `1` instead of clamping, which is what the reader does;
+a stock build keeps the hardcoded Defense strip.
+
 ## Tests
 
 - `src/rules/phobos_sw_tab_index_tests.rs` — the default of `1`, all four

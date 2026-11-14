@@ -35,6 +35,12 @@ negative packet. The production receiver resolves it in
 `receiver_call::resolve_receive_damage_with_input`, and the terrain,
 attach-effect and crit callers do the same.
 
+## Residuals
+
+None: every call site VERA has that passes `false` cannot reach the hook natively either — the UI
+estimate clamps its kernel input to at least 1 (`0x6FDD00`), and the Ares shield negative branch
+passes a positive argument (`ShieldClass.cpp:227`).
+
 ## Tests
 
 - `src/sim/combat/damage/kernel_tests.rs` — stock near/far rows and the armed

@@ -34,3 +34,9 @@ along" use the tag exists for. A custom type with a negative `Value=` hides at
 every density, since its cell value is then always at or below the threshold.
 
 This feature does not load Phobos DLLs or establish complete mod compatibility.
+
+## Residuals
+
+The threshold is a credit value, not a density (`TiberiumClass::Value * (OverlayData + 1)`), so a
+custom type with a negative `Value=` hides at every density. That is the arithmetic the tag implies,
+not a deviation.

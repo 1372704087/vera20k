@@ -39,6 +39,11 @@ The dormant classes are anchored where their absence comes from: `DropPod`'s onl
 (`0x004DB8A0`) has no references, which is why its alias resolves to nothing rather than to a
 movement kind. Movement variant order follows the enum table at `0x81DA58`.
 
+## Residuals
+
+The dormant Tiberian Sun classes (`Tunnel`, `Mech`, `DropPod`) deliberately resolve to no movement
+kind, matching their unreferenced installer (`0x004DB8A0`) instead of inventing one.
+
 ## Where VERA20K owns it
 
 - `rules/locomotor_type.rs`: `kind_from_clsid` tries the CLSID table first,

@@ -923,6 +923,8 @@ where
             descriptor.game_mode_nonzero,
         );
         sim.initialize_trigger_definitions(map_data, &teams, None, None, None);
+        #[cfg(feature = "phobos")]
+        sim.initialize_phobos_global_values(rules);
     }
     // Active YR `ScenarioClass__Full_Init @ 0x00686B20` calls
     // `ScenarioClass__Create_Houses @ 0x00687F10` before

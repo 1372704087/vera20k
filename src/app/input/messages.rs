@@ -73,6 +73,44 @@ pub(crate) fn post_trigger_message(state: &mut AppState, csf_key: &str) {
     );
 }
 
+/// Phobos `TActionExt::PrintVariableValue` (`Ext/TAction/Body.cpp:212-223`,
+/// action 503): the extended variable's `Value` printed `L"%d"` through
+/// `MessageListClass::Instance.PrintMessage` — the shared message list's
+/// plain add, with the trigger lines' colour and delay.
+#[cfg(feature = "phobos")]
+pub(crate) fn post_variable_value_message(state: &mut AppState, text: String) {
+    let Some(runtime) = state.match_state.sim_runtime.as_ref() else {
+        return;
+    };
+    let rules = &runtime.resources.rules;
+    #[cfg(feature = "ares")]
+    let side = runtime.simulation.session().scenario_side();
+    #[cfg(not(feature = "ares"))]
+    let side = runtime
+        .simulation
+        .session()
+        .current_house()
+        .and_then(|owner| runtime.simulation.houses().get(&owner))
+        .map_or(0, |house| i32::from(house.side_index()));
+    #[cfg(feature = "ares")]
+    let rgb = ares_message_text_rgb(rules, side).unwrap_or_else(|| {
+        trigger_message_rgb(&rules.color_schemes, side, rules.skirmish_colors())
+    });
+    #[cfg(not(feature = "ares"))]
+    let rgb = trigger_message_rgb(&rules.color_schemes, side, rules.skirmish_colors());
+    let timeout = message_delay_timeout_ms(rules.general.message_delay_minutes);
+    post_localized_message(
+        state,
+        &crate::ui::messages::MessagePost {
+            prefix: None,
+            text,
+            rgb,
+            timeout_ms: timeout,
+            silent: false,
+        },
+    );
+}
+
 fn message_delay_buckets(delay: crate::util::native_x87::NativeF64Bits) -> i32 {
     use crate::util::native_x87::{NativeF64Bits, X87Chop53};
     X87Chop53::load_f64(delay)

@@ -5093,6 +5093,12 @@ pub struct RuleSet {
     /// Phobos `[AttachEffectTypes]` catalog, retained across Rules passes.
     #[cfg(feature = "phobos")]
     pub(crate) attach_effect_types: crate::rules::attach_effect::AttachEffectTypeCatalog,
+    /// The rules-authored `[VariableNames]` globals (`Ext/Scenario/
+    /// Hooks.Variables.cpp:82-88`, hook `0x6876C2`, `Ext/Scenario/Body.cpp:37-69`
+    /// `ReadVariables(true, INI_Rules)`): one entry per authored slot with
+    /// `Value = atoi(state token)` else 0. Retail rulesmd.ini authors 14.
+    #[cfg(feature = "phobos")]
+    pub(crate) variable_names: std::collections::BTreeMap<u32, i32>,
     /// Phobos AttachEffect globals (`[General]`).
     #[cfg(feature = "phobos")]
     pub(crate) attach_effect_globals: crate::rules::attach_effect::AttachEffectGlobals,
@@ -7047,6 +7053,29 @@ impl RuleSet {
         #[cfg(feature = "phobos")]
         let banner_types = crate::rules::banner_type::BannerTypeCatalog::from_ini(ini);
         #[cfg(feature = "phobos")]
+        let variable_names = {
+            // `ReadVariables(true, INI_Rules)` (`Ext/Scenario/Body.cpp:47-61`):
+            // one map entry per `[VariableNames]` key, `Value` the second
+            // token's `atoi` else 0; different keys can alias one slot.
+            let mut globals = std::collections::BTreeMap::new();
+            if let Some(section) = ini.section("VariableNames") {
+                for key in section.keys() {
+                    let index = crate::rules::ini_value::crt_atoi(key);
+                    let Ok(index) = u32::try_from(index) else {
+                        continue;
+                    };
+                    let value = section
+                        .read_name(key, 0x80)
+                        .unwrap_or("")
+                        .split(',')
+                        .nth(1)
+                        .map_or(0, |token| crate::rules::ini_value::crt_atoi(token));
+                    globals.insert(index, value);
+                }
+            }
+            globals
+        };
+        #[cfg(feature = "phobos")]
         let (attach_effect_types, attach_effect_globals) = {
             let attach_effect_types = processed.attach_effect_types().cloned().unwrap_or_default();
             log::info!(
@@ -7641,6 +7670,8 @@ impl RuleSet {
             select_box_globals,
             #[cfg(feature = "phobos")]
             banner_types,
+            #[cfg(feature = "phobos")]
+            variable_names,
             #[cfg(feature = "phobos")]
             attach_effect_types,
             #[cfg(feature = "phobos")]

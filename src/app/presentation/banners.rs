@@ -246,18 +246,16 @@ pub(crate) fn build_banner_instances(
         return Default::default();
     }
     let banner_types = state.rules().map(|rules| rules.banner_types().clone());
-    let variables_set: Vec<bool> = state
+    // `CSF.VariableFormat` prints the variable's extended `Value`
+    // (`BannerClass.cpp:146-155`); `None` renders no text at all.
+    let variables_values: Vec<Option<i32>> = state
         .match_state
         .sim_runtime
         .as_ref()
         .map(|sim| {
             banners
                 .iter()
-                .map(|banner| {
-                    sim.simulation
-                        .trigger_runtime()
-                        .variable_set(banner.global_variable, banner.variable)
-                })
+                .map(|banner| sim.simulation.variable_value(banner.global_variable, banner.variable))
                 .collect()
         })
         .unwrap_or_default();
@@ -364,9 +362,8 @@ pub(crate) fn build_banner_instances(
         }
         if let Some((text, color)) = banner_text(
             csf,
-            variables_set.get(index).copied().unwrap_or(false),
+            variables_values.get(index).copied().flatten(),
             fallback_tint,
-            display,
             banner_type,
         ) {
             let width = font.text_width(&text) as i32;
@@ -442,29 +439,24 @@ fn reconcile_displays(
 }
 
 /// The CSF arm's text and color (`BannerClass.cpp:124-190`): the label, the
-/// scenario variable joined by the format, or nothing when the variable is
-/// unset. `CSF.Color`'s fallback is `Drawing::TooltipColor`
-/// (`BannerClass.cpp:190`), which VERA resolves through the sidebar text
-/// tint like the weeds counter's same fallback does
+/// scenario variable's `Value` joined by the format (`:146-155`,
+/// `std::to_wstring`), or nothing when the variable has no extended entry.
+/// `CSF.Color`'s fallback is `Drawing::TooltipColor`
+/// (`BannerClass.cpp:190`) — YRpp binds it to gamemd's `0xB0FA1C`, the
+/// runtime-synced sidebar text colour, which VERA resolves through the
+/// sidebar text tint like the weeds counter's same fallback does
 /// (`sidebar_render.rs:938`).
 fn banner_text(
     csf: Option<&crate::assets::csf_file::CsfFile>,
-    variable_set: bool,
+    variable_value: Option<i32>,
     fallback_tint: [u8; 3],
-    display: &BannerDisplay,
     banner_type: &crate::rules::banner_type::BannerType,
 ) -> Option<(String, [u8; 3])> {
     use crate::rules::banner_type::BannerNumberType;
     let color = banner_type.csf_color.unwrap_or(fallback_tint);
     let format = banner_type.csf_variable_format;
     if format != BannerNumberType::None {
-        if !variable_set {
-            return None;
-        }
-        // Native reads the variable's Value; VERA's variable owner keeps the
-        // State bit only (the binary variable actions are unported), so the
-        // value is the native default 0.
-        let value = "0".to_owned();
+        let value = variable_value?.to_string();
         let label = banner_type.csf.as_deref().unwrap_or("");
         let resolved = csf_resolved(csf, label);
         return Some((

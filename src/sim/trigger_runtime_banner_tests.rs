@@ -91,3 +91,98 @@ fn banner_actions_create_replace_and_delete_by_id() {
     ));
     assert!(sim.session.banners().is_empty(), "802 erases by id");
 }
+
+/// Phobos actions 501/502/504 mutate the extended variables' `Value`
+/// (`Ext/TAction/Body.cpp:135-260`) and 503 prints it (`:212-223`); every
+/// arm requires an existing entry — locals authored in the map, globals in
+/// rules `[VariableNames]` (`Ext/Scenario/Body.cpp:47-61`).
+#[test]
+fn variable_value_actions_edit_roll_combine_and_print() {
+    let rules = RuleSet::from_ini_with_fixed_art_for_test(
+        &crate::rules::ini_parser::IniFile::from_str("[General]\nFixtureOnly=1\n"),
+        &crate::rules::ini_parser::IniFile::empty(),
+    )
+    .unwrap();
+    let actions = crate::map::actions::parse_actions(&crate::rules::ini_parser::IniFile::from_str(
+        "[Actions]\n\
+         ADD=1,501,0,2,1,5,1,0\n\
+         SET=1,501,0,3,0,6,0,0\n\
+         SHL=1,501,0,3,6,2,0,0\n\
+         MISS=1,501,0,9,7,2,0,0\n\
+         ROLL=1,502,0,3,10,20,0,0\n\
+         COPY=1,504,0,2,0,3,1,0\n\
+         SHOW=1,503,0,3,0,0,0,0\n",
+    ));
+    let resolve = |name| {
+        RuntimeDefinitions::default().resolve_action(
+            actions[name].entries()[0].clone(),
+            None,
+            None,
+            None,
+        )
+    };
+    let (add, set, shl, miss, roll, copy, show) = (
+        resolve("ADD"),
+        resolve("SET"),
+        resolve("SHL"),
+        resolve("MISS"),
+        resolve("ROLL"),
+        resolve("COPY"),
+        resolve("SHOW"),
+    );
+    let mut sim = formed_sim(31, 2);
+    sim.trigger_runtime.locals_values.insert(3, 10);
+    sim.trigger_runtime.globals_values.insert(2, 7);
+    let ctx = TriggerActionContext {
+        live_index: None,
+        incoming_house: None,
+        input: TagEventInput::default(),
+    };
+    let mut effects = Vec::new();
+    let run = |sim: &mut Simulation, action: &RuntimeAction, effects: &mut Vec<TriggerEffect>| {
+        sim.apply_live_trigger_action(
+            action,
+            ctx,
+            effects,
+            &rules,
+            None,
+            crate::sim::world::FrameEffects::empty(),
+        )
+    };
+
+    assert!(run(&mut sim, &add, &mut effects));
+    assert_eq!(
+        sim.trigger_runtime.globals_values[&2], 12,
+        "501 adds the operand to the global's value"
+    );
+    assert!(run(&mut sim, &set, &mut effects));
+    assert_eq!(sim.trigger_runtime.locals_values[&3], 6, "op 0 assigns");
+    assert!(run(&mut sim, &shl, &mut effects));
+    assert_eq!(
+        sim.trigger_runtime.locals_values[&3], 24,
+        "op 6 shifts left by the masked count"
+    );
+    assert!(run(&mut sim, &miss, &mut effects));
+    assert_eq!(
+        sim.trigger_runtime.locals_values.get(&9),
+        None,
+        "an unauthored entry never springs into existence"
+    );
+    assert!(run(&mut sim, &roll, &mut effects));
+    let rolled = sim.trigger_runtime.locals_values[&3];
+    assert!((10..=20).contains(&rolled), "502 rolls inside the range");
+
+    assert!(run(&mut sim, &copy, &mut effects));
+    assert_eq!(
+        sim.trigger_runtime.globals_values[&2], rolled,
+        "504 assigns the source entry through op 0"
+    );
+    assert!(run(&mut sim, &show, &mut effects));
+    assert_eq!(
+        effects.last(),
+        Some(&TriggerEffect::VariableValuePrinted {
+            text: rolled.to_string(),
+        }),
+        "503 prints the value L\"%d\""
+    );
+}

@@ -403,6 +403,7 @@ mod tests {
             origin,
             rules.particle_type(unknown_id),
             &mut sim,
+        &rules,
         );
         let old_rng = sim.main_rng.logical_state();
         tick_particle(&mut unknown, &mut sim, &rules, None, None);
@@ -418,6 +419,7 @@ mod tests {
             IVec3::new(128, 1024, 100),
             rules.particle_type(fire_id),
             &mut sim,
+        &rules,
         );
         assert_eq!(fire.draw_frame(rules.particle_type(fire_id)), 9);
         let restored: Particle =
@@ -464,6 +466,7 @@ mod tests {
             IVec3::ZERO,
             rules.particle_type(kind),
             &mut sim,
+        &rules,
         );
         let system = sim.substrate.particle_systems.get_mut(host).unwrap();
         system.done_spawning = true;
@@ -532,6 +535,7 @@ mod tests {
                     IVec3::ZERO,
                     rules.particle_type(kind),
                     &mut sim,
+                &rules,
                 );
                 sim.substrate
                     .particle_systems

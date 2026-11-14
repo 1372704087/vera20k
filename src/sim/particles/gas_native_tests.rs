@@ -174,6 +174,7 @@ fn gas_system_motion_lifetime_replacement_and_rng_match_original_histories() {
                 IVec3::ZERO,
                 rules.particle_type(kind),
                 &mut sim,
+            &rules,
             );
             p.motion = std::array::from_fn(|i| bits(&prior["direction_bits"][i]));
             p.velocity = bits(&prior["velocity_bits"]);
@@ -270,6 +271,7 @@ fn the_gas_drift_clamp_uses_the_particle_types_max_speed() {
             IVec3::ZERO,
             rules.particle_type(kind),
             &mut sim,
+        &rules,
         );
         p.drift_x = 7;
         p.drift_y = -4;

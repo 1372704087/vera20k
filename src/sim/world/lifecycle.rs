@@ -3626,6 +3626,24 @@ impl Simulation {
     /// Particle62BB0E calls ObjectUnlimbo5F4EC0; GetLayer62D770 returns
     /// AIR (3), so Display4A9720 reaches the existing append owner5519B0.
     /// A particle is owned by its system and never joins global Logic.
+    /// A particle that enters the world: the Display Air layer registration
+    /// plus the `ObjectClass::Unlimbo` AlphaImage block its type may carry.
+    pub(crate) fn reveal_particle_with_alpha_shape(
+        &mut self,
+        particle: &crate::sim::particles::Particle,
+        rules: &RuleSet,
+    ) {
+        Self::reveal_particle(&mut self.substrate, particle.stable_id());
+        let kind = particle.type_id();
+        let alpha_image = rules.particle_type(kind).alpha_image.clone();
+        self.construct_particle_alpha_shape(
+            particle.stable_id(),
+            particle.coords().to_array(),
+            &alpha_image,
+            rules,
+        );
+    }
+
     pub(crate) fn reveal_particle(substrate: &mut ObjectSubstrate, stable_id: u64) {
         Self::submit_overhead_display(substrate, stable_id, DisplayLayer::AIR);
     }

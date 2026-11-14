@@ -362,12 +362,13 @@ impl Particle {
         target: IVec3,
         pt: &ParticleType,
         sim: &mut Simulation,
+        rules: &crate::rules::ruleset::RuleSet,
     ) -> Self {
         let particle = Self::new_with_ground(type_id, coords, target, pt, sim, |sim, x, y| {
             spark_world::constructor_ground_height(sim, x, y)
         })
         .expect("particle construction requires supported ground facts");
-        Simulation::reveal_particle(&mut sim.substrate, particle.stable_id);
+        sim.reveal_particle_with_alpha_shape(&particle, rules);
         particle
     }
 

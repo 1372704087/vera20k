@@ -97,6 +97,35 @@ impl Simulation {
         });
     }
 
+    /// The same `ObjectClass::Unlimbo @ 0x005F4EC0` AlphaShape block
+    /// (`0x005F5045..0x005F5100`) for a spawned particle: `ParticleClass` is an
+    /// object too, and `ParticleTypeClass::ReadINI @ 0x00644F50` reaches
+    /// `ObjectTypeClass::ReadINI @ 0x005F92D0`, so a loaded `AlphaImage=` makes
+    /// the same glow at the particle's own coords.
+    pub(super) fn construct_particle_alpha_shape(
+        &mut self,
+        stable_id: u64,
+        coords: [i32; 3],
+        alpha_image: &str,
+        rules: &RuleSet,
+    ) {
+        if alpha_image.is_empty() {
+            return;
+        }
+        let Some(image) = rules.alpha_image(alpha_image) else {
+            return;
+        };
+        let (x, y) =
+            crate::util::lepton::absolute_leptons_to_screen(coords[0], coords[1], coords[2]);
+        let [width, height] = image.canvas();
+        self.alpha_shapes.shapes.push(AlphaShape {
+            object: stable_id,
+            origin: [x as i32 - width / 2, y as i32 - height / 2],
+            image: alpha_image.to_string(),
+            disabled: false,
+        });
+    }
+
     /// Each shape's origin and AlphaImage name, in vector order.
     /// `DrawAll_NoMask @ 0x00421350` draws disabled shapes too, until the
     /// purge.

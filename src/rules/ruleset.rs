@@ -4865,6 +4865,11 @@ pub struct RuleSet {
     /// and the single nullable colour of the weeds counter.
     #[cfg(feature = "phobos")]
     side_weeds_counter: Vec<crate::rules::phobos_sidebar_indicators::WeedsCounterSideSettings>,
+    /// Phobos `[SIDE] ToolTip.Background.*`, in `[Sides]` order: the per-side
+    /// tooltip-backing colour, opacity and blur overrides.
+    #[cfg(feature = "phobos")]
+    side_tooltip_background:
+        Vec<crate::rules::phobos_tooltip_background::TooltipBackgroundSideSettings>,
     /// Effective side for each country after `[Sides]` membership and the
     /// per-country `Side=` override have both run.
     country_sides: Vec<Option<SideIdx>>,
@@ -7212,6 +7217,20 @@ impl RuleSet {
                     .unwrap_or_default()
             })
             .collect();
+        #[cfg(feature = "phobos")]
+        let side_tooltip_background: Vec<
+            crate::rules::phobos_tooltip_background::TooltipBackgroundSideSettings,
+        > = country_side_registry
+            .side_ids
+            .iter()
+            .map(|name| {
+                ini.section(name)
+                    .map(
+                        crate::rules::phobos_tooltip_background::TooltipBackgroundSideSettings::from_section,
+                    )
+                    .unwrap_or_default()
+            })
+            .collect();
         let color_schemes = crate::rules::color_scheme::parse_color_schemes(ini);
         let house_color_ramps =
             crate::rules::house_colors::HouseColorRamps::from_schemes(&color_schemes);
@@ -7570,6 +7589,8 @@ impl RuleSet {
             side_harvester_counter,
             #[cfg(feature = "phobos")]
             side_weeds_counter,
+            #[cfg(feature = "phobos")]
+            side_tooltip_background,
             #[cfg(feature = "ares")]
             side_extensions: country_side_registry.side_extensions,
             side_indices: country_side_registry.side_indices,
@@ -8979,6 +9000,8 @@ impl RuleSet {
             self.side_harvester_counter.hash(&mut hasher);
             b"phobos-sidebar-weeds-counter-v1".hash(&mut hasher);
             self.side_weeds_counter.hash(&mut hasher);
+            b"phobos-tooltip-background-v1".hash(&mut hasher);
+            self.side_tooltip_background.hash(&mut hasher);
         }
         #[cfg(feature = "phobos")]
         {
@@ -11730,6 +11753,35 @@ impl RuleSet {
         {
             let _ = side;
             None
+        }
+    }
+
+    /// Phobos `[Side] ToolTip.Background.Color/Opacity/BlurSize=`
+    /// (`Ext/Side/Body.cpp:48-50`): the side's tooltip-backing overrides.
+    /// Every field is `None` when unset; the caller falls back to the
+    /// `[AudioVisual]` globals.
+    #[allow(clippy::type_complexity)]
+    pub fn side_tooltip_background(
+        &self,
+        side: i32,
+    ) -> (Option<[u8; 3]>, Option<i32>, Option<f32>) {
+        #[cfg(feature = "phobos")]
+        {
+            let settings = usize::try_from(side)
+                .ok()
+                .and_then(|index| self.side_tooltip_background.get(index));
+            return settings.map_or((None, None, None), |settings| {
+                (
+                    settings.color,
+                    settings.opacity,
+                    settings.blur_size.map(|bits| f32::from_bits(bits.bits())),
+                )
+            });
+        }
+        #[cfg(not(feature = "phobos"))]
+        {
+            let _ = side;
+            (None, None, None)
         }
     }
 

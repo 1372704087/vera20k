@@ -842,6 +842,37 @@ fn in_game_regions(state: &AppState, demand: TextDemand) -> Vec<TipRegion> {
 
 /// In-game tooltip draw: `(fill, outline, text)` instances, drawn between the
 /// chat overlay and the software cursor (study O10).
+/// Phobos `CCToolTip_Draw2_FillRect @ 0x478FDC`
+/// (`Misc/PhobosToolTip.cpp:420-443`): the side's `ToolTip.Background.*`
+/// overrides else `[AudioVisual]`'s globals, as the backing tint and its 0..1
+/// alpha (`FillRectTrans`'s 0..100 percent). The blur radius is read for
+/// parity; the `ToolTipBlur` client switch's blur pass is a residual.
+fn tooltip_background(rules: &crate::rules::ruleset::RuleSet, side: i32) -> ([f32; 3], f32) {
+    #[cfg(feature = "phobos")]
+    {
+        let globals = &rules.phobos_globals;
+        let (side_color, side_opacity, _side_blur) = rules.side_tooltip_background(side);
+        let color = side_color.unwrap_or(globals.tooltip_background_color);
+        // `FillRectTrans` clamps with an unsigned compare against 100
+        // (`0x4BB94A..0x4BB958`), so a negative int reads as full opacity.
+        let raw_opacity = side_opacity.unwrap_or(globals.tooltip_background_opacity);
+        let opacity = if (raw_opacity as u32) > 100 {
+            100
+        } else {
+            raw_opacity
+        };
+        (
+            color.map(|channel| f32::from(channel) / 255.0),
+            opacity as f32 / 100.0,
+        )
+    }
+    #[cfg(not(feature = "phobos"))]
+    {
+        let _ = (rules, side);
+        ([0.0; 3], 1.0)
+    }
+}
+
 pub(crate) fn build_tooltip_instances(
     state: &AppState,
 ) -> (
@@ -873,6 +904,13 @@ pub(crate) fn build_tooltip_instances(
         .unwrap_or_else(|| {
             crate::render::sidebar_text::side_highlight_color(current_sidebar_theme(state))
         });
+    let fill = state
+        .match_state
+        .sim_runtime
+        .as_ref()
+        .map(|runtime| tooltip_background(&runtime.resources.rules, current_sidebar_side(state)))
+        // Without a live Rules the stock opaque black stays.
+        .unwrap_or(([0.0; 3], 1.0));
     tooltip_quads(
         &state.renderer.bit_font,
         &tip.text,
@@ -900,7 +938,12 @@ pub(crate) fn build_tooltip_instances(
         ],
         // The darken strip is only the "a real FNT loaded" sentinel here (the
         // 5x7 fallback builds none); the pop-up itself no longer draws with it.
-        state.renderer.bit_font.darken_texture().is_some(),
+        state
+            .renderer
+            .bit_font
+            .darken_texture()
+            .is_some()
+            .then_some(fill),
     )
 }
 
@@ -913,7 +956,8 @@ pub(crate) fn build_tooltip_instances(
 ///
 /// Returns `(fill quads, outline quads, text quads)`. `camera_offset` must be
 /// the live world camera: the UI pipeline subtracts it in the shader, so
-/// passing zero here walks the popup off screen.
+/// passing zero here walks the popup off screen. `fill` is the backing's tint
+/// and 0..1 alpha (Phobos `ToolTip.Background.*`); `None` builds no backing.
 pub(crate) fn tooltip_quads(
     font: &crate::render::bit_font::BitFont,
     text: &str,
@@ -921,7 +965,7 @@ pub(crate) fn tooltip_quads(
     region: [f32; 4],
     tint: [f32; 3],
     camera_offset: [f32; 2],
-    with_fill: bool,
+    fill: Option<([f32; 3], f32)>,
 ) -> (
     Vec<SpriteInstance>,
     Vec<SpriteInstance>,
@@ -950,19 +994,20 @@ pub(crate) fn tooltip_quads(
         region[3],
     );
 
-    let mut fill = Vec::with_capacity(1);
-    if with_fill {
-        fill.push(SpriteInstance {
+    let mut fill_quads = Vec::with_capacity(1);
+    if let Some((fill_tint, fill_alpha)) = fill {
+        fill_quads.push(SpriteInstance {
             position: [bx + camera_offset[0], by + camera_offset[1]],
             size: [box_w, box_h],
             uv_origin: [0.0, 0.0],
             uv_size: [1.0, 1.0],
             depth: 0.00021,
-            // Solid black, not the sidebar darken strip: the retail tip fill
-            // hides whatever it lands on instead of dimming it, so the pop-up
-            // stays legible over bright cameo art and the tactical map.
-            tint: [0.0, 0.0, 0.0],
-            alpha: 1.0,
+            // Phobos `CCToolTip_Draw2_FillRect @ 0x478FDC`
+            // (`Misc/PhobosToolTip.cpp:420-443`): `FillRectTrans` with the
+            // resolved `ToolTip.Background.Color`/`Opacity`; the constructor
+            // defaults are black at 100, the stock opaque fill.
+            tint: fill_tint,
+            alpha: fill_alpha,
             ..Default::default()
         });
     }
@@ -998,7 +1043,7 @@ pub(crate) fn tooltip_quads(
             camera_offset,
         ));
     }
-    (fill, outline, out)
+    (fill_quads, outline, out)
 }
 
 /// Put the box forward-down of the cursor, flipping it to back-up when it would
@@ -1861,7 +1906,7 @@ mod tests {
             region,
             [1.0, 1.0, 0.0],
             [0.0, 0.0],
-            true,
+            Some(([0.0, 0.0, 0.0], 1.0)),
         );
         let panned = tooltip_quads(
             &font,
@@ -1870,7 +1915,7 @@ mod tests {
             region,
             [1.0, 1.0, 0.0],
             [640.0, 480.0],
-            true,
+            Some(([0.0, 0.0, 0.0], 1.0)),
         );
 
         assert_eq!(at_origin.0.len(), 1);
@@ -1930,7 +1975,7 @@ mod tests {
             screen,
             [1.0, 1.0, 0.0],
             [0.0, 0.0],
-            true,
+            Some(([0.0, 0.0, 0.0], 1.0)),
         );
         assert_eq!(
             fill[0].position,
@@ -1948,7 +1993,7 @@ mod tests {
             screen,
             [1.0, 1.0, 0.0],
             [0.0, 0.0],
-            true,
+            Some(([0.0, 0.0, 0.0], 1.0)),
         );
         assert_eq!(flipped[0].position, [973.0, 316.0]);
         assert_eq!(flipped[0].size, [29.0, font.cell_height() + 4.0]);
@@ -1960,8 +2005,15 @@ mod tests {
         for region in [[0.0, 0.0, 800.0, 600.0], [0.0, 0.0, 1280.0, 720.0]] {
             for text in ["汉", "A1", "汉\nA1"] {
                 let layout = font.wrap_layout(text, region[2] as u32);
-                let (fill, _, glyphs) =
-                    tooltip_quads(&font, text, [100, 100], region, [1.0; 3], [0.0; 2], true);
+                let (fill, _, glyphs) = tooltip_quads(
+                    &font,
+                    text,
+                    [100, 100],
+                    region,
+                    [1.0; 3],
+                    [0.0; 2],
+                    Some(([0.0, 0.0, 0.0], 1.0)),
+                );
                 assert_eq!(
                     fill[0].size,
                     [layout.width as f32 + 8.0, layout.height as f32 + 4.0]
@@ -1995,7 +2047,7 @@ mod tests {
             [0.0, 0.0, 1024.0, 768.0],
             [1.0; 3],
             [0.0; 2],
-            true,
+            Some(([0.0, 0.0, 0.0], 1.0)),
         );
         assert_eq!(fill[0].position, [995.0, 316.0]);
         assert_eq!(fill[0].size, [29.0, font.cell_height() + 4.0]);
@@ -2015,7 +2067,7 @@ mod tests {
             [0.0, 0.0, 800.0, 600.0],
             [1.0, 1.0, 0.0],
             [0.0, 0.0],
-            true,
+            Some(([0.0, 0.0, 0.0], 1.0)),
         );
         assert_eq!(fill[0].tint, [0.0, 0.0, 0.0]);
         assert_eq!(fill[0].alpha, 1.0);
@@ -2060,5 +2112,67 @@ mod tests {
         );
         assert_eq!(append_ui_description("Name".to_owned(), Some("")), "Name");
         assert_eq!(append_ui_description("Name".to_owned(), None), "Name");
+    }
+
+    /// Phobos `CCToolTip_Draw2_FillRect @ 0x478FDC`
+    /// (`Misc/PhobosToolTip.cpp:420-443`): the fill is the resolved
+    /// `[AudioVisual]` `ToolTip.Background.*` values — the constructor's
+    /// black at 100 is the stock opaque fill — and a side override wins.
+    #[cfg(feature = "phobos")]
+    #[test]
+    fn tooltip_background_resolves_globals_and_side_overrides() {
+        use crate::rules::ini_parser::IniFile;
+
+        let stock = crate::rules::ruleset::RuleSet::from_ini(&IniFile::from_str(""))
+            .expect("default rules");
+        assert_eq!(tooltip_background(&stock, 0), ([0.0, 0.0, 0.0], 1.0));
+
+        let rules = crate::rules::ruleset::RuleSet::from_ini(&IniFile::from_str(
+            "[AudioVisual]\nToolTip.Background.Color=10,20,30\n\
+             ToolTip.Background.Opacity=40\n",
+        ))
+        .expect("rules");
+        let expected = ([10.0 / 255.0, 20.0 / 255.0, 30.0 / 255.0], 0.4);
+        assert_eq!(tooltip_background(&rules, 0), expected);
+        // A side with no overrides keeps the globals.
+        assert_eq!(tooltip_background(&rules, 3), expected);
+
+        let transparent = crate::rules::ruleset::RuleSet::from_ini(&IniFile::from_str(
+            "[AudioVisual]
+ToolTip.Background.Color=255,0,0
+ToolTip.Background.Opacity=0
+",
+        ))
+        .expect("rules");
+        assert_eq!(tooltip_background(&transparent, 0), ([1.0, 0.0, 0.0], 0.0));
+
+        // `FillRectTrans`'s unsigned clamp: above 100 and negative both read
+        // as full opacity.
+        for opacity in ["101", "-5"] {
+            let rules = crate::rules::ruleset::RuleSet::from_ini(&IniFile::from_str(&format!(
+                "[AudioVisual]
+ToolTip.Background.Opacity={opacity}
+"
+            )))
+            .expect("rules");
+            assert_eq!(tooltip_background(&rules, 0), ([0.0, 0.0, 0.0], 1.0));
+        }
+    }
+
+    /// The configured backing keeps its own tint and alpha on the fill quad.
+    #[test]
+    fn a_configured_tooltip_background_keeps_its_tint_and_alpha() {
+        let font = make_test_font(&[(b'x' as u16, 6)], 4);
+        let (fill, _, _) = tooltip_quads(
+            &font,
+            "xxx",
+            [100, 100],
+            [0.0, 0.0, 800.0, 600.0],
+            [1.0, 1.0, 0.0],
+            [0.0, 0.0],
+            Some(([0.25, 0.5, 0.75], 0.4)),
+        );
+        assert_eq!(fill[0].tint, [0.25, 0.5, 0.75]);
+        assert_eq!(fill[0].alpha, 0.4);
     }
 }

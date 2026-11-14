@@ -274,6 +274,8 @@ pub mod phobos_shields;
 #[cfg(feature = "phobos")]
 pub mod phobos_sidebar_indicators;
 #[cfg(feature = "phobos")]
+pub mod phobos_tooltip_background;
+#[cfg(feature = "phobos")]
 pub mod phobos_slave;
 #[cfg(feature = "phobos")]
 pub mod phobos_spawner;

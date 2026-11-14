@@ -172,6 +172,19 @@ pub struct PhobosGlobals {
     /// (`TacticalClass_Render_DrawSuperTimer_PercentageTimer @ 0x6D4A10`,
     /// `Misc/Hooks.UI.cpp:610-631`).
     pub super_weapon_timer_percentage: bool,
+    /// `[AudioVisual] ToolTip.Background.Color=`, `Valueable<ColorStruct>`
+    /// default black (`Ext/Rules/Body.cpp:169`, constructor `Body.h:722`):
+    /// the tooltip's translucent backing colour
+    /// (`CCToolTip_Draw2_FillRect @ 0x478FDC`, `Misc/PhobosToolTip.cpp:434-437`).
+    pub tooltip_background_color: [u8; 3],
+    /// `[AudioVisual] ToolTip.Background.Opacity=`, `Valueable<int>` default
+    /// 100 (`Body.cpp:170`, `Body.h:723`): `FillRectTrans`'s 0..100 percent.
+    pub tooltip_background_opacity: i32,
+    /// `[AudioVisual] ToolTip.Background.BlurSize=`, `Valueable<float>`
+    /// default 0.0 (`Body.cpp:171`, `Body.h:724`): the radius the client's
+    /// `ToolTipBlur` switch blurs the backing by. VERA reads it for parity and
+    /// leaves the blur pass a residual.
+    pub tooltip_background_blur_size: crate::util::native_x87::NativeF32Bits,
     /// `[AudioVisual] HeightShadowScaling=`, default `no` (`Ext/Rules/Body.cpp:186`,
     /// constructor `Ext/Rules/Body.h:630`): a drawing unit scales its voxel
     /// shadow by its live height (`Ext/TechnoType/Hooks.MatrixOp.cpp:677`).
@@ -1306,6 +1319,9 @@ impl Default for PhobosGlobals {
             affects_invoker_only_ignore_invoker_state: true,
             show_designator_range: true,
             super_weapon_timer_percentage: false,
+            tooltip_background_color: [0, 0, 0],
+            tooltip_background_opacity: 100,
+            tooltip_background_blur_size: crate::util::native_x87::NativeF32Bits::POSITIVE_ZERO,
             height_shadow_scaling: false,
             height_shadow_scaling_min_scale: NativeF64Bits::from_bits(0.0f64.to_bits()),
             air_shadow_base_scale_log: NativeF64Bits::from_bits(0.693_376_137f64.to_bits()),
@@ -1520,6 +1536,18 @@ impl PhobosGlobals {
             "SuperWeaponTimer.Percentage",
             globals.super_weapon_timer_percentage,
         );
+        globals.tooltip_background_color = audio_visual
+            .read_phobos_color("ToolTip.Background.Color", globals.tooltip_background_color);
+        globals.tooltip_background_opacity = audio_visual.read_ares_int(
+            "ToolTip.Background.Opacity",
+            globals.tooltip_background_opacity,
+        );
+        let tooltip_blur = audio_visual.read_phobos_double(
+            "ToolTip.Background.BlurSize",
+            f64::from(f32::from_bits(globals.tooltip_background_blur_size.bits())),
+        );
+        globals.tooltip_background_blur_size =
+            crate::util::native_x87::NativeF32Bits::from_bits((tooltip_blur as f32).to_bits());
         // `Ext/Rules/Body.cpp:291-297`: the income-label switch and cadence. A
         // read `DisplayIncome.Delay=0` would crash the native label, so the
         // reader forces it to 1.

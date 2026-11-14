@@ -2132,11 +2132,6 @@ fn mutable_handouts_and_setters_are_owner_operations() {
             "runs only inside the ART pass: Phobos ShadowIndex.Frame",
         ),
         (
-            "rules/object_type.rs",
-            "set_phobos_shadow_indices",
-            "runs only inside the ART pass: the Phobos ShadowIndices vector",
-        ),
-        (
             "rules/personal_rules.rs",
             "set_terrain_deformation",
             "the personal-rules overlay stores the deformation read for the match",

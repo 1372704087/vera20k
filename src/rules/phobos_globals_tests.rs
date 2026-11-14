@@ -845,3 +845,47 @@ fn the_aircraft_spawn_from_edge_global_defaults_to_owner_and_reads_the_names() {
     let bad = read("[General]\nAircraftSpawnFromEdge=nearest\n");
     assert_eq!(bad.aircraft_spawn_from_edge, PhobosEdgeType::Owner);
 }
+
+/// `ToolTip.Background.*` (`[AudioVisual]`, `Ext/Rules/Body.cpp:169-171`,
+/// constructor `Body.h:722-724`): black at 100 opacity and zero blur, each
+/// key replacing its own value.
+#[test]
+fn the_tooltip_background_globals_default_and_read() {
+    let defaults = read("");
+    assert_eq!(defaults.tooltip_background_color, [0, 0, 0]);
+    assert_eq!(defaults.tooltip_background_opacity, 100);
+    assert_eq!(
+        defaults.tooltip_background_blur_size.bits(),
+        0.0f32.to_bits()
+    );
+
+    let set = read(
+        "[AudioVisual]\nToolTip.Background.Color=10,20,30\n\
+         ToolTip.Background.Opacity=40\nToolTip.Background.BlurSize=2.5\n",
+    );
+    assert_eq!(set.tooltip_background_color, [10, 20, 30]);
+    assert_eq!(set.tooltip_background_opacity, 40);
+    assert_eq!(set.tooltip_background_blur_size.bits(), 2.5f32.to_bits());
+
+    // Phobos parsers retain the current value on junk: the colour is a
+    // three-byte read whose every component must fit, the int rejects text,
+    // the float uses strtod.
+    let junk = read(
+        "[AudioVisual]
+ToolTip.Background.Color=300,0,0
+         ToolTip.Background.Opacity=abc
+ToolTip.Background.BlurSize=junk
+",
+    );
+    assert_eq!(junk.tooltip_background_color, [0, 0, 0]);
+    assert_eq!(junk.tooltip_background_opacity, 100);
+    assert_eq!(junk.tooltip_background_blur_size.bits(), 0.0f32.to_bits());
+
+    // Above 100 is stored; `FillRectTrans` clamps at draw time.
+    let over = read(
+        "[AudioVisual]
+ToolTip.Background.Opacity=101
+",
+    );
+    assert_eq!(over.tooltip_background_opacity, 101);
+}

@@ -80,9 +80,8 @@ impl LaserTrailState {
 /// - `RadBeam` emits the copied beam with `Beam.Color.Get(RadColor)`,
 ///   `FadeDuration.Get(15)` and `Beam.Amplitude` (`:65..75`).
 ///
-/// RESIDUAL: `LaserDraw` is forced to `IsHouseColor = true`, so a laser
-/// trail with no owner House draws nothing here instead of native's
-/// null-House lookup.
+/// RESIDUAL: none for the copied colour; a trail with no owner House keeps
+/// the type's `Color`, as `CurrentColor` is not replaced without a House.
 pub(crate) fn update(
     last_location: &mut Option<[i32; 3]>,
     trail: &LaserTrailType,
@@ -117,8 +116,13 @@ pub(crate) fn update(
     let to = ProjectileCoord::new(location[0], location[1], location[2]);
     match trail.draw_type {
         LaserTrailDrawType::Laser => {
-            let Some(owner) = owner else {
-                return false;
+            // `LaserTrailClass` sets `CurrentColor` to the type's `Color`
+            // unless the type is `IsHouseColor` and a House exists; the
+            // LaserDraw is forced to `IsHouseColor = true` but receives that
+            // copied colour (`New/Entity/LaserTrailClass.cpp:24..37`).
+            let color = match owner {
+                Some(owner) if trail.is_house_color => LaserColor::House(owner),
+                _ => LaserColor::HouseStyle(trail.color),
             };
             let birth = laser::construct(
                 session,
@@ -127,7 +131,7 @@ pub(crate) fn update(
                 to,
                 0,
                 trail.fade_duration(),
-                LaserColor::House(owner),
+                color,
                 NativeF64Bits::POSITIVE_ZERO,
             );
             birth.width = trail.thickness;
@@ -506,6 +510,78 @@ mod tests {
         sim.visit_voxel_anim(id, &rules, FrameEffects::default())
             .unwrap();
         assert_eq!(lasers(&sim).len(), 1, "the bounce moved the location");
+    }
+
+    /// `LaserTrailClass`'s `CurrentColor`: the type's `Color` without a
+    /// House (or without `IsHouseColor`), the House's laser colour when both
+    /// exist. The LaserDraw still takes DrawBeamSpecial.
+    #[test]
+    fn laser_trail_colour_follows_current_color() {
+        let mut sim = Simulation::with_seed(3);
+        let trail = LaserTrailType {
+            segment_length: 1,
+            color: [1, 2, 3],
+            fade_duration: Some(5),
+            ..LaserTrailType::default()
+        };
+        let mut last = None;
+        assert!(!update(
+            &mut last,
+            &trail,
+            [0, 0, 0],
+            true,
+            false,
+            None,
+            (0, 0, 0),
+            &sim.session,
+            &sim.main_rng,
+            &mut sim.lifecycle_outputs,
+        ));
+        assert!(update(
+            &mut last,
+            &trail,
+            [10, 0, 0],
+            true,
+            false,
+            None,
+            (0, 0, 0),
+            &sim.session,
+            &sim.main_rng,
+            &mut sim.lifecycle_outputs,
+        ));
+        assert_eq!(lasers(&sim)[0].color, LaserColor::HouseStyle([1, 2, 3]));
+
+        let owner = InternedId::from_index(0);
+        let house_trail = LaserTrailType {
+            is_house_color: true,
+            ..trail.clone()
+        };
+        last = None;
+        assert!(!update(
+            &mut last,
+            &house_trail,
+            [0, 0, 0],
+            true,
+            false,
+            Some(owner),
+            (0, 0, 0),
+            &sim.session,
+            &sim.main_rng,
+            &mut sim.lifecycle_outputs,
+        ));
+        assert!(update(
+            &mut last,
+            &house_trail,
+            [10, 0, 0],
+            true,
+            false,
+            Some(owner),
+            (0, 0, 0),
+            &sim.session,
+            &sim.main_rng,
+            &mut sim.lifecycle_outputs,
+        ));
+        assert_eq!(lasers(&sim)[1].color, LaserColor::House(owner));
     }
 
     /// `LaserTrailClass::Update`'s EBolt and RadBeam arms: the bolt carries

@@ -127,6 +127,11 @@ pub enum LaserColor {
     /// The general54FE60 caller4A7526 copies the same House RGB and half
     /// of it for the outer lines. It does not select DrawBeamSpecial.
     HouseWithHalfOuter { owner: InternedId, spread: [u8; 3] },
+    /// A DrawBeamSpecial laser whose RGB was copied before construction, as
+    /// Phobos' trail does: `LaserTrailClass` forces `IsHouseColor` on the
+    /// LaserDraw but passes `CurrentColor`, which is the type's `Color` when
+    /// the trail type is not `IsHouseColor` or has no owner House.
+    HouseStyle([u8; 3]),
     Explicit {
         inner: [u8; 3],
         outer: [u8; 3],

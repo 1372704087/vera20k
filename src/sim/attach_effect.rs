@@ -3694,10 +3694,11 @@ mod tests {
         assert_eq!(births[0].width, 2);
         assert_eq!(births[0].duration, 5);
         assert!(!births[0].supported);
-        assert!(matches!(
+        assert_eq!(
             births[0].color,
-            crate::sim::combat::laser::LaserColor::House(_)
-        ));
+            crate::sim::combat::laser::LaserColor::HouseStyle([1, 2, 3]),
+            "the trail type's Color is the DrawBeamSpecial RGB"
+        );
         assert_eq!(births[0].from.y, births[0].to.y, "moved along X");
         sim.update_phobos_laser_trails(tank, &rules);
         assert_eq!(lasers(&sim).len(), 1, "no movement adds no segment");

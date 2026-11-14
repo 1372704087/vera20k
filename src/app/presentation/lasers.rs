@@ -53,6 +53,7 @@ impl Lasers {
     ) {
         let color = match birth.color {
             LaserColor::House(owner) => LaserDrawColor::House(house_rgb(owner)),
+            LaserColor::HouseStyle(rgb) => LaserDrawColor::House(rgb),
             LaserColor::Explicit { inner, outer, .. } => LaserDrawColor::Explicit {
                 inner,
                 outer: (outer != [0; 3]).then_some(outer),
@@ -162,7 +163,10 @@ impl Lasers {
                 z_adjust: laser.birth.z_adjust,
                 width: laser.birth.width,
                 supported: laser.birth.supported,
-                house_color: matches!(laser.birth.color, LaserColor::House(_)),
+                house_color: matches!(
+                    laser.birth.color,
+                    LaserColor::House(_) | LaserColor::HouseStyle(_)
+                ),
                 rgb: laser.color.inner(),
                 outer,
                 spread,

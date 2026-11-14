@@ -430,6 +430,12 @@ pub struct WeaponType {
     /// `1 << (clamp(value, 1, 31) - 1)` (`Ext/EBolt/Body.cpp:30`).
     #[cfg(feature = "phobos")]
     pub phobos_bolt_duration: i32,
+    /// Phobos `WeaponTypeExt::Bolt_Arcs` (`Ext/WeaponType/Body.cpp:100`,
+    /// `Valueable<int>`, constructor `Body.h` stores 8):
+    /// `EBoltExt::CreateEBolt` copies it to the bolt (`Ext/EBolt/Body.cpp:29`)
+    /// and `EBolt_DrawArcs` stops the subdivision at that plot index.
+    #[cfg(feature = "phobos")]
+    pub phobos_bolt_arcs: i32,
     /// Phobos `WeaponTypeExt::Bolt_FollowFLH` (`Ext/WeaponType/Body.cpp:102`,
     /// `Nullable<bool>`): whether the bolt follows its firer's FLH; unset
     /// follows only a Unit (`Ext/EBolt/Hooks.cpp:113`).
@@ -881,6 +887,8 @@ impl WeaponType {
                 .read_phobos_nullable_bool("EBoltZAdjust.ClampInitialDepthForBuilding", None),
             #[cfg(feature = "phobos")]
             phobos_bolt_duration: section.read_int("Bolt.Duration", 17),
+            #[cfg(feature = "phobos")]
+            phobos_bolt_arcs: section.read_int("Bolt.Arcs", 8),
             #[cfg(feature = "phobos")]
             phobos_bolt_follow_flh: section.read_phobos_nullable_bool("Bolt.FollowFLH", None),
             #[cfg(feature = "phobos")]

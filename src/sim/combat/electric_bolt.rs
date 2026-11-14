@@ -281,6 +281,12 @@ fn emit(
     let decay = 1_i32 << (weapon.phobos_bolt_duration.clamp(1, 31) - 1);
     #[cfg(not(feature = "phobos"))]
     let decay = 0x10000;
+    // `EBoltExt::CreateEBolt` copies the weapon's `Bolt.Arcs`
+    // (`Ext/EBolt/Body.cpp:29`); the constructor's 8 is the default.
+    #[cfg(feature = "phobos")]
+    let arcs = weapon.phobos_bolt_arcs;
+    #[cfg(not(feature = "phobos"))]
+    let arcs = 8;
     world
         .lifecycle_outputs
         .emit(crate::sim::world::LifecycleOutput::ElectricBoltCreated(
@@ -292,9 +298,7 @@ fn emit(
                 phase,
                 alternate_color,
                 colors,
-                // Phobos `WeaponTypeExt::Bolt_Arcs` is not read by VERA's
-                // weapon reader; the constructor's 8 stands (residual).
-                arcs: 8,
+                arcs,
                 owner,
                 decay,
             },

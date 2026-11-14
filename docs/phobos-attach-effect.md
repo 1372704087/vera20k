@@ -164,13 +164,12 @@ AttachEffect.SameSourceOnly=no            ; match only same-source instances
 ## Residuals
 
 - `LaserTrail.Type` draws `laser`, `ebolt` and `radbeam` entries. A laser
-  trail with no owner House draws nothing (native forces `IsHouseColor` on the
-  trail LaserDraw and resolves the null House itself).
+  trail takes the type's `Color` through DrawBeamSpecial when the type is not
+  `IsHouseColor` or no House exists, and the House's laser colour when both
+  exist (native's `CurrentColor`).
   `CloakVisible.DetectedOnly`, `DropPodOnly` and the global
   `HideLaserTrailEffects` switch have no reader, and the trail update runs in
   the shared techno AI phase rather than after the foot locomotor process.
-  Native forces `IsHouseColor` on the trail LaserDraw, so `Color` and
-  `IsHouseColor` parse but the segment draws in the owner's house color.
 - `AllowTransfer` is consumed by the deploy (`(Un)DeploysInto`) conversions;
   `AllowTransfer.Convert` stays unused because VERA ports no Ares type
   conversion (`TechnoClass_ChangeType`). A transferred instance copies its

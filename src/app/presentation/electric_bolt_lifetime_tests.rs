@@ -511,7 +511,7 @@ fn the_ebolt_building_clamp_reads_audio_visual_and_a_weapon_overrides_it() {
         return;
     };
     let weapon = retail.rules.weapon("105mm").expect("105mm");
-    assert_eq!(weapon.phobos_ebolt_z_adjust_clamp, None);
+    assert_eq!(weapon.phobos_ebolt_clamp_initial_depth_for_building, None);
     assert!(
         retail
             .rules

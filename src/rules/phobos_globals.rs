@@ -165,6 +165,13 @@ pub struct PhobosGlobals {
     /// also be on.
     #[serde(default = "true_bool")]
     pub show_designator_range: bool,
+    /// `[AudioVisual] SuperWeaponTimer.Percentage=`, `Valueable<bool>` default
+    /// **no** (`Ext/Rules/Body.cpp:144`, `Ext/Rules/Body.h:605`): the fallback
+    /// for a Super whose `ShowTimer.Percentage=` is cleared; a timed Super
+    /// then prints its elapsed recharge share as `%.2f%%`
+    /// (`TacticalClass_Render_DrawSuperTimer_PercentageTimer @ 0x6D4A10`,
+    /// `Misc/Hooks.UI.cpp:610-631`).
+    pub super_weapon_timer_percentage: bool,
     /// `[AudioVisual] HeightShadowScaling=`, default `no` (`Ext/Rules/Body.cpp:186`,
     /// constructor `Ext/Rules/Body.h:630`): a drawing unit scales its voxel
     /// shadow by its live height (`Ext/TechnoType/Hooks.MatrixOp.cpp:677`).
@@ -1284,6 +1291,7 @@ impl Default for PhobosGlobals {
             overload_particle_sys_count: 5,
             affects_invoker_only_ignore_invoker_state: true,
             show_designator_range: true,
+            super_weapon_timer_percentage: false,
             height_shadow_scaling: false,
             height_shadow_scaling_min_scale: NativeF64Bits::from_bits(0.0f64.to_bits()),
             air_shadow_base_scale_log: NativeF64Bits::from_bits(0.693_376_137f64.to_bits()),
@@ -1492,6 +1500,10 @@ impl PhobosGlobals {
         // switch, read in the same `[AudioVisual]` pass as the income labels.
         globals.show_designator_range =
             audio_visual.read_bool("ShowDesignatorRange", globals.show_designator_range);
+        globals.super_weapon_timer_percentage = audio_visual.read_bool(
+            "SuperWeaponTimer.Percentage",
+            globals.super_weapon_timer_percentage,
+        );
         // `Ext/Rules/Body.cpp:291-297`: the income-label switch and cadence. A
         // read `DisplayIncome.Delay=0` would crash the native label, so the
         // reader forces it to 1.

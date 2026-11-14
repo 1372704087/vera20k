@@ -245,6 +245,7 @@ fn dock_lines(count: usize) -> Vec<TimerLine> {
                 i as u32,
             )),
             seconds: i as i32 + 1,
+            fraction: None,
         })
         .collect()
 }
@@ -257,11 +258,13 @@ fn small_timer_lists_keep_native_rows_and_no_control() {
         TimerLine {
             source: TimerSource::Scenario,
             seconds: 60,
+            fraction: None,
         },
     );
     lines.push(TimerLine {
         source: TimerSource::Blackout(house(2)),
         seconds: 20,
+        fraction: None,
     });
     let mut dock = TimerDock::default();
     let rows = dock.rows(&lines, Some(house(0)), [800, 600], 12);
@@ -278,6 +281,7 @@ fn sixty_supers_fold_page_and_shrink_without_losing_local_or_mission_rows() {
         TimerLine {
             source: TimerSource::Scenario,
             seconds: 60,
+            fraction: None,
         },
     );
     let mut dock = TimerDock::default();
@@ -421,4 +425,37 @@ fn real_time_timers_scale_the_printed_dividend() {
         &unlimited,
     )[0];
     assert_eq!(line.seconds, 15);
+}
+
+#[test]
+fn percentage_lines_print_the_elapsed_recharge_share() {
+    let clock = TimerClock {
+        real_time: false,
+        adaptive: false,
+        game_speed: 0,
+        multiplayer: false,
+        custom_game_speed: false,
+        frame_rate: 60.0,
+    };
+    // 900-frame recharge with 450 left: half elapsed, `0x6D4A10`'s
+    // `(recharge - timeLeft) / recharge`.
+    let view = SuperTimerView::for_test(house(0), InternedId::from_index(0), 450, false, 900, 0)
+        .with_timer_options(true, 0);
+    let lines = timer_lines(None, &[view], [], false, &clock);
+    assert_eq!(lines.len(), 1);
+    assert_eq!(lines[0].fraction, Some(0.5));
+    assert_eq!(percentage_text(0.5), "50.00%");
+
+    // A zero recharge time is exactly 1.0, and a full charge clamps there too.
+    let view = SuperTimerView::for_test(house(0), InternedId::from_index(0), 0, false, 0, 0)
+        .with_timer_options(true, 0);
+    let lines = timer_lines(None, &[view], [], false, &clock);
+    assert_eq!(lines[0].fraction, Some(1.0));
+    assert_eq!(percentage_text(1.0), "100.00%");
+
+    // The percentage gate off keeps the seconds text path.
+    let view = SuperTimerView::for_test(house(0), InternedId::from_index(0), 450, false, 900, 0)
+        .with_timer_options(false, 0);
+    let lines = timer_lines(None, &[view], [], false, &clock);
+    assert_eq!(lines[0].fraction, None);
 }

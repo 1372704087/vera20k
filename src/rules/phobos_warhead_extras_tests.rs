@@ -108,3 +108,20 @@ fn only_the_three_primary_arms_ask_for_a_visit() {
     assert!(!values("BuildingUndeploy.Leave=yes\n").has_per_target_effect());
     assert!(!values("MergeBuildingDamage=yes\n").has_per_target_effect());
 }
+
+/// `Ext/WarheadType/Body.cpp:345`: `Particle.AlphaImageIsLightFlash=`,
+/// `Nullable<bool>`, and `Ext/Rules/Body.cpp:403` falls back to
+/// `[AudioVisual] WarheadParticleAlphaImageIsLightFlash=` (default no) when the
+/// warhead leaves it unset.
+#[test]
+fn particle_alpha_image_is_light_flash_reads_nullable() {
+    assert_eq!(values("").particle_alpha_image_is_light_flash, None);
+    assert_eq!(
+        values("Particle.AlphaImageIsLightFlash=yes\n").particle_alpha_image_is_light_flash,
+        Some(true)
+    );
+    assert_eq!(
+        values("Particle.AlphaImageIsLightFlash=no\n").particle_alpha_image_is_light_flash,
+        Some(false)
+    );
+}

@@ -1853,6 +1853,11 @@ pub struct Simulation {
     /// Saved, never hashed.
     #[serde(default)]
     alpha_shapes: alpha_shape::AlphaShapes,
+    /// `0x48A444` sets and `0x48A47E` clears the light-flash mark a
+    /// `WH.Particle` system spawns its AlphaImage under. It is a transient
+    /// register, not saved state, and it is only read while a particle
+    /// reveal is inside that window.
+    particle_light_flash: bool,
     /// Per-cell terrain speed modifier config (slope climb/descend).
     /// Built from [General] rules at map load.
     #[serde(skip)]
@@ -4898,6 +4903,7 @@ impl Simulation {
             ares_tunnels: Default::default(),
             ion_blasts: Vec::new(),
             alpha_shapes: Default::default(),
+            particle_light_flash: false,
             terrain_speed_config: terrain_speed::TerrainSpeedConfig::default(),
             input_delay_ticks: u64::from(crate::util::config::default_input_delay_ticks()),
             quit_requested: false,

@@ -39,9 +39,9 @@ fn a_particle_type_alpha_image_glows_and_a_missing_one_does_not() {
     );
     assert_eq!(
         sim.alpha_shapes()
-            .map(|(_, image)| image)
+            .map(|(_, image, light_flash)| (image, light_flash))
             .collect::<Vec<_>>(),
-        ["GLOW"],
+        [("GLOW", false)],
         "a loaded AlphaImage glows at the particle's own coords"
     );
 
@@ -75,4 +75,44 @@ fn an_unloaded_alpha_image_adds_no_shape() {
         &rules,
     );
     assert_eq!(sim.alpha_shapes().count(), 0);
+}
+
+#[test]
+fn the_light_flash_window_marks_the_glow_it_reveals() {
+    // 48A444 sets the mark before the WH.Particle system starts and 48A47E
+    // clears it after, so only what the window reveals carries it.
+    let rules = rules("GLOW");
+    let id = rules.p_type_id_by_name("GLOWP").unwrap();
+    let mut sim = Simulation::with_seed(7);
+    sim.set_particle_light_flash(true);
+    let _glow = Particle::new(
+        id,
+        IVec3::new(256, 256, 0),
+        IVec3::ZERO,
+        rules.particle_type(id),
+        &mut sim,
+        &rules,
+    );
+    assert_eq!(
+        sim.alpha_shapes()
+            .map(|(_, image, light_flash)| (image, light_flash))
+            .collect::<Vec<_>>(),
+        [("GLOW", true)]
+    );
+    sim.set_particle_light_flash(false);
+    let _after = Particle::new(
+        id,
+        IVec3::new(512, 256, 0),
+        IVec3::ZERO,
+        rules.particle_type(id),
+        &mut sim,
+        &rules,
+    );
+    assert_eq!(
+        sim.alpha_shapes()
+            .map(|(_, _, light_flash)| light_flash)
+            .collect::<Vec<_>>(),
+        [true, false],
+        "the mark is transient: it does not survive the window"
+    );
 }

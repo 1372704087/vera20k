@@ -286,13 +286,13 @@ mod tests {
     use crate::rules::ruleset::DetailRules;
     use crate::sim::world::Simulation;
 
-    #[test]
     /// Phobos `CombatLightDetailLevel.CheckColored=` (`Ext/Rules/Body.cpp:405`,
     /// warhead `Ext/WarheadType/Body.cpp:342`) at `DoFlash_CombatLightOptions`
     /// (`0x48A62E`, `Misc/Hooks.LightEffects.cpp:66-96`): with the key off (the
     /// default) a light whose colour channels are partly disabled still flashes
     /// when the detail check fails; with it on that bypass is refused. The
     /// warhead key overrides the `[AudioVisual]` global.
+    #[cfg(feature = "phobos")]
     #[test]
     fn combat_light_check_colored_gates_the_low_nibble_bypass() {
         let admission = |ini: &str, flags: u32| {

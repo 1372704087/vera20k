@@ -469,6 +469,7 @@ fn the_registry_seeds_decay_from_the_birth() {
 /// at `Body.h:720`) and the weapon's `Nullable<bool>`
 /// (`Ext/WeaponType/Body.cpp:132`, constructor unset `Body.h:157`),
 /// consumed at `Ext/EBolt/Hooks.cpp:196-200` (0x6FD4E4).
+#[cfg(feature = "phobos")]
 #[test]
 fn the_ebolt_building_clamp_reads_audio_visual_and_a_weapon_overrides_it() {
     use crate::rules::ini_parser::IniFile;

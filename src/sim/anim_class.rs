@@ -385,6 +385,27 @@ fn one_f64_bits() -> NativeF64Bits {
     NativeF64Bits::ONE
 }
 
+/// `Phobos AnimExt::FiringAnim_*` (`Ext/Anim/Body.h`): the muzzle anim a
+/// `[WeaponType] Anim=` list produced keeps following its firer, and every
+/// firing direction re-picks its own type (`Ext/Anim/Body.cpp:72-101`).
+#[cfg(feature = "phobos")]
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
+pub struct FiringAnimState {
+    /// `FiringAnim_Weapon`: the weapon whose `Anim=` list supplied the type.
+    pub weapon: InternedId,
+    /// `FiringAnim_WeaponIndex`: which barrel of the firer fired it.
+    pub weapon_index: u8,
+    /// `FiringAnim_BurstIndex`: the burst frame the muzzle came from; the
+    /// anchor restores it only while it asks `GetFLH`.
+    pub burst_index: u8,
+    /// `FiringAnim_LastFacing`: the owner facing the current type was picked
+    /// for; an unchanged facing does not re-pick.
+    pub last_facing: u16,
+    /// `FiringAnim_LastCoords`: the owner render coord the muzzle was last
+    /// anchored to; an unchanged coord and facing does not re-anchor.
+    pub last_coords: AnimWorldCoord,
+}
+
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 pub struct AnimObject {
     stable_id: AnimId,
@@ -425,6 +446,11 @@ pub struct AnimObject {
     /// and UnInit4255DA suppress effects, independently of drawing/Middle.
     #[serde(default)]
     no_effects: bool,
+    /// Present only on a muzzle anim `Anim.Update` keeps following its firer
+    /// (`Ext/Anim/Hooks.cpp:714-740`); every other anim leaves it None.
+    #[serde(default)]
+    #[cfg(feature = "phobos")]
+    firing_anim: Option<FiringAnimState>,
     /// Anim+188. Normal ctor421FA4/421FC8 seeds1; default ctor4227FD/
     ///42280F and Next424877/424885 seed0. Load425280 retains saved bytes.
     /// Binary64 keeps the reader's fractional precision and full accumulator
@@ -767,6 +793,25 @@ impl AnimObject {
         self.building_anim
     }
 
+    /// `Phobos AnimExt::UpdateAsFiringAnim` `pThis->Type = pNewType`
+    /// (`Ext/Anim/Body.cpp:88-92`): a changed firing direction swaps the anim's
+    /// own type on the spot. `AnimClass` keeps the frame counters, not the type,
+    /// so the running frame, step and delay carry over while only the
+    /// type-owned bounds (`Type->End`, `Type->LoopEnd`) are re-derived.
+    #[cfg(feature = "phobos")]
+    pub(crate) fn retype_for_firing_anim(
+        &mut self,
+        type_id: InternedId,
+        type_name: &str,
+        config: &crate::rules::art_data::AnimTypeRuntimeConfig,
+    ) -> Result<(), AnimSpawnError> {
+        let (end, loop_end) = effective_bounds(type_name, config)?;
+        self.type_id = type_id;
+        self.effective_end = end;
+        self.effective_loop_end = loop_end;
+        Ok(())
+    }
+
     /// Building45199B..4519A2 marks the slot animation and replaces its
     /// constructor YSortAdjust with the building slot's retained value.
     /// The Anim store touch invalidates the existing Ground key cache.
@@ -811,6 +856,8 @@ impl AnimObject {
             remap: None,
             effective_end: 1,
             effective_loop_end: 1,
+            #[cfg(feature = "phobos")]
+            firing_anim: None,
             runtime,
             draw_runtime: AnimDrawRuntime::default(),
             viewer_hidden: None,
@@ -2239,6 +2286,8 @@ impl Simulation {
             remap: None,
             effective_end,
             effective_loop_end,
+            #[cfg(feature = "phobos")]
+            firing_anim: None,
             runtime: AnimRuntime {
                 current_frame: if reverse {
                     effective_loop_end.wrapping_sub(1)

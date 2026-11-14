@@ -154,6 +154,8 @@ mod phobos_feedback_weapon_tests;
 #[cfg(all(test, feature = "phobos"))]
 mod phobos_no_turret_tests;
 #[cfg(all(test, feature = "phobos"))]
+mod phobos_omni_fire_tests;
+#[cfg(all(test, feature = "phobos"))]
 mod phobos_open_topped_fire_tests;
 #[cfg(all(test, feature = "phobos"))]
 mod phobos_open_transport_tests;

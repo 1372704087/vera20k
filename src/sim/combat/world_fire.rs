@@ -167,6 +167,80 @@ pub(super) fn resolve_attacker_fire(
     reach
 }
 
+/// One evaluated `UnitClass_UpdateFiring_OmniFireTurnToTarget @ 0x736E6E`
+/// (`Ext/Unit/Hooks.Jumpjet.cpp:51-95`): the desired hull heading, whether
+/// the REARM arm may apply, and whether the heading actually differs.
+#[cfg(feature = "phobos")]
+struct OmniTurn {
+    direction: u16,
+    rearm_allowed: bool,
+    should_turn: bool,
+}
+
+/// Evaluate the hook over the pre-shot state: a non-warping unit whose fired
+/// weapon sets `OmniFire=` and whose `OmniFire.TurnToTarget` resolves yes
+/// turns toward the target when it is not moving — except a turreted or
+/// `TurretSpins` type, a deployed-fire Unload, and a REARM when
+/// `NoTurret.TrackTarget` resolves no. The fire-error filter and the facing
+/// write stay at the call site. The hull's desired facing is the native
+/// `SetDesired`; the jumpjet `LocomotionFacing` arm has no VERA owner
+/// (recorded residual).
+#[cfg(feature = "phobos")]
+fn phobos_omni_fire_turn(
+    world: &Simulation,
+    rules: &RuleSet,
+    id: u64,
+    target: &TargetKind,
+    fog_enabled: bool,
+) -> Option<OmniTurn> {
+    let entity = world.substrate.entities.get(id)?;
+    if entity.is_warping_in() {
+        return None;
+    }
+    let object = world.interner.object_type(entity.type_ref(), rules)?;
+    // Native's `HasTurret` is written as `!Turret` (0x747759), so
+    // `Turret && !HasTurret` reduces to `Turret`: every turreted or spinning
+    // type skips the hull turn.
+    if object.has_turret || object.turret_spins {
+        return None;
+    }
+    let facts = combat_weapon::attacker_facts(entity, object);
+    let (index, selected) = combat_weapon::select_weapon_against(
+        rules,
+        entity,
+        object,
+        &facts,
+        Some(target),
+        world,
+        &world.interner,
+        world.resolved_terrain.as_ref(),
+        fog_enabled.then_some(&world.house_alliances),
+    )
+    .unwrap_or((0, None));
+    let selected = selected?;
+    if (object.deploy_fire || object.deploy_fire_weapon == index)
+        && entity.mission.effective().known() == Some(crate::sim::mission::MissionType::Unload)
+    {
+        return None;
+    }
+    if !selected.weapon.omni_fire || !selected.weapon.phobos_omni_fire_turn_to_target(rules) {
+        return None;
+    }
+    let frame = world.session.binary_frame();
+    let speed = crate::sim::movement::SpeedRules::new(rules, &world.interner, &world.houses);
+    if crate::sim::movement::motion_query::is_moving_now(entity, speed, frame) {
+        return None;
+    }
+    let direction = crate::sim::movement::turret::facing_toward_target(entity, target, world)?;
+    Some(OmniTurn {
+        direction,
+        rearm_allowed: object
+            .phobos_no_turret_track_target
+            .unwrap_or(rules.phobos_globals.no_turret_track_target),
+        should_turn: entity.body_facing_current(frame) != direction,
+    })
+}
+
 /// The firer's `CurrentBurstIndex` (`TechnoClass+0x3B8`), or `None` once it is
 /// gone from the store.
 fn weapon_burst_index(world: &Simulation, id: u64) -> Option<i32> {
@@ -3942,6 +4016,9 @@ pub(crate) fn visit_fire(
                     .map(|target| build_attacker_snapshot(actor, target, None));
                 let mut fire_error = None;
                 if let Some(snap) = snap {
+                    #[cfg(feature = "phobos")]
+                    let omni_turn =
+                        phobos_omni_fire_turn(world, rules, id, &snap.target, fog_enabled);
                     emit.unit_facing.push(UnitFacingUpdate {
                         entity_id: id,
                         turret_destination: None,
@@ -3975,6 +4052,19 @@ pub(crate) fn visit_fire(
                         );
                     }
                     fire_error = reach.code;
+                    #[cfg(feature = "phobos")]
+                    if let Some(turn) = omni_turn
+                        && let Some(code) = fire_error
+                        && matches!(
+                            code,
+                            fire_error::FireError::Ok | fire_error::FireError::Rearm
+                        )
+                        && (code != fire_error::FireError::Rearm || turn.rearm_allowed)
+                        && turn.should_turn
+                        && let Some(update) = emit.unit_facing.last_mut()
+                    {
+                        update.hull_destination = Some(turn.direction);
+                    }
                 }
                 unit_tail = Some((id, fire_error));
             }

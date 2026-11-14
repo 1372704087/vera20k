@@ -53,7 +53,7 @@ impl AreaFireTarget {
     }
 }
 
-/// The five `WeaponTypeExt` keys owned here.
+/// The `WeaponTypeExt` Phobos keys owned here.
 #[derive(Debug, Clone, PartialEq, Eq, Hash, serde::Serialize, serde::Deserialize)]
 pub struct PhobosWeaponExtras {
     /// `FeedbackWeapon=` (`Body.cpp:124`, read `<true>`): the weapon also
@@ -81,6 +81,11 @@ pub struct PhobosWeaponExtras {
     /// `Ext/Techno/Hooks.Misc.cpp:845-866`) then skips the class
     /// target-change latch reset and idle `Do_Action`.
     pub fire_once_reset_sequence: bool,
+    /// `OmniFire.TurnToTarget=` (`Ext/WeaponType/Body.cpp:136`,
+    /// `Nullable<bool>` unset at `Ext/WeaponType/Body.h:66,161`): overrides
+    /// `[General] OmniFire.TurnToTarget` for this weapon's omni-fire hull
+    /// turn (`Ext/Unit/Hooks.Jumpjet.cpp:79`, hook `0x736E6E`).
+    pub omni_fire_turn_to_target: Option<bool>,
     /// `AreaFire.Target=` (`Body.cpp:123`, `Valueable<AreaFireTarget>`
     /// default `Base`, `Ext/WeaponType/Body.h:55,150`): what an `AreaFire=`
     /// weapon aims at instead of the stock cell under the firer —
@@ -108,6 +113,7 @@ impl Default for PhobosWeaponExtras {
             attack_no_threat_buildings: None,
             turret_recoil_suppress: false,
             fire_once_reset_sequence: true,
+            omni_fire_turn_to_target: None,
             area_fire_target: AreaFireTarget::Base,
             charge_turret_delays: Vec::new(),
         }
@@ -125,6 +131,8 @@ impl PhobosWeaponExtras {
                 .read_phobos_nullable_bool("AttackNoThreatBuildings", None),
             turret_recoil_suppress: section.read_bool("TurretRecoil.Suppress", false),
             fire_once_reset_sequence: section.read_bool("FireOnce.ResetSequence", true),
+            omni_fire_turn_to_target: section
+                .read_phobos_nullable_bool("OmniFire.TurnToTarget", None),
             area_fire_target: section.read_string_with(
                 "AreaFire.Target",
                 2048,

@@ -703,6 +703,12 @@ pub struct PhobosGlobals {
     /// checking its facing and turn toward the target while cooling down.
     #[serde(default)]
     pub no_turret_track_target: bool,
+    /// `[General] OmniFire.TurnToTarget=`, default `no`
+    /// (`Ext/Rules/Body.cpp:267`, constructor `Body.h:709`): the fallback for
+    /// an unset WeaponType key; `yes` turns an omni-fire unit's hull toward
+    /// its target while the fire error is OK or REARM.
+    #[serde(default)]
+    pub omni_fire_turn_to_target: bool,
     /// `[General] BuildingStartFacing=`, default 0
     /// (`Ext/Rules/Body.cpp:626`, constructor `Body.h:1024`): the fallback for
     /// an unset BuildingType `StartFacing`, on a 256-point circle.
@@ -1398,6 +1404,7 @@ impl Default for PhobosGlobals {
             no_reload_under_emp: false,
             no_reload_temporal: false,
             no_turret_track_target: false,
+            omni_fire_turn_to_target: false,
             building_start_facing: 0,
             building_start_facing_random: false,
             passengers_sync_owner: false,
@@ -2080,6 +2087,8 @@ impl PhobosGlobals {
         // `Valueable<bool>` (`Ext/Rules/Body.cpp:393`): no unset state.
         globals.no_turret_track_target =
             general.read_bool("NoTurret.TrackTarget", globals.no_turret_track_target);
+        globals.omni_fire_turn_to_target =
+            general.read_bool("OmniFire.TurnToTarget", globals.omni_fire_turn_to_target);
         globals.recount_burst = general.read_bool("RecountBurst", globals.recount_burst);
         globals.ai_superweapon_delay =
             general.read_phobos_nullable_int("AISuperWeaponDelay", globals.ai_superweapon_delay);

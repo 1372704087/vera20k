@@ -549,6 +549,15 @@ impl WeaponType {
         self.phobos_extras.fire_once_reset_sequence
     }
 
+    /// Phobos `OmniFire.TurnToTarget=` resolved against `[General]`
+    /// (`Ext/Unit/Hooks.Jumpjet.cpp:79`, hook `0x736E6E`).
+    #[cfg(feature = "phobos")]
+    pub fn phobos_omni_fire_turn_to_target(&self, rules: &crate::rules::ruleset::RuleSet) -> bool {
+        self.phobos_extras
+            .omni_fire_turn_to_target
+            .unwrap_or(rules.phobos_globals.omni_fire_turn_to_target)
+    }
+
     /// Phobos `AreaFire.Target=` (`Ext/WeaponType/Body.cpp:123`).
     #[cfg(feature = "phobos")]
     pub fn phobos_area_fire_target(&self) -> crate::rules::phobos_weapon_extras::AreaFireTarget {

@@ -1679,6 +1679,21 @@ impl Projectile {
         &mut self.laser_trails
     }
 
+    #[cfg(feature = "phobos")]
+    pub(crate) fn phobos_laser_trails(&self) -> &[crate::sim::laser_trail::LaserTrailState] {
+        &self.laser_trails
+    }
+
+    /// Bombard's turning-point reset (`BombardTrajectory.cpp:233..236`,
+    /// `:558..561`): every trail's `LastLocation` becomes `middleLocation` so
+    /// the jump does not draw a long segment across the turn.
+    #[cfg(feature = "phobos")]
+    pub(crate) fn reset_phobos_laser_trail_locations(&mut self, location: [i32; 3]) {
+        for trail in &mut self.laser_trails {
+            trail.last_location = Some(location);
+        }
+    }
+
     /// `BulletExt::InitializeLaserTrails`: a second call is a no-op once the
     /// list exists (`Ext/Bullet/Body.cpp:123..124`).
     #[cfg(feature = "phobos")]

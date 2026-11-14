@@ -82,6 +82,11 @@ impl VoxelAnimObject {
         &mut self.laser_trails
     }
 
+    #[cfg(feature = "phobos")]
+    pub(crate) fn phobos_laser_trails(&self) -> &[crate::sim::laser_trail::LaserTrailState] {
+        &self.laser_trails
+    }
+
     #[cfg(any(test, feature = "test-support"))]
     pub fn set_duration_for_test(&mut self, value: i32) {
         self.duration = value;

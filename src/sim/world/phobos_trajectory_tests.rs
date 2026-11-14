@@ -5,6 +5,7 @@ use crate::sim::projectile::{
     ProjectileCollisionPolicy, ProjectileSpawn, ProjectileTrajectory, ProjectileVisualState,
     TargetExpiryPolicy,
 };
+use crate::sim::world::LifecycleOutput;
 
 const HEAD: &str = "[General]\n[Countries]\n0=Americans\n1=Russians\n\
     [InfantryTypes]\n[VehicleTypes]\n0=TGT\n1=BLOCK\n[AircraftTypes]\n\
@@ -31,6 +32,27 @@ fn fixture_burst(proj_keys: &str, burst: i32) -> Scene {
     let text = format!("{HEAD}{GUN}Burst={burst}\n[PROJ]\n{proj_keys}{TAIL}");
     let rules = RuleSet::from_ini(&crate::sim::arena_fixture::clear_ground_ini(&text))
         .expect("trajectory rules");
+    let mut sim = crate::sim::arena_fixture::rival_arena(&rules, 0x0046_66E0);
+    sim.intern_rule_type_ids(&rules);
+    sim.resolve_type_handles(&rules);
+    sim.session.set_binary_frame_for_test(0);
+    Scene { sim, rules }
+}
+
+/// A Straight trajectory whose BulletType also carries `LaserTrail.Types`
+/// in its ART section.
+fn fixture_with_trails() -> Scene {
+    let rules_text = format!("{HEAD}{GUN}[PROJ]\nTrajectory=Straight\nTrajectory.Speed=16\n");
+    let art = crate::rules::ini_parser::IniFile::from_str(
+        "[PROJ]\nLaserTrail.Types=TRAIL\n[LaserTrailTypes]\n0=TRAIL\n\
+         [TRAIL]\nSegmentLength=1\nFadeDuration=3\n",
+    );
+    let mut rules = RuleSet::from_ini_with_fixed_art_for_test(
+        &crate::sim::arena_fixture::clear_ground_ini(&rules_text),
+        &art,
+    )
+    .expect("trajectory trail rules");
+    rules.install_art_data(crate::rules::art_data::ArtRegistry::from_ini(&art));
     let mut sim = crate::sim::arena_fixture::rival_arena(&rules, 0x0046_66E0);
     sim.intern_rule_type_ids(&rules);
     sim.resolve_type_handles(&rules);
@@ -113,6 +135,49 @@ fn velocity_of(scene: &Scene, id: u64) -> ProjectileVelocity {
 
 fn f64_of(bits: NativeF64Bits) -> f64 {
     f64::from_bits(bits.bits())
+}
+
+/// `PhobosTrajectory.cpp:502..531`: a trajectory bullet advances its
+/// `LaserTrail.Types` list after `OnAI`, from the current Location to
+/// Location + Velocity.
+#[test]
+fn trajectory_bullets_advance_their_laser_trails() {
+    let mut scene = fixture_with_trails();
+    let origin = cell_center((22, 10));
+    let id = fire(
+        &mut scene,
+        ProjectileTarget::Cell { rx: 28, ry: 10 },
+        origin,
+        cell_center((28, 10)),
+    );
+    Simulation::construct_bullet_scheme(
+        &scene.sim.interner,
+        &scene.sim.substrate,
+        &scene.sim.houses,
+        &mut scene.sim.projectiles,
+        id,
+        &scene.rules,
+    );
+    let step = scene.sim.step_phobos_trajectory(id, &scene.rules, None);
+    assert!(step.detonations.is_empty());
+    scene.sim.update_trajectory_laser_trails(id, &scene.rules);
+    let births: Vec<_> = scene
+        .sim
+        .lifecycle_outputs
+        .as_slice()
+        .iter()
+        .filter_map(|output| match output {
+            LifecycleOutput::LaserCreated(birth) => Some(*birth),
+            _ => None,
+        })
+        .collect();
+    let position = scene.sim.projectiles.get(id).expect("bullet").position();
+    assert_eq!(births.len(), 1, "the first step seeds and draws");
+    assert_eq!(
+        (births[0].from.x, births[0].to.x),
+        (position.x, position.x + 16)
+    );
+    assert_eq!(births[0].duration, 3);
 }
 
 #[test]

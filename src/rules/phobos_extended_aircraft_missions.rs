@@ -103,17 +103,16 @@ pub struct ExtendedAircraftMissionFlags {
 
 #[cfg(test)]
 mod tests {
-    use super::*;
     use crate::rules::ini_parser::IniFile;
     use crate::rules::ruleset::RuleSet;
 
-    fn rules(text: &str) -> RuleSet {
+    fn test_rules(text: &str) -> RuleSet {
         RuleSet::from_ini(&IniFile::from_str(text)).expect("rules read")
     }
 
     #[test]
     fn type_master_overrides_the_global_and_the_keys_inherit_it() {
-        let rules = rules(
+        let rules = test_rules(
             "[General]\nExtendedAircraftMissions=no\n\
              [AircraftTypes]\n0=TEST\n[TEST]\n\
              ExtendedAircraftMissions=yes\n\
@@ -131,7 +130,7 @@ mod tests {
 
     #[test]
     fn unset_type_keys_take_the_global_switch_and_value() {
-        let rules = rules(
+        let rules = test_rules(
             "[General]\nExtendedAircraftMissions=yes\n\
              ExtendedAircraftMissions.UnlandDamage=-3\n\
              [AircraftTypes]\n0=TEST\n[TEST]\n",
@@ -143,7 +142,7 @@ mod tests {
 
     #[test]
     fn an_explicit_key_does_not_follow_the_master() {
-        let rules = rules(
+        let rules = test_rules(
             "[AircraftTypes]\n0=TEST\n[TEST]\n\
              ExtendedAircraftMissions=yes\n\
              ExtendedAircraftMissions.SmoothMoving=no\n\
@@ -159,7 +158,7 @@ mod tests {
     /// repeats the keys carries no value.
     #[test]
     fn only_aircraft_sections_carry_the_keys() {
-        let rules = rules(
+        let rules = test_rules(
             "[VehicleTypes]\n0=TANK\n[TANK]\n\
              ExtendedAircraftMissions=yes\nExtendedAircraftMissions.UnlandDamage=5\n",
         );

@@ -1369,6 +1369,11 @@ pub struct SimFireEvent {
     /// `fire_coord.y` minus the firer coordinate's Y; a building's muzzle
     /// animation derives its `ZAdjust` from it.
     pub fire_offset_y: i32,
+    /// `0x6FF42B`: the state a `[WeaponType] Anim=` muzzle anim carries when
+    /// `Anim.Update` keeps it following the firer. `None` for every other
+    /// flash, including `OccupantAnim=`.
+    #[cfg(feature = "phobos")]
+    pub firing_anim: Option<crate::sim::anim_class::FiringAnimState>,
     /// The muzzle `AnimClass` type this shot constructs, if any: the weapon's
     /// `Anim=` by aim facing, or `OccupantAnim=` for an occupied building.
     pub muzzle_anim: Option<InternedId>,
@@ -1385,6 +1390,8 @@ impl SimFireEvent {
     /// report, no muzzle animation and a zero fire coordinate.
     pub fn for_test(attacker_id: u64) -> Self {
         Self {
+            #[cfg(feature = "phobos")]
+            firing_anim: None,
             attacker_id,
             weapon_slot: crate::sim::combat::combat_weapon::WeaponSlot::Primary,
             weapon_id: crate::sim::intern::test_intern("TESTWEAPON"),
@@ -1858,6 +1865,11 @@ pub struct Simulation {
     /// register, not saved state, and it is only read while a particle
     /// reveal is inside that window.
     particle_light_flash: bool,
+    /// `ScenarioExt::Global()->FiringAnimUpdateCount`
+    /// (`Ext/Anim/Body.cpp:25`, `Hooks.cpp:731`): how many anims still owe a
+    /// per-frame `UpdateAsFiringAnim`. Transient, never saved.
+    #[cfg(feature = "phobos")]
+    pub(crate) firing_anim_update_count: u32,
     /// Per-cell terrain speed modifier config (slope climb/descend).
     /// Built from [General] rules at map load.
     #[serde(skip)]
@@ -4904,6 +4916,8 @@ impl Simulation {
             ion_blasts: Vec::new(),
             alpha_shapes: Default::default(),
             particle_light_flash: false,
+            #[cfg(feature = "phobos")]
+            firing_anim_update_count: 0,
             terrain_speed_config: terrain_speed::TerrainSpeedConfig::default(),
             input_delay_ticks: u64::from(crate::util::config::default_input_delay_ticks()),
             quit_requested: false,

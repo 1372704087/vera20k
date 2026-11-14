@@ -3630,6 +3630,8 @@ fn sonic_fire_event(
     )
     .coord;
     SimFireEvent {
+        #[cfg(feature = "phobos")]
+        firing_anim: None,
         attacker_id,
         weapon_slot: crate::sim::combat::combat_weapon::WeaponSlot::Primary,
         weapon_id: sim.interner.intern("SonicZap"),

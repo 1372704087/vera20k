@@ -798,6 +798,19 @@ impl AnimObject {
     /// own type on the spot. `AnimClass` keeps the frame counters, not the type,
     /// so the running frame, step and delay carry over while only the
     /// type-owned bounds (`Type->End`, `Type->LoopEnd`) are re-derived.
+    /// `TechnoClass_Fire_Anim @ 0x6FF42B` stores the weapon, barrel and
+    /// burst the muzzle came from; the per-frame pass then keeps the flash
+    /// on the firer (`0x423B95`, `Ext/Anim/Hooks.cpp:714-740`).
+    #[cfg(feature = "phobos")]
+    pub(crate) fn set_firing_anim(&mut self, state: FiringAnimState) {
+        self.firing_anim = Some(state);
+    }
+
+    #[cfg(feature = "phobos")]
+    pub(crate) fn firing_anim(&self) -> Option<FiringAnimState> {
+        self.firing_anim
+    }
+
     #[cfg(feature = "phobos")]
     pub(crate) fn retype_for_firing_anim(
         &mut self,
@@ -1959,6 +1972,21 @@ impl Simulation {
         }
         #[cfg(not(feature = "phobos"))]
         let _ = (rules, type_name);
+    }
+
+    /// `0x6FF42B` marks the anim the muzzle block just built and counts it
+    /// into `FiringAnimUpdateCount`; the anim also holds it for its own AI.
+    #[cfg(feature = "phobos")]
+    pub(crate) fn attach_firing_anim(&mut self, id: AnimId, state: FiringAnimState) {
+        if let Some(anim) = self.substrate.anims.get_mut(id) {
+            anim.set_firing_anim(state);
+            self.firing_anim_update_count = self.firing_anim_update_count.saturating_add(1);
+        }
+    }
+
+    #[cfg(feature = "phobos")]
+    pub const fn firing_anim_update_count(&self) -> u32 {
+        self.firing_anim_update_count
     }
 
     pub fn spawn_anim_at_world(

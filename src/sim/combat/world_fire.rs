@@ -2846,6 +2846,25 @@ pub(super) fn emit_admitted_fire(
             in_open_transport,
         )
         .map(|name| world.interner.intern(name)),
+        // `0x6FF42B` takes the weapon, barrel and burst of a flash that
+        // `Anim.Update` keeps on the firer, and only for a weapon `Anim=` list.
+        #[cfg(feature = "phobos")]
+        firing_anim: (!weapon.anim.is_empty() && weapon.phobos_anim_update(rules)).then(|| {
+            crate::sim::anim_class::FiringAnimState {
+                weapon: world.interner.intern(selected.weapon_id),
+                weapon_index: match selected.slot {
+                    crate::sim::combat::WeaponSlot::Primary => 0,
+                    crate::sim::combat::WeaponSlot::Secondary => 1,
+                },
+                burst_index: weapon_burst_index(world, snap.stable_id).unwrap_or(0) as u8,
+                last_facing: fire.aim_facing16,
+                last_coords: crate::sim::anim_class::AnimWorldCoord {
+                    x: launch_source.coord.x,
+                    y: launch_source.coord.y,
+                    z: launch_source.coord.z,
+                },
+            }
+        }),
         occupied_building: snap.garrison.is_some(),
         firer_category: snap.category,
     });

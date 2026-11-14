@@ -291,11 +291,22 @@ pub(crate) fn admit_muzzle_anim(world: &mut Simulation, rules: &RuleSet, event: 
             type_name, rx, ry, sub_x, sub_y, level,
         )
     };
-    if let Err(error) = world.spawn_anim_at_world(rules, descriptor, coord) {
-        log::debug!(
-            "muzzle anim [{}] did not construct: {error}",
-            world.interner.resolve(type_name)
-        );
+    match world.spawn_anim_at_world(rules, descriptor, coord) {
+        Ok(anim_id) => {
+            // `0x6FF42B` marks and counts the anim it just built.
+            #[cfg(feature = "phobos")]
+            if let Some(state) = event.firing_anim {
+                world.attach_firing_anim(anim_id, state);
+            }
+            #[cfg(not(feature = "phobos"))]
+            let _ = anim_id;
+        }
+        Err(error) => {
+            log::debug!(
+                "muzzle anim [{}] did not construct: {error}",
+                world.interner.resolve(type_name)
+            );
+        }
     }
 }
 

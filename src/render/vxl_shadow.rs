@@ -339,8 +339,18 @@ pub(crate) fn render_indices(
     considered_aircraft: bool,
 ) -> Option<VxlSprite> {
     let draw = draw_rotation(vxl, params)?;
-    let primary_matrix = section_matrix(vxl, hva, draw, primary_index, 0)?;
-    let center = center_of_matrix(vxl, primary_matrix, primary_index, considered_aircraft)?;
+    // Native anchors every listed section at `shadowCenter = *pt +
+    // ShadowPoint` (`Hooks.MatrixOp.cpp:726-727`). Malformed data can leave
+    // that point without a primary section; the first listed section's
+    // frame-0 center then stands in, instead of dropping the whole list.
+    let center = section_matrix(vxl, hva, draw, primary_index, 0)
+        .and_then(|matrix| center_of_matrix(vxl, matrix, primary_index, considered_aircraft))
+        .or_else(|| {
+            indices.iter().find_map(|&index| {
+                let matrix = section_matrix(vxl, hva, draw, index, 0)?;
+                center_of_matrix(vxl, matrix, index, considered_aircraft)
+            })
+        })?;
     let mut visibility = vec![0u8; 65536];
     let mut any = false;
     for (slot, &index) in indices.iter().enumerate() {
@@ -354,8 +364,15 @@ pub(crate) fn render_indices(
         else {
             continue;
         };
-        let limb = vxl.limbs.get(raster.limb)?;
-        for column in stencil_columns(limb)? {
+        // A section the raster cannot read is skipped like native's loop; it
+        // must not discard the sections already composed.
+        let Some(limb) = vxl.limbs.get(raster.limb) else {
+            continue;
+        };
+        let Some(columns) = stencil_columns(limb) else {
+            continue;
+        };
+        for column in columns {
             let address = usize::from(stencil_address(&raster, column));
             visibility[address] = 1;
             if address + 1 < visibility.len() {

@@ -88,6 +88,13 @@ fn shadow_indices_compose_around_the_primary_sections_center() {
             "unreachable section is skipped"
         );
         assert!(render_indices(&vxl, Some(&hva), &params, 0, &[4], &[], false).is_none());
+        // A malformed primary index must not discard a drawable listed
+        // section; the first listed section's frame-0 center stands in.
+        assert_eq!(
+            coverage(&render_indices(&vxl, Some(&hva), &params, 4, &[0], &[], false).unwrap()),
+            coverage(&single),
+            "a missing primary still draws the listed section (step {step})"
+        );
     }
 }
 

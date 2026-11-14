@@ -1373,3 +1373,76 @@ fn a_cloaking_shield_detaches_its_idle_anim_per_type_flag() {
         "DetachOnCloak=no keeps the anim attached"
     );
 }
+
+/// `AttachedAnimFlag::Temporal`/`PausedTemporal` (`ShieldClass.cpp:410..427`,
+/// `:562..573`) freeze the frame advance through Anim+11A `UnderTemporal`
+/// without killing the anim; `TemporalCheck` clears both flags.
+#[cfg(feature = "phobos")]
+#[test]
+fn a_temporal_paused_anim_freezes_and_resumes() {
+    let rules = idle_rules("IdleAnim=IDLE\nIdleAnim.TemporalAction=PausedTemporal", "");
+    let (mut sim, _) = scene(&rules);
+    sim.intern_rule_type_ids(&rules);
+    super::tick(&mut sim, 1, &rules);
+
+    let warped = crate::sim::temporal::TemporalState::warped_by_for_test(9);
+    sim.substrate
+        .entities
+        .get_mut(1)
+        .unwrap()
+        .set_temporal_for_test(warped);
+    super::tick(&mut sim, 1, &rules);
+    {
+        let anim = idle_anims(&sim, "IDLE")[0];
+        assert!(anim.runtime().paused, "PausedTemporal pauses");
+        assert!(
+            anim.runtime().temporal_paused,
+            "PausedTemporal sets UnderTemporal"
+        );
+    }
+
+    sim.substrate
+        .entities
+        .get_mut(1)
+        .unwrap()
+        .set_temporal_for_test(crate::sim::temporal::TemporalState::default());
+    super::tick(&mut sim, 1, &rules);
+    let anim = idle_anims(&sim, "IDLE")[0];
+    assert!(!anim.runtime().paused);
+    assert!(
+        !anim.runtime().temporal_paused,
+        "TemporalCheck clears UnderTemporal"
+    );
+}
+
+/// `ShieldTypeClass::GetIdleAnimType` compares the *shield's* ratio against
+/// the shield type's `ConditionYellow`/`ConditionRed`, while `isDamaged` uses
+/// the techno ratio (`ShieldClass.cpp:1111..1124`,
+/// `New/Type/ShieldTypeClass.h:132..147`).
+#[cfg(feature = "phobos")]
+#[test]
+fn the_shield_ratio_selects_the_idle_band() {
+    let rules = idle_rules(
+        "ConditionYellow=0.75\nIdleAnim=IDLE\nIdleAnim.ConditionYellow=IDLE2",
+        "",
+    );
+    let (mut sim, _) = scene(&rules);
+    sim.intern_rule_type_ids(&rules);
+    super::tick(&mut sim, 1, &rules);
+    assert_eq!(idle_anims(&sim, "IDLE").len(), 1, "100/100 is above 0.75");
+
+    // The techno stays at full health; only the shield ratio (60/100)
+    // crosses the shield type's ConditionYellow.
+    sim.substrate
+        .entities
+        .get_mut(1)
+        .unwrap()
+        .shield
+        .as_mut()
+        .unwrap()
+        .hp = 60;
+    super::tick(&mut sim, 1, &rules);
+    sim.flush_pending_delete();
+    assert_eq!(idle_anims(&sim, "IDLE").len(), 0);
+    assert_eq!(idle_anims(&sim, "IDLE2").len(), 1);
+}

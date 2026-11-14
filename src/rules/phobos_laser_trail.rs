@@ -245,7 +245,8 @@ mod tests {
     /// blank tokens skipped, an absent or empty key keeping the prior list.
     #[test]
     fn laser_trail_types_reads_the_index_list() {
-        let ini = IniFile::from_str("[X]\nLaserTrail.Types= A , ,B\t\n[Y]\nLaserTrail.Types=\n");
+        let ini =
+            IniFile::from_str("[X]\nLaserTrail.Types= A , ,B\t\n[Y]\nKEEP=1\nLaserTrail.Types=\n");
         let read = |section: &str, current: Vec<String>| {
             read_laser_trail_types(ini.section(section).unwrap(), current)
         };

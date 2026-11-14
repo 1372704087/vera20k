@@ -741,7 +741,7 @@ mod tests {
     #[cfg(feature = "phobos")]
     #[test]
     fn laser_trail_types_come_from_the_art_image_section() {
-        let rules = IniFile::from_str("[RULES]\nImage=ARTNAME\n[PLAIN]\n");
+        let rules = IniFile::from_str("[RULES]\nImage=ARTNAME\n[PLAIN]\nImage=PLAIN\n");
         let art =
             IniFile::from_str("[ARTNAME]\nLaserTrail.Types=A, B\n[PLAIN]\nLaserTrail.Types=C\n");
         let projectile = ProjectileType::from_ini_section(

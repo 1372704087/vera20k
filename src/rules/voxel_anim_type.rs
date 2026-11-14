@@ -281,7 +281,7 @@ mod tests {
     #[cfg(feature = "phobos")]
     #[test]
     fn laser_trail_types_read_from_the_rules_section() {
-        let ini = section("[PIECE]\nDuration=10\nLaserTrail.Types= A ,, B\n[EMPTY]\n");
+        let ini = section("[PIECE]\nDuration=10\nLaserTrail.Types= A ,, B\n[EMPTY]\nDuration=10\n");
         let piece = VoxelAnimType::from_ini_section("PIECE", ini.section("PIECE").unwrap());
         assert_eq!(piece.laser_trail_types, ["A", "B"]);
         let empty = VoxelAnimType::from_ini_section("EMPTY", ini.section("EMPTY").unwrap());

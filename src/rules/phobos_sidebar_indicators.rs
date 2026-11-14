@@ -149,9 +149,6 @@ impl WeedsCounterUi {
     }
 }
 
-/// Everything `uimd.ini` contributes to the indicator hook, with the two
-/// `[ToolTips]` labels already resolved to text.
-#[derive(Debug, Clone, PartialEq)]
 /// `uimd.ini [Sidebar] ProducingProgress.Show` (`Phobos.INI.cpp:189-190`,
 /// `SIDEBAR_SECTION`): the `0x6A6EB1 SidebarClass_DrawIt_ProducingProgress`
 /// hook's admission gate. `ReadBool(..., false)` makes the four
@@ -175,6 +172,9 @@ impl ProducingProgressUi {
     }
 }
 
+/// Everything `uimd.ini` contributes to the indicator hook, with the two
+/// `[ToolTips]` labels already resolved to text.
+#[derive(Debug, Clone, PartialEq)]
 pub struct SidebarIndicatorsUi {
     pub power_delta: PowerDeltaUi,
     pub harvester: HarvesterCounterUi,

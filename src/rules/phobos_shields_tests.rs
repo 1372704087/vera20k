@@ -318,8 +318,8 @@ fn shield_idle_anim_keys_read_damageable_and_actions() {
     assert_eq!(ty.idle_anim().get(0.4, 0.5, 0.25), Some("YELLOW"));
     assert_eq!(
         ty.idle_anim().get(0.2, 0.5, 0.25),
-        None,
-        "<none> is a present null band"
+        Some("YELLOW"),
+        "allowNone=false makes <none> a reset, not a present null band"
     );
     assert_eq!(ty.idle_anim_offline_action(), AttachedAnimFlag::Paused);
     assert_eq!(
@@ -334,6 +334,15 @@ fn shield_idle_anim_keys_read_damageable_and_actions() {
     let ty = catalog.entry("ROOT").expect("entry");
     assert_eq!(ty.idle_anim().get(0.4, 0.5, 0.25), Some("IDLE"));
     assert_eq!(ty.idle_anim_offline_action(), AttachedAnimFlag::Paused);
+
+    // A `none` base resolves to null; `<default>` retains the earlier read.
+    catalog.apply_pass(&IniFile::from_str("[ROOT]\nIdleAnim=none\n"));
+    let ty = catalog.entry("ROOT").expect("entry");
+    assert_eq!(ty.idle_anim().base(), None);
+    catalog.apply_pass(&IniFile::from_str("[ROOT]\nIdleAnim=IDLE\n"));
+    catalog.apply_pass(&IniFile::from_str("[ROOT]\nIdleAnim=<default>\n"));
+    let ty = catalog.entry("ROOT").expect("entry");
+    assert_eq!(ty.idle_anim().base(), Some("IDLE"));
 
     // Absent keys keep the constructor values.
     let mut defaults = ShieldTypeCatalog::default();

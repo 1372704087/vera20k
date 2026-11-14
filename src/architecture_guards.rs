@@ -1409,6 +1409,12 @@ fn composition_root_slots_are_owner_types() {
             "phobos_extra_threat_last_target_crd",
             "the ExtraThreat scorer's last-coordinate cache (`sim/combat/extra_threat.rs`)",
         ),
+        (
+            "Simulation",
+            "firing_anim_update_count",
+            "the transient `FiringAnimUpdateCount` register: `sim/anim_class.rs` counts each \
+             muzzle anim it marks, and the firing-anim pass consumes it",
+        ),
     ];
     let src_root = Path::new(env!("CARGO_MANIFEST_DIR")).join("src");
     let files = source_files(&src_root);
@@ -1804,6 +1810,18 @@ fn mutable_handouts_and_setters_are_owner_operations() {
         ),
         (
             "sim/projectile.rs",
+            "phobos_laser_trails_mut",
+            "the bullet's LaserTrailClass list is plain native state; the shared \
+             LaserTrailClass::Update port advances it in place on each bullet AI visit",
+        ),
+        (
+            "sim/voxel_anim.rs",
+            "phobos_laser_trails_mut",
+            "the debris piece's LaserTrailClass list is plain native state; the 0x74A70E flight \
+             visit advances it in place, as the native Ext vector does",
+        ),
+        (
+            "sim/projectile.rs",
             "payload_mut",
             "the bullet packet is filled once by FireAt and spent in place by the Ares \
              BulletClass_Update_Ranged distance step",
@@ -1847,6 +1865,12 @@ fn mutable_handouts_and_setters_are_owner_operations() {
     // parameter. Each stores one native member; the decision to store it
     // lives in the cited native caller, which the Rust caller ports.
     const PINNED_SETTERS: &[(&str, &str, &str)] = &[
+        (
+            "sim/anim_class.rs",
+            "set_under_temporal",
+            "the Anim+11A `UnderTemporal` store the Phobos shield and attach-effect actions \
+             write and TemporalCheck clears",
+        ),
         (
             "net/global.rs",
             "set_timing",

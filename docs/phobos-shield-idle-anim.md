@@ -49,14 +49,25 @@ translucent draw.
 ## Implementation
 
 - `rules::phobos_shields::ShieldIdleAnimSet` owns the Damageable reads and
-  selection; `ShieldType` gains both sets and the two action flags.
+  selection; `ShieldType` gains both sets and the two action flags. The base
+  reads as `Valueable<AnimTypeClass*>` (`none` clears, `<default>` retains);
+  the two bands read as `Nullable<AnimTypeClass*>::Read<false, false>`, where
+  `none`/`<none>`/`<default>` reset the band rather than installing a present
+  null.
 - `sim::shield` owns the live anim id in `ShieldState::idle_anim` and
   creates/kills it through the existing anim owner (`spawn_anim_at_world`
   with constructor defaults, `hold_loops`, `destroy_anim_with_context`).
+  `CloakCheck` runs both before `AI_Temporal`'s action switch and before the
+  AI create/retype tail, through `anim_type_detach_on_cloak` — the same query
+  the cloaking object's `detach_attached_anims_for_cloak` uses.
 - The AI visit re-evaluates the selection every tick instead of latching on
   `HasHealthRatioThresholdChanged`. The selection is a pure function of the
   techno and shield ratios, so the chosen animation can only change on the
   same HP transitions native reacts to; the latching only avoids repeat work.
+- The heal/respawn tail's staged animations commit before the idle create, in
+  the AI's own order. A break queued by `SelfHealing` therefore constructs
+  before the idle kill rather than after it; both objects are distinct, no
+  RNG separates them, and both states are settled before the frame draws.
 
 ## Residuals
 
@@ -65,6 +76,10 @@ translucent draw.
 - A retype caused by shield damage happens on the next shield AI visit rather
   than synchronously inside `ReceiveDamage`; the object's AI runs every frame,
   so the visible state converges within a tick.
+- An idle-anim name no anim type answers is retained by the reader and
+  treated as null at the use site. Native's read-time lookup instead keeps
+  the value a previous layer set; the two differ only for a misspelt band in
+  a later INI layer.
 - `ConvertCheck`'s idle-anim transfer on DeploysInto/UndeploysInto and type
   conversion is not ported (separate conversion chain).
 - The warhead replace path constructs a fresh shield whose idle anim is null;

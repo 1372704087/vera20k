@@ -3805,10 +3805,7 @@ impl Simulation {
                 let name = self.interner.resolve(anim.type_id());
                 #[cfg(feature = "phobos")]
                 {
-                    rules
-                        .art()
-                        .anim_runtime_config(name)
-                        .is_none_or(|config| config.phobos_detach_on_cloak)
+                    anim_type_detach_on_cloak(rules, name)
                 }
                 #[cfg(not(feature = "phobos"))]
                 {
@@ -5524,6 +5521,17 @@ impl crate::sim::world::ObjectSubstrate {
     pub(crate) fn set_anim_attached_bullet(&mut self, id: AnimId, bullet: Option<u64>) -> bool {
         self.anims.set_attached_bullet(id, bullet)
     }
+}
+
+/// Phobos `AnimTypeExt::DetachOnCloak` (`Ext/AnimType/Body.cpp:112`,
+/// `Valueable<bool>` constructor `true`): one query for every consumer. A type
+/// with no art entry keeps the constructor default.
+#[cfg(feature = "phobos")]
+pub(crate) fn anim_type_detach_on_cloak(rules: &RuleSet, type_name: &str) -> bool {
+    rules
+        .art()
+        .anim_runtime_config(type_name)
+        .is_none_or(|config| config.phobos_detach_on_cloak)
 }
 
 fn effective_bounds(

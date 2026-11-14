@@ -31,7 +31,7 @@ use crate::sim::projectile::ProjectileCoord;
 use crate::sim::rng::MainRng;
 use crate::sim::scenario_session::ScenarioSession;
 use crate::sim::world::{FrameChannel, LifecycleOutput, Simulation};
-use crate::util::native_x87::NativeF64Bits;
+use crate::util::native_x87::{NativeF32Bits, NativeF64Bits};
 
 /// One `LaserTrailClass`: its type name and `LastLocation`.
 ///
@@ -132,7 +132,7 @@ pub(crate) fn update(
                 0,
                 trail.fade_duration(),
                 color,
-                NativeF64Bits::POSITIVE_ZERO,
+                NativeF32Bits::POSITIVE_ZERO,
             );
             birth.width = trail.thickness;
             birth.supported = trail.is_intense;
@@ -336,7 +336,8 @@ mod tests {
         };
         trail.segment_length = 64;
         let owner = InternedId::from_index(0);
-        let mut draw = |last: &mut Option<[i32; 3]>,
+        let mut draw = |sim: &mut Simulation,
+                        last: &mut Option<[i32; 3]>,
                         trail: &LaserTrailType,
                         location,
                         visible,
@@ -356,6 +357,7 @@ mod tests {
             )
         };
         assert!(!draw(
+            &mut sim,
             &mut last,
             &trail,
             [0, 0, 0],
@@ -365,6 +367,7 @@ mod tests {
         ));
         assert_eq!(last, Some([0, 0, 0]), "the first update only seeds");
         assert!(!draw(
+            &mut sim,
             &mut last,
             &trail,
             [32, 0, 0],
@@ -373,6 +376,7 @@ mod tests {
             Some(owner)
         ));
         assert!(draw(
+            &mut sim,
             &mut last,
             &trail,
             [65, 0, 0],
@@ -389,6 +393,7 @@ mod tests {
 
         // A cloaked trail still advances LastLocation but draws nothing.
         assert!(draw(
+            &mut sim,
             &mut last,
             &trail,
             [131, 0, 0],
@@ -397,6 +402,7 @@ mod tests {
             Some(owner)
         ));
         assert!(!draw(
+            &mut sim,
             &mut last,
             &trail,
             [197, 0, 0],
@@ -406,6 +412,7 @@ mod tests {
         ));
         assert_eq!(last, Some([197, 0, 0]));
         assert!(!draw(
+            &mut sim,
             &mut last,
             &trail,
             [263, 0, 0],
@@ -422,7 +429,7 @@ mod tests {
     fn projectile_trails_use_the_predicted_drawn_coordinate() {
         let rules = rules(
             "[VehicleTypes]\n0=TANK\n[TANK]\nStrength=100\nSpeed=5\nPrimary=GUN\n\
-             [Weapons]\n0=GUN\n[GUN]\nProjectile=SHOT\n[SHOT]\n",
+             [Weapons]\n0=GUN\n[GUN]\nProjectile=SHOT\n[SHOT]\nImage=SHOT\n",
             "[LaserTrailTypes]\n0=TRAIL\n[TRAIL]\nSegmentLength=1\nFadeDuration=3\n\
              [SHOT]\nLaserTrail.Types=TRAIL\n",
         );

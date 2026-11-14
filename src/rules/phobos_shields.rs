@@ -137,29 +137,29 @@ fn attached_anim_hides() -> AttachedAnimFlag {
 /// The base flag's trailing dot is stripped (`Utilities/TemplateDef.h:2227-2245`).
 #[derive(Debug, Clone, Default, PartialEq, Eq, Hash, serde::Serialize, serde::Deserialize)]
 pub struct ShieldIdleAnimSet {
-    /// `<Key>`: the base animation, null when unset.
+    /// `<Key>`: the base animation as the `Valueable<AnimTypeClass*>` read
+    /// retained it; `none` spellings clear it, `<default>` retains.
     #[serde(default)]
     base: Option<String>,
-    /// `<Key>.ConditionYellow=`: `Nullable<AnimTypeClass*>`, `Some(None)` is a
-    /// present `none` (no animation), `None` keeps the unset state.
+    /// `<Key>.ConditionYellow=`: `Nullable<AnimTypeClass*>::Read<false>`
+    /// (`Utilities/TemplateDef.h:1834..1849`), whose `allowNone=false` makes
+    /// `none`/`<none>` a reset rather than a present null.
     #[serde(default)]
-    condition_yellow: Option<Option<String>>,
+    condition_yellow: Option<String>,
     /// `<Key>.ConditionRed=`.
     #[serde(default)]
-    condition_red: Option<Option<String>>,
+    condition_red: Option<String>,
 }
 
 impl ShieldIdleAnimSet {
     pub(crate) fn apply(&mut self, section: &crate::rules::ini_parser::IniSection, key: &str) {
-        if let Some(name) = section.read_type_name(key, 2048) {
-            self.base = Some(name.to_owned());
-        }
-        self.condition_yellow = read_anim_ref(
+        self.base = read_anim_value(section, key, self.base.take());
+        self.condition_yellow = read_anim_band(
             section,
             &format!("{key}.ConditionYellow"),
             self.condition_yellow.take(),
         );
-        self.condition_red = read_anim_ref(
+        self.condition_red = read_anim_band(
             section,
             &format!("{key}.ConditionRed"),
             self.condition_red.take(),
@@ -176,20 +176,13 @@ impl ShieldIdleAnimSet {
         self.base.is_some() || self.is_damaged_value_set()
     }
 
-    /// `Damageable::Get(ratio, conditionYellow, conditionRed)`; a selected
-    /// null value answers no animation.
+    /// `Damageable::Get(ratio, conditionYellow, conditionRed)`.
     pub(crate) fn get(&self, ratio: f64, yellow: f64, red: f64) -> Option<&str> {
         if self.condition_red.is_some() && ratio <= red {
-            return self
-                .condition_red
-                .as_ref()
-                .and_then(|value| value.as_deref());
+            return self.condition_red.as_deref();
         }
         if self.condition_yellow.is_some() && ratio <= yellow {
-            return self
-                .condition_yellow
-                .as_ref()
-                .and_then(|value| value.as_deref());
+            return self.condition_yellow.as_deref();
         }
         self.base.as_deref()
     }
@@ -200,22 +193,50 @@ impl ShieldIdleAnimSet {
     }
 }
 
-/// `Nullable<AnimTypeClass*>::Read<true>`: `<default>` clears, `none`/`<none>`
-/// answer a present null, any other name is the value. The default build has
-/// no shield idle animations, so it leaves the value unset.
-fn read_anim_ref(
+/// `Valueable<AnimTypeClass*>::Read` (`Utilities/TemplateDef.h:1793..1797` ->
+/// `:53..78`): a blank (`none`/`<none>`) value assigns null, an unknown name
+/// or `<default>` fails the parse and retains the current value. The default
+/// build has no shield idle animations, so it leaves the value unset.
+fn read_anim_value(
     section: &crate::rules::ini_parser::IniSection,
     key: &str,
-    current: Option<Option<String>>,
-) -> Option<Option<String>> {
+    current: Option<String>,
+) -> Option<String> {
     #[cfg(feature = "phobos")]
     {
-        section.read_phobos_nullable_allow_none_with(key, current, |raw| {
-            Some(if is_none_name(raw) {
+        section.read_string_with(key, 2048, current, |current, raw| {
+            if raw.eq_ignore_ascii_case("<default>") {
+                current
+            } else if is_none_name(raw) {
                 None
             } else {
                 Some(raw.to_owned())
-            })
+            }
+        })
+    }
+    #[cfg(not(feature = "phobos"))]
+    {
+        let _ = (section, key);
+        current
+    }
+}
+
+/// `Nullable<AnimTypeClass*>::Read<false, false>` (`Utilities/TemplateDef.h`
+/// `:1834..1849`): `<default>` and the blank `none` spellings reset the band;
+/// any other name becomes the value.
+fn read_anim_band(
+    section: &crate::rules::ini_parser::IniSection,
+    key: &str,
+    current: Option<String>,
+) -> Option<String> {
+    #[cfg(feature = "phobos")]
+    {
+        section.read_string_with(key, 2048, current, |_, raw| {
+            if raw.eq_ignore_ascii_case("<default>") || is_none_name(raw) {
+                None
+            } else {
+                Some(raw.to_owned())
+            }
         })
     }
     #[cfg(not(feature = "phobos"))]

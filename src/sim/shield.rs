@@ -1239,6 +1239,9 @@ pub(crate) fn tick(sim: &mut Simulation, id: u64, rules: &RuleSet) {
     if state.temporal {
         #[cfg(feature = "phobos")]
         if !was_temporal {
+            // `AI_Temporal` runs `CloakCheck` before the action switch
+            // (`ShieldClass.cpp:409..427`).
+            cloak_check_idle_anim(sim, rules, id, &mut state);
             apply_idle_anim_action(sim, rules, &mut state, ty.idle_anim_temporal_action());
         }
         if state.hp <= 0 {
@@ -1328,6 +1331,10 @@ pub(crate) fn tick(sim: &mut Simulation, id: u64, rules: &RuleSet) {
         }
     }
 
+    // `SelfHealing`/`RespawnShield` construct their animations inside the
+    // AI, before the create tail (`ShieldClass.cpp:481`), so the staged
+    // receipt commits first.
+    emissions.spawn_anims(sim, rules);
     #[cfg(feature = "phobos")]
     update_idle_anim(sim, rules, id, ty, &mut state);
     if let Some(entity) = sim.substrate.entities.get_mut(id) {
@@ -1336,7 +1343,6 @@ pub(crate) fn tick(sim: &mut Simulation, id: u64, rules: &RuleSet) {
     // `AnimExt::CreateRandomAnim`'s owner house is the shield object's own,
     // `WeaponTypeExt::DetonateAt(weapon, pThis, pThis)` the break/respawn
     // weapon; a plain AI visit commits through a fresh receiver run.
-    emissions.spawn_anims(sim, rules);
     emissions.commit_shots(sim, rules);
 }
 
@@ -1490,14 +1496,33 @@ fn apply_idle_anim_action(
     }
 }
 
-/// Phobos `AnimTypeExt::DetachOnCloak` (`Ext/AnimType/Body.cpp:112`,
-/// constructor default `true`): a type with no art entry keeps the default.
+/// `ShieldClass::CloakCheck` (`ShieldClass.cpp:493..500`): a cloaking owner
+/// destroys an idle anim whose type asks to detach (`DetachOnCloak`, default
+/// true). `AI_Temporal` runs it before applying the temporal action, and the
+/// ordinary AI visit runs it before the create/retype tail.
 #[cfg(feature = "phobos")]
-fn anim_detach_on_cloak(rules: &RuleSet, type_name: &str) -> bool {
-    rules
-        .art()
-        .anim_runtime_config(type_name)
-        .is_none_or(|config| config.phobos_detach_on_cloak)
+fn cloak_check_idle_anim(sim: &mut Simulation, rules: &RuleSet, id: u64, state: &mut ShieldState) {
+    let Some(anim) = state.idle_anim else {
+        return;
+    };
+    let cloaked = sim
+        .substrate
+        .entities
+        .get(id)
+        .and_then(|entity| entity.cloak.as_ref())
+        .is_some_and(|cloak| matches!(cloak.state(), 1 | 2));
+    if !cloaked {
+        return;
+    }
+    let detach = sim.substrate.anims.get(anim).is_some_and(|live| {
+        crate::sim::anim_class::anim_type_detach_on_cloak(
+            rules,
+            sim.interner.resolve(live.type_id()),
+        )
+    });
+    if detach {
+        kill_idle_anim(sim, rules, state);
+    }
 }
 
 /// `ShieldClass::GetIdleAnimType` (`ShieldClass.cpp:1109..1125`) and
@@ -1512,22 +1537,23 @@ fn idle_anim_selection<'r>(
     techno_ratio: f64,
     shield_ratio: f64,
 ) -> Option<&'r str> {
+    let known = |name: Option<&'r str>| name.filter(|name| rules.has_anim_type(name));
     let idle_set = ty.idle_anim().is_damaged_value_set();
     let damaged_set = ty.idle_anim_damaged().isset();
     let is_damaged = damaged_set && techno_ratio <= rules.general.condition_yellow;
     if !idle_set && !ty.idle_anim_damaged().is_damaged_value_set() {
-        return if is_damaged {
+        return known(if is_damaged {
             ty.idle_anim_damaged().base()
         } else {
             ty.idle_anim().base()
-        };
+        });
     }
     let yellow = ty.condition_yellow(rules.shield_globals().condition_yellow());
     let red = ty.condition_red(rules.shield_globals().condition_red());
-    if is_damaged && let Some(name) = ty.idle_anim_damaged().get(shield_ratio, yellow, red) {
+    if is_damaged && let Some(name) = known(ty.idle_anim_damaged().get(shield_ratio, yellow, red)) {
         return Some(name);
     }
-    ty.idle_anim().get(shield_ratio, yellow, red)
+    known(ty.idle_anim().get(shield_ratio, yellow, red))
 }
 
 /// `TechnoClass::GetHealthPercentage()`: `Health` over the type's `Strength`
@@ -1623,15 +1649,8 @@ fn update_idle_anim(
         z: location.z,
     };
 
-    // `CloakCheck`: a cloaking object destroys an idle anim whose type asks
-    // to detach (`DetachOnCloak`, default true).
-    if cloaked
-        && let Some(anim) = state.idle_anim
-        && let Some(live) = sim.substrate.anims.get(anim)
-        && anim_detach_on_cloak(rules, sim.interner.resolve(live.type_id()))
-    {
-        kill_idle_anim(sim, rules, state);
-    }
+    // `CloakCheck` before the create/retype tail.
+    cloak_check_idle_anim(sim, rules, id, state);
 
     // `UpdateIdleAnim` only runs for a type with damaged value sets; the
     // plain `CreateAnim` tail applies the selection either way.
@@ -1659,7 +1678,7 @@ fn update_idle_anim(
         let Some(name) = desired else {
             return;
         };
-        if cloaked && anim_detach_on_cloak(rules, &name) {
+        if cloaked && crate::sim::anim_class::anim_type_detach_on_cloak(rules, &name) {
             return;
         }
         state.idle_anim = create_idle_anim(sim, rules, id, &name, location, owner_house);
@@ -1925,6 +1944,14 @@ pub(crate) fn apply_shield_modifiers(
                 .get(target_id)
                 .map(|target| target.owner())
                 .expect("the state came from this entity");
+            // `BreakShield` clears the points, timers and idle animation
+            // (`ShieldClass.cpp:836..849`) before creating the break
+            // animation (`:851`).
+            if let Some(current) = state.as_mut() {
+                break_shield_state(current, ty, frame);
+                #[cfg(feature = "phobos")]
+                kill_idle_anim(sim, rules, current);
+            }
             sim.spawn_random_owned_anim(
                 rules,
                 &break_anim_names(rules, shield, ty),
@@ -1951,12 +1978,6 @@ pub(crate) fn apply_shield_modifiers(
                     target_id,
                     impact,
                 });
-            }
-            if let Some(current) = state.as_mut() {
-                break_shield_state(current, ty, frame);
-                // `BreakShield`'s `KillAnim` (`ShieldClass.cpp:849`).
-                #[cfg(feature = "phobos")]
-                kill_idle_anim(sim, rules, current);
             }
         }
 

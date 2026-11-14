@@ -148,17 +148,19 @@ impl Simulation {
         obj: Option<&ObjectType>,
         rules: &RuleSet,
     ) {
-        // `ScenarioClass::Instance->Random.RandomRanged(0, 15)` (`:292`).
-        let factor = self.scenario_rng.next_range_i32_inclusive(0, 15);
-        ge.set_phobos_random_factor(factor);
         let globals = &rules.phobos_globals;
         let distribute = obj
             .and_then(|obj| obj.phobos_distribute_targeting_frame)
             .unwrap_or(globals.distribute_targeting_frame);
         let owner_human = self.owner_is_human(ge.owner());
         if !(owner_human && globals.distribute_targeting_frame_ai_only) && distribute {
-            // `TargetingTimer.Start(45 + RandomFactor)` (`:326`): the same
-            // frame the constructor armed, duration 45 + factor.
+            // `ScenarioClass::Instance->Random.RandomRanged(0, 15)` (`:292`)
+            // and `TargetingTimer.Start(45 + RandomFactor)` (`:326`). Native
+            // draws the factor on every init, but only this armed branch reads
+            // it; VERA draws only when the (default-off) feature is active so
+            // stock oracles keep their stream. Recorded deviation.
+            let factor = self.scenario_rng.next_range_i32_inclusive(0, 15);
+            ge.set_phobos_random_factor(factor);
             ge.passive_scan
                 .arm_timer(self.session.binary_frame(), (45 + factor) as u32);
         }

@@ -3509,6 +3509,7 @@ fn ares_turret_rot_sets_the_secondary_rate() {
 /// holds; the TechnoType `Nullable<bool>` overrides the `[General]` fallback
 /// (`Ext/TechnoType/Body.cpp:1080`).
 #[test]
+#[cfg(feature = "phobos")]
 fn distribute_targeting_frame_arms_the_construction_timer() {
     fn fixture(general: &str) -> RuleSet {
         RuleSet::from_ini(&IniFile::from_str(&format!(

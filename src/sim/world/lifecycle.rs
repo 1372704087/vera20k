@@ -7455,6 +7455,6 @@ mod foot_archive_expiry_tests;
 #[path = "ares_prerequisite_lifecycle_tests.rs"]
 mod ares_prerequisite_lifecycle_tests;
 
-#[cfg(test)]
+#[cfg(all(test, feature = "phobos"))]
 #[path = "building_ai_repairable_tests.rs"]
 mod building_ai_repairable_tests;

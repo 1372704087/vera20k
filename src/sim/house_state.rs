@@ -1408,7 +1408,7 @@ impl HouseState {
     }
 
     /// Install a fixture's slots.
-    #[cfg(any(test, feature = "test-support"))]
+    #[cfg(all(feature = "phobos", any(test, feature = "test-support")))]
     pub(crate) fn set_repair_base_nodes_for_test(&mut self, slots: [Option<bool>; 3]) {
         self.repair_base_nodes = slots;
     }

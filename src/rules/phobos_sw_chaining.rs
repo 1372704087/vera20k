@@ -98,13 +98,13 @@ impl PhobosSuperWeaponChaining {
                 defaults.next_ignore_designators,
             ),
             next_roll_chances: read_roll_chances(section, "SW.Next.RollChances"),
-            next_random_weights: read_random_weights(section, "SW.Next"),
+            next_random_weights: read_random_weights(section, "SW.Next", "SW.Next.RandomWeights"),
             link: read_idx_vector(section, "SW.Link", &resolve),
             link_grant: section.read_bool("SW.Link.Grant", defaults.link_grant),
             link_ready: section.read_bool("SW.Link.Ready", defaults.link_ready),
             link_reset: section.read_bool("SW.Link.Reset", defaults.link_reset),
             link_roll_chances: read_roll_chances(section, "SW.Link.RollChances"),
-            link_random_weights: read_random_weights(section, "SW.Link"),
+            link_random_weights: read_random_weights(section, "SW.Link", "SW.Link.RandomWeights"),
         }
     }
 
@@ -199,7 +199,7 @@ fn read_roll_chances(section: &IniSection, key: &str) -> Vec<NativeF32Bits> {
 /// The numbered weight lists, then the unnumbered alias replacing or creating
 /// slot 0 (`Body.cpp:198-222`, `:255-265`): the numbered loop stops at the
 /// first empty list.
-fn read_random_weights(section: &IniSection, prefix: &str) -> Vec<Vec<i32>> {
+fn read_random_weights(section: &IniSection, prefix: &str, alias: &str) -> Vec<Vec<i32>> {
     let mut lists = Vec::new();
     for index in 0.. {
         let key = format!("{prefix}.RandomWeights{index}");
@@ -211,8 +211,7 @@ fn read_random_weights(section: &IniSection, prefix: &str) -> Vec<Vec<i32>> {
         }
         lists.push(weights);
     }
-    let alias = format!("{prefix}.RandomWeights");
-    if let Some(weights) = section.read_int_list(&alias)
+    if let Some(weights) = section.read_int_list(alias)
         && !weights.is_empty()
     {
         if lists.is_empty() {

@@ -396,6 +396,10 @@ impl Simulation {
         if self.bullet_interceptor_pretick(id, rules, ctx) {
             return outcome;
         }
+        // Phobos `BulletClass_AI`'s trail block (`Ext/Bullet/Hooks.cpp:99..126`),
+        // inside the same 0x4666F7 hook and before the stock movement.
+        #[cfg(feature = "phobos")]
+        self.update_projectile_laser_trails(id, rules);
         // Ares hook 46670F (1001AC10), at the wait test (0x0046670F).
         #[cfg(feature = "ares")]
         if let Some(bullet) = self.projectiles.get(id)

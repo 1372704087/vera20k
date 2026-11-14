@@ -5803,11 +5803,11 @@ impl Simulation {
         #[cfg(not(feature = "phobos"))]
         let _ = houses;
         let source_id = projectile.source_id();
-        let firers_palette = projectile
+        let kind = projectile
             .payload()
             .projectile_type()
-            .and_then(|id| rules.projectile(interner.resolve(id)))
-            .is_some_and(|kind| kind.firers_palette);
+            .and_then(|id| rules.projectile(interner.resolve(id)));
+        let firers_palette = kind.is_some_and(|kind| kind.firers_palette);
         let house = firers_palette
             .then(|| substrate.entities.get(source_id))
             .flatten()
@@ -5815,11 +5815,7 @@ impl Simulation {
         // `BulletExt::InitializeState`: `CurrentStrength = pType->Strength`
         // (`Ext/Bullet/Hooks.cpp:30`).
         #[cfg(feature = "phobos")]
-        let strength = projectile
-            .payload()
-            .projectile_type()
-            .and_then(|id| rules.projectile(interner.resolve(id)))
-            .map_or(0, |kind| kind.strength);
+        let strength = kind.map_or(0, |kind| kind.strength);
         projectiles.set_firer_house(bullet, house);
         #[cfg(feature = "phobos")]
         {
@@ -5838,6 +5834,14 @@ impl Simulation {
                 )
             {
                 projectiles.set_phobos_firepower_multiplier_if_default(bullet, multiplier);
+            }
+            // `if (!pType->Inviso) this->InitializeLaserTrails();`
+            // (`Ext/Bullet/Hooks.cpp:42..43`).
+            if let Some(kind) = kind
+                && !kind.inviso
+                && let Some(projectile) = projectiles.get_mut(bullet)
+            {
+                projectile.initialize_phobos_laser_trails(&kind.laser_trail_types);
             }
         }
     }

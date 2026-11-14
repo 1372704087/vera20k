@@ -1341,6 +1341,12 @@ pub struct Projectile {
     #[cfg(feature = "phobos")]
     #[serde(default)]
     interceptor_target: Option<u64>,
+    /// Phobos `BulletExt::LaserTrails`, built by `InitializeLaserTrails`
+    /// (`Ext/Bullet/Body.cpp:121..133`) from the BulletType's
+    /// `LaserTrail.Types` unless the type is `Inviso`.
+    #[cfg(feature = "phobos")]
+    #[serde(default)]
+    laser_trails: Vec<crate::sim::laser_trail::LaserTrailState>,
 }
 
 impl Projectile {
@@ -1663,6 +1669,23 @@ impl Projectile {
     #[cfg(feature = "phobos")]
     pub fn interceptor_target(&self) -> Option<u64> {
         self.interceptor_target
+    }
+
+    /// Phobos `BulletExt::LaserTrails`.
+    #[cfg(feature = "phobos")]
+    pub(crate) fn phobos_laser_trails_mut(
+        &mut self,
+    ) -> &mut Vec<crate::sim::laser_trail::LaserTrailState> {
+        &mut self.laser_trails
+    }
+
+    /// `BulletExt::InitializeLaserTrails`: a second call is a no-op once the
+    /// list exists (`Ext/Bullet/Body.cpp:123..124`).
+    #[cfg(feature = "phobos")]
+    pub(crate) fn initialize_phobos_laser_trails(&mut self, names: &[String]) {
+        if self.laser_trails.is_empty() {
+            self.laser_trails = crate::sim::laser_trail::LaserTrailState::from_names(names);
+        }
     }
 
     /// `BulletClass::AI`'s `NUKE` block (`0x00467E53..0x00467F99`) for the
@@ -2303,6 +2326,8 @@ impl ProjectileStore {
                 interceptor_type: None,
                 #[cfg(feature = "phobos")]
                 interceptor_target: None,
+                #[cfg(feature = "phobos")]
+                laser_trails: Vec::new(),
             },
         );
         id

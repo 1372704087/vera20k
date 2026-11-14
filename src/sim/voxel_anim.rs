@@ -64,12 +64,24 @@ pub struct VoxelAnimObject {
     #[cfg(feature = "phobos")]
     #[serde(default)]
     trailer_spawn_timer: crate::sim::timer::CdTimer,
+    /// Phobos `VoxelAnimExt::LaserTrails`, built in the constructor from the
+    /// type's `LaserTrail.Types` (`Ext/VoxelAnim/Body.cpp:5..18`).
+    #[cfg(feature = "phobos")]
+    #[serde(default)]
+    laser_trails: Vec<crate::sim::laser_trail::LaserTrailState>,
     /// LogicClass membership, reconstructed from the serialized vector.
     #[serde(skip)]
     in_logic_vector: bool,
 }
 
 impl VoxelAnimObject {
+    #[cfg(feature = "phobos")]
+    pub(crate) fn phobos_laser_trails_mut(
+        &mut self,
+    ) -> &mut Vec<crate::sim::laser_trail::LaserTrailState> {
+        &mut self.laser_trails
+    }
+
     #[cfg(any(test, feature = "test-support"))]
     pub fn set_duration_for_test(&mut self, value: i32) {
         self.duration = value;
@@ -408,6 +420,10 @@ pub fn spawn_debris_piece(
             bounce,
             #[cfg(feature = "phobos")]
             trailer_spawn_timer: crate::sim::timer::CdTimer::default(),
+            #[cfg(feature = "phobos")]
+            laser_trails: crate::sim::laser_trail::LaserTrailState::from_names(
+                &voxel_anim_type.laser_trail_types,
+            ),
             in_logic_vector: false,
         });
     }
@@ -470,6 +486,10 @@ pub fn spawn_debris_piece(
         bounce,
         #[cfg(feature = "phobos")]
         trailer_spawn_timer: crate::sim::timer::CdTimer::default(),
+        #[cfg(feature = "phobos")]
+        laser_trails: crate::sim::laser_trail::LaserTrailState::from_names(
+            &voxel_anim_type.laser_trail_types,
+        ),
         in_logic_vector: false,
     })
 }

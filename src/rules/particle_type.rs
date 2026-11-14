@@ -231,7 +231,7 @@ impl ParticleType {
             start_frame: section.read_int("StartFrame", 0),
 
             #[cfg(feature = "phobos")]
-            phobos_gas_max_drift_speed: section.read_int("Gas.MaxDriftSpeed", 2),
+            phobos_gas_max_drift_speed: section.read_ares_int("Gas.MaxDriftSpeed", 2),
             // ParticleType644BE0/644F50 retain full signed words; the
             // instance constructor62B890 alone narrows RemainingEC to16bits.
             max_dc: section.read_int("MaxDC", 0),
@@ -454,6 +454,23 @@ mod tests {
         assert_eq!(pt.next_particle_offset, IVec3::new(0, 0, 150));
         // FinalDamageState absent → mirrors EndStateAI.
         assert_eq!(pt.final_damage_state, 11);
+    }
+
+    /// Phobos `Gas.MaxDriftSpeed=` is a `Valueable<int>` read with
+    /// `Parser<int>::TryParse` (`$` decimal / `h` hex accepted, rejected text
+    /// keeps the constructor's 2), not gamemd's lenient ReadInt.
+    #[cfg(feature = "phobos")]
+    #[test]
+    fn gas_max_drift_speed_reads_with_the_phobos_int_parser() {
+        let read = |text: &str| {
+            let ini = IniFile::from_str(&format!("[GasCloud1]\nGas.MaxDriftSpeed={text}\n"));
+            ParticleType::from_ini_section("GasCloud1", ini.section("GasCloud1").unwrap())
+                .phobos_gas_max_drift_speed
+        };
+        assert_eq!(read("5"), 5);
+        assert_eq!(read("$10"), 10, "$ introduces a decimal scan");
+        assert_eq!(read("10h"), 16, "a trailing h selects hex");
+        assert_eq!(read("abc"), 2, "rejected text keeps the constructor's 2");
     }
 
     #[test]

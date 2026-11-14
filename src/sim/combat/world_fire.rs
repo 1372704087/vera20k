@@ -3318,17 +3318,12 @@ fn phobos_area_fire_random_cell(
     firer_level: i32,
 ) -> Option<(u16, u16)> {
     let entity = world.substrate.entities.get(firer)?;
-    let source = crate::sim::attach_effect::range_modifier_source(
-        entity,
-        Some(&world.substrate.entities),
+    let leptons = crate::sim::attach_effect::weapon_range_with_modifiers(
         rules,
         &world.interner,
-    );
-    let leptons = crate::sim::attach_effect::range_with_attach_effects(
-        source,
-        &weapon.id,
-        weapon.range_leptons,
-        rules,
+        Some(&world.substrate.entities),
+        entity,
+        weapon,
     );
     // `GetRangeWithModifiers() / 256 + 0.99` truncated. A negative range
     // (`-512` sentinel) saturates to a single candidate here; the native

@@ -836,16 +836,33 @@ fn safe_multiply(value: i32, multiplier: f64) -> i32 {
     }
 }
 
-/// `WeaponTypeExt::GetRangeWithModifiers` (`WeaponType/Body.cpp:398..443`):
-/// the entity whose AttachEffect range fold applies. A passenger inside an
-/// `OpenTopped` transport whose type enables
-/// `OpenTopped.UseTransportRangeModifiers` (defaulting to `[General]`) folds
-/// the transport's active effects instead of its own. `None` entities
-/// (mapless probes) keep the firer.
-/// `WeaponTypeExt::GetRangeWithModifiers` (`Ext/WeaponType/Body.cpp:398-443`)
-/// over a live firer: the `-512` always-in-range sentinel, the veteran
-/// `Range` ability's `VeteranRange` multiplier (max with 0), the open-topped
-/// transport's AttachEffect source, then the AttachEffect fold.
+/// `WeaponTypeExt::GetRangeWithModifiers(WeaponTypeClass*, TechnoClass*)`
+/// (`Ext/WeaponType/Body.cpp:374-396`): the weapon's own range behind the
+/// `-512` always-in-range sentinel, then the three-argument fold.
+///
+/// RESIDUAL: the native `CanOccupyFire` arm (`OccupyWeaponRange *
+/// LeptonsPerCell`) has no VERA equivalent on this owner.
+#[cfg(feature = "phobos")]
+pub(crate) fn weapon_range_with_modifiers(
+    rules: &crate::rules::ruleset::RuleSet,
+    interner: &crate::sim::intern::StringInterner,
+    entities: Option<&crate::sim::entity_store::EntityStore>,
+    firer: &crate::sim::game_entity::GameEntity,
+    weapon: &crate::rules::weapon_type::WeaponType,
+) -> i32 {
+    let range = weapon.range_leptons;
+    if i64::from(range) == crate::util::lepton::WEAPON_RANGE_ALWAYS_IN_RANGE_LEPTONS {
+        return range;
+    }
+    get_range_with_modifiers(rules, interner, entities, firer, &weapon.id, range)
+}
+
+/// `WeaponTypeExt::GetRangeWithModifiers(WeaponTypeClass*, TechnoClass*, int)`
+/// (`Ext/WeaponType/Body.cpp:398-443`): the veteran `Range` ability's
+/// `VeteranRange` multiplier (max with 0) and then the AttachEffect fold,
+/// both over the transport an open-topped passenger resolves its range
+/// against ([`range_modifier_source`]). The explicit-range overload has no
+/// `-512` arm; [`weapon_range_with_modifiers`] owns that short-circuit.
 #[cfg(feature = "phobos")]
 pub(crate) fn get_range_with_modifiers(
     rules: &crate::rules::ruleset::RuleSet,
@@ -855,15 +872,12 @@ pub(crate) fn get_range_with_modifiers(
     weapon: &str,
     range: i32,
 ) -> i32 {
-    const WEAPON_RANGE_ALWAYS_IN_RANGE_LEPTONS: i32 = -512;
-    if range == WEAPON_RANGE_ALWAYS_IN_RANGE_LEPTONS {
-        return range;
-    }
     let mut range = range;
-    if interner.try_resolve(firer.type_ref()).is_some()
-        && let Some(object) = interner.object_type(firer.type_ref(), rules)
+    let source = range_modifier_source(firer, entities, rules, interner);
+    if interner.try_resolve(source.type_ref()).is_some()
+        && let Some(object) = interner.object_type(source.type_ref(), rules)
         && crate::sim::combat::crit::has_phobos_ability(
-            firer.veterancy.rank_kind(),
+            source.veterancy.rank_kind(),
             object,
             crate::rules::phobos_crit::PhobosAbilityFlags::RANGE,
         )
@@ -872,14 +886,15 @@ pub(crate) fn get_range_with_modifiers(
         let multiplier = object.phobos_techno_extras.veteran_range_multiplier(global);
         range = safe_multiply(range, multiplier.max(0.0));
     }
-    let source = range_modifier_source(firer, entities, rules, interner);
     range_with_attach_effects(source, weapon, range, rules)
 }
 
-/// Phobos `BulletClass_Update_Ranged`'s range gate: a `Ranged=` projectile's
-/// initial max range passes [`get_range_with_modifiers`] when the weapon's
-/// nullable key else `[CombatDamage] ProjectileRange.ApplyModifiers` (default
-/// true) admits it.
+/// `BulletClass_AI_Ranged @ 0x467B8E` (`Ext/Bullet/Hooks.cpp:636-659`): a
+/// `Ranged=` projectile's `maxRange` passes [`get_range_with_modifiers`] when
+/// it is positive, its weapon's nullable key else `[CombatDamage]
+/// ProjectileRange.ApplyModifiers` (default true) admits it. The native
+/// `maxRange > 0` guard runs before the key, so zero and negative ranges are
+/// left untouched.
 #[cfg(feature = "phobos")]
 pub(crate) fn initial_projectile_range(
     rules: &crate::rules::ruleset::RuleSet,
@@ -889,6 +904,9 @@ pub(crate) fn initial_projectile_range(
     weapon: &crate::rules::weapon_type::WeaponType,
     range: i32,
 ) -> i32 {
+    if range <= 0 {
+        return range;
+    }
     let apply = weapon
         .phobos_projectile_range_apply_modifiers
         .unwrap_or(rules.combat_damage.phobos_projectile_range_apply_modifiers);
@@ -897,6 +915,17 @@ pub(crate) fn initial_projectile_range(
     } else {
         range
     }
+}
+
+#[cfg(not(feature = "phobos"))]
+pub(crate) fn weapon_range_with_modifiers(
+    _rules: &crate::rules::ruleset::RuleSet,
+    _interner: &crate::sim::intern::StringInterner,
+    _entities: Option<&crate::sim::entity_store::EntityStore>,
+    _firer: &crate::sim::game_entity::GameEntity,
+    weapon: &crate::rules::weapon_type::WeaponType,
+) -> i32 {
+    weapon.range_leptons
 }
 
 #[cfg(not(feature = "phobos"))]
@@ -911,6 +940,12 @@ pub(crate) fn get_range_with_modifiers(
     range
 }
 
+/// `WeaponTypeExt::GetRangeWithModifiers`'s entity choice
+/// (`Ext/WeaponType/Body.cpp:400-410`): the entity whose AttachEffect range
+/// fold applies. A passenger inside an `OpenTopped` transport whose type
+/// enables `OpenTopped.UseTransportRangeModifiers` (defaulting to `[General]`)
+/// folds the transport's active effects instead of its own. `None` entities
+/// (mapless probes) keep the firer.
 #[cfg(feature = "phobos")]
 pub(crate) fn range_modifier_source<'a>(
     entity: &'a crate::sim::game_entity::GameEntity,
@@ -976,8 +1011,7 @@ pub(crate) fn open_topped_transport_type<'r>(
 /// active effect whose weapon lists admit `weapon` multiplies the range (in
 /// leptons, clamped) and sums its `WeaponRange.ExtraRange`; the summed cells
 /// are converted to leptons and added after every multiplier, and the result
-/// floors at zero. The `-512` always-in-range sentinel returns before the
-/// fold, and a type with nothing to add leaves the range untouched.
+/// floors at zero. A type with nothing to add leaves the range untouched.
 /// `entity` is the fold source [`range_modifier_source`] resolved.
 pub(crate) fn range_with_attach_effects(
     entity: &crate::sim::game_entity::GameEntity,
@@ -987,10 +1021,6 @@ pub(crate) fn range_with_attach_effects(
 ) -> i32 {
     #[cfg(feature = "phobos")]
     {
-        const WEAPON_RANGE_ALWAYS_IN_RANGE_LEPTONS: i32 = -512;
-        if range == WEAPON_RANGE_ALWAYS_IN_RANGE_LEPTONS {
-            return range;
-        }
         if !entity.phobos_stat_multipliers().has_range_modifier {
             return range;
         }
@@ -1620,13 +1650,12 @@ impl Simulation {
                     Some(&self.house_alliances),
                 )?;
                 let range = selected.map_or(-1, |selected| {
-                    get_range_with_modifiers(
+                    weapon_range_with_modifiers(
                         rules,
                         &self.interner,
                         Some(&self.substrate.entities),
                         entity,
-                        &selected.weapon.id,
-                        selected.weapon.range_leptons,
+                        selected.weapon,
                     )
                 });
                 Some((distance, range))
@@ -4547,11 +4576,6 @@ mod tests {
         );
         assert_eq!(fold("gun", 1000), 3256, "the weapon match ignores case");
         assert_eq!(
-            fold("GUN", -512),
-            -512,
-            "the always-in-range sentinel precedes the fold"
-        );
-        assert_eq!(
             fold("OTHER", i32::MAX),
             i32::MAX,
             "SafeMultiply clamps instead of overflowing"
@@ -6827,7 +6851,8 @@ AttachEffect.InitialDelays=3
     /// Phobos `WeaponTypeExt::GetRangeWithModifiers` veteran arm:
     /// `HasAdditionalAbility(Range)` at veteran/elite multiplies by the type's
     /// `VeteranRange` else the `[General]` value (max with 0); a rookie is
-    /// untouched and the `-512` sentinel returns first.
+    /// untouched. The explicit-range overload scales even `-512`; only the
+    /// two-argument wrapper owns the sentinel.
     #[cfg(feature = "phobos")]
     #[test]
     fn the_veteran_range_ability_scales_get_range_with_modifiers() {
@@ -6923,7 +6948,25 @@ VeteranRange=2.0
             .veterancy
             .set_rank_for_test(200);
         assert_eq!(range(&sim, elite_only, 1000), 2000);
-        assert_eq!(range(&sim, plain, -512), -512, "the sentinel returns first");
+        assert_eq!(
+            range(&sim, plain, -512),
+            -1024,
+            "the explicit-range overload has no sentinel arm"
+        );
+        let mut sentinel_weapon = rules.weapon("GUN").expect("GUN").clone();
+        sentinel_weapon.range_leptons =
+            crate::util::lepton::WEAPON_RANGE_ALWAYS_IN_RANGE_LEPTONS as i32;
+        assert_eq!(
+            super::weapon_range_with_modifiers(
+                &rules,
+                &sim.interner,
+                Some(&sim.substrate.entities),
+                sim.substrate.entities.get(plain).unwrap(),
+                &sentinel_weapon,
+            ),
+            -512,
+            "the two-argument wrapper keeps the sentinel"
+        );
     }
 
     /// Phobos `ProjectileRange.ApplyModifiers` gates the fold for the
@@ -6933,7 +6976,7 @@ VeteranRange=2.0
     #[test]
     fn initial_projectile_range_reads_the_global_and_weapon_keys() {
         use crate::rules::ini_parser::IniFile;
-        let scene = |global: &str, weapon_key: &str| {
+        let scene = |global: &str, weapon_key: &str, base: i32| {
             let rules = crate::rules::ruleset::RuleSet::from_ini(
                 &crate::sim::arena_fixture::clear_ground_ini(&format!(
                     "[Countries]
@@ -6980,26 +7023,38 @@ VeteranRange=2.0
                 Some(&sim.substrate.entities),
                 firer,
                 rules.weapon("GUN").unwrap(),
-                1000,
+                base,
             )
         };
         assert_eq!(
-            scene("", ""),
+            scene("", "", 1000),
             1500,
             "the constructor's true applies the fold"
         );
         assert_eq!(
-            scene("ProjectileRange.ApplyModifiers=no", ""),
+            scene("ProjectileRange.ApplyModifiers=no", "", 1000),
             1000,
             "the global off skips the fold"
         );
         assert_eq!(
             scene(
                 "ProjectileRange.ApplyModifiers=no",
-                "ProjectileRange.ApplyModifiers=yes"
+                "ProjectileRange.ApplyModifiers=yes",
+                1000
             ),
             1500,
             "the weapon key overrides the global"
+        );
+        assert_eq!(
+            scene("", "", 0),
+            0,
+            "the native maxRange > 0 guard precedes the key"
+        );
+        assert_eq!(scene("", "", -300), -300, "a negative range is untouched");
+        assert_eq!(
+            scene("", "", -512),
+            -512,
+            "no sentinel arm on the bullet gate"
         );
     }
 }

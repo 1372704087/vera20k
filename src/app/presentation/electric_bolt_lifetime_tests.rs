@@ -463,3 +463,60 @@ fn the_registry_seeds_decay_from_the_birth() {
     bolts.create(birth);
     assert_eq!(bolts.live[0].decay, 4);
 }
+
+/// Phobos `EBoltZAdjust.ClampInitialDepthForBuilding`
+/// (`Ext/Rules/Body.cpp:279`, `Valueable<bool>`, constructor default **true**
+/// at `Body.h:720`) and the weapon's `Nullable<bool>`
+/// (`Ext/WeaponType/Body.cpp:132`, constructor unset `Body.h:157`),
+/// consumed at `Ext/EBolt/Hooks.cpp:196-200` (0x6FD4E4).
+#[test]
+fn the_ebolt_building_clamp_reads_audio_visual_and_a_weapon_overrides_it() {
+    use crate::rules::ini_parser::IniFile;
+    use crate::rules::phobos_beam_z_adjust::resolved_clamp;
+    use crate::rules::ruleset::RuleSet;
+
+    let read = |text: &str| RuleSet::from_ini(&IniFile::from_str(text)).expect("rules read");
+
+    // An absent key keeps the constructor default, which is on.
+    let defaulted = read("[AudioVisual]\nEBoltZAdjust=-3\n");
+    assert_eq!(defaulted.phobos_beam_z_adjust.ebolt, -3);
+    assert!(
+        defaulted
+            .phobos_beam_z_adjust
+            .ebolt_clamp_initial_depth_for_building
+    );
+    // The key lives in [AudioVisual], not [General].
+    assert!(
+        read("[General]\nEBoltZAdjust.ClampInitialDepthForBuilding=no\n")
+            .phobos_beam_z_adjust
+            .ebolt_clamp_initial_depth_for_building,
+        "the clamp is read from [AudioVisual]"
+    );
+    assert!(
+        !read("[AudioVisual]\nEBoltZAdjust.ClampInitialDepthForBuilding=no\n")
+            .phobos_beam_z_adjust
+            .ebolt_clamp_initial_depth_for_building
+    );
+
+    // The weapon's own value wins over the global; unset inherits it
+    // (`Nullable<bool>::Get(global)`, `Ext/EBolt/Hooks.cpp:196-200`).
+    assert!(!resolved_clamp(Some(false), true));
+    assert!(resolved_clamp(Some(true), false));
+    assert!(resolved_clamp(None, true));
+
+    // Retail leaves both keys unset: the weapon inherits, the global keeps the
+    // constructor default, so the clamp stays on.
+    let Some(retail) = crate::rules::retail_ini_fixture::retail_battle_rules_for_map("XMP03T4.MAP")
+    else {
+        return;
+    };
+    let weapon = retail.rules.weapon("105mm").expect("105mm");
+    assert_eq!(weapon.phobos_ebolt_z_adjust_clamp, None);
+    assert!(
+        retail
+            .rules
+            .phobos_beam_z_adjust
+            .ebolt_clamp_initial_depth_for_building,
+        "retail leaves the clamp at its constructor default"
+    );
+}

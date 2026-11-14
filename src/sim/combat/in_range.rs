@@ -88,28 +88,23 @@ fn cells_fixed_to_leptons(cells: SimFixed) -> i64 {
 }
 
 /// The range before target-coordinate resolution, 6F7261..6F72E1, for both
-/// arms and abstract and retained Cell targets alike: the weapon's, plus
-/// AirRangeBonus when the target flies high (its +54 query precedes +48/+50,
-/// even when MinimumRange later rejects the shot); an occupied building's
-/// reach in place of that ([`occupied_range_leptons`]); then the bunker and
-/// open-topped bonuses. Each arm adds its own elevation bonus, and the
-/// non-arcing arm the target's foundation ([`foundation_reach_leptons`]).
+/// arms and abstract and retained Cell targets alike: the weapon's (already
+/// through the Phobos `TechnoClass_InRange_WeaponRange @ 0x6F7248` hook, or a
+/// live `KeepRange`), plus AirRangeBonus when the target flies high (its +54
+/// query precedes +48/+50, even when MinimumRange later rejects the shot); an
+/// occupied building's reach in place of that ([`occupied_range_leptons`]);
+/// then the bunker and open-topped bonuses. Each arm adds its own elevation
+/// bonus, and the non-arcing arm the target's foundation
+/// ([`foundation_reach_leptons`]).
 fn reach_leptons(
     attacker: &GameEntity,
     target_flies_high: bool,
-    weapon: &WeaponType,
+    weapon_range_lep: i64,
     rules: &RuleSet,
     interner: &StringInterner,
     entities: Option<&crate::sim::entity_store::EntityStore>,
 ) -> i64 {
-    let mut range_lep: i64 = i64::from(crate::sim::attach_effect::get_range_with_modifiers(
-        rules,
-        interner,
-        entities,
-        attacker,
-        &weapon.id,
-        weapon.range_leptons,
-    ));
+    let mut range_lep: i64 = weapon_range_lep;
     if target_flies_high
         && let Some(attacker_obj) = interner.object_type(attacker.type_ref(), rules)
         && let Some(air_bonus) = attacker_obj.air_range_bonus
@@ -625,7 +620,9 @@ pub(crate) fn compute_range_target(
     // Phobos `TechnoClass_InRange_WeaponRange`/`_WeaponMinimumRange`
     // (`Ext/Techno/Hooks.WeaponRange.cpp:134-145`, `Ext/Bullet/
     // Hooks.Obstacles.cpp:209-215`): a rearming firer's KeepRange replaces the
-    // local weapon's maximum or minimum range before every gate below.
+    // local weapon's maximum or minimum range before every gate below. The
+    // live maximum short-circuits `GetRangeWithModifiers` entirely
+    // (`0x6F7248`), so the veteran and AttachEffect folds never scale it.
     #[cfg(feature = "phobos")]
     let keep_weapon = {
         let target_entity = match target {
@@ -645,21 +642,25 @@ pub(crate) fn compute_range_target(
             if let Some(maximum) = keep_max {
                 copy.range_leptons = maximum;
             }
-            Some(copy)
+            Some((copy, keep_max))
         })
     };
     #[cfg(feature = "phobos")]
-    let weapon: &WeaponType = keep_weapon.as_ref().unwrap_or(weapon);
+    let (weapon, keep_max) = match &keep_weapon {
+        Some((copy, maximum)) => (copy, *maximum),
+        None => (weapon, None),
+    };
+    #[cfg(not(feature = "phobos"))]
+    let (weapon, keep_max): (&WeaponType, Option<i32>) = (weapon, None);
     #[cfg(not(feature = "phobos"))]
     let _ = world;
-    let source =
-        crate::sim::attach_effect::range_modifier_source(attacker, entities, rules, interner);
-    let weapon_range_lep: i64 = i64::from(crate::sim::attach_effect::range_with_attach_effects(
-        source,
-        &weapon.id,
-        weapon.range_leptons,
-        rules,
-    ));
+    let weapon_range_lep: i64 = if let Some(keep) = keep_max {
+        i64::from(keep)
+    } else {
+        i64::from(crate::sim::attach_effect::weapon_range_with_modifiers(
+            rules, interner, entities, attacker, weapon,
+        ))
+    };
 
     // Sentinel — always-in-range short-circuit (`CMP EDI,0xFFFFFE00` at
     // 0x006F724E, before every other read).
@@ -681,7 +682,7 @@ pub(crate) fn compute_range_target(
     let initial_range_lep = reach_leptons(
         attacker,
         target_flies_high,
-        weapon,
+        weapon_range_lep,
         rules,
         interner,
         entities,
@@ -1346,7 +1347,10 @@ pub fn mapless_in_range(
     interner: &StringInterner,
     entities: Option<&crate::sim::entity_store::EntityStore>,
 ) -> bool {
-    if i64::from(weapon.range_leptons) == WEAPON_RANGE_ALWAYS_IN_RANGE_LEPTONS {
+    let weapon_range_lep = i64::from(crate::sim::attach_effect::weapon_range_with_modifiers(
+        rules, interner, entities, attacker, weapon,
+    ));
+    if weapon_range_lep == WEAPON_RANGE_ALWAYS_IN_RANGE_LEPTONS {
         return true;
     }
     let (techno, point) = match target {
@@ -1355,7 +1359,14 @@ pub fn mapless_in_range(
     };
     let flies_high =
         techno.is_some_and(|entity| is_high_flying(entity, None, Some((rules, interner))));
-    let range = reach_leptons(attacker, flies_high, weapon, rules, interner, entities);
+    let range = reach_leptons(
+        attacker,
+        flies_high,
+        weapon_range_lep,
+        rules,
+        interner,
+        entities,
+    );
     let source = object_get_coords(attacker, None);
     let src = (
         i64::from(source.x),
@@ -3338,6 +3349,61 @@ mod keep_range_tests {
             keep_range_overrides(&sim, &rules, entity, rules.weapon("GUN").unwrap(), None),
             (None, None),
             "no running rearm, no override"
+        );
+    }
+
+    /// Phobos `TechnoClass_InRange_WeaponRange @ 0x6F7248`
+    /// (`Ext/Techno/Hooks.WeaponRange.cpp:134-151`): a live `KeepRange`
+    /// maximum replaces the reach instead of `GetRangeWithModifiers`, so the
+    /// veteran `Range` ability must not scale it.
+    #[test]
+    fn a_live_keep_range_bypasses_the_range_modifiers() {
+        let rules = RuleSet::from_ini(&crate::sim::arena_fixture::clear_ground_ini(
+            "[InfantryTypes]\n0=E1\n[E1]\nStrength=100\nSpeed=4\nPrimary=GUN\n\
+             VeteranAbilities=RANGE\n\
+             [WeaponTypes]\n0=GUN\n[GUN]\nDamage=10\nRange=5\nROF=100\n\
+             Warhead=WH\nKeepRange=-6\nKeepRange.AllowAI=yes\n\
+             [Warheads]\n0=WH\n[WH]\nCellSpread=0\n\
+             [General]\nVeteranRange=2.0\n",
+        ))
+        .expect("keep range rules");
+        let mut sim = Simulation::new();
+        crate::sim::arena_fixture::flat_arena(&mut sim, &rules);
+        let attacker = sim
+            .spawn_object("E1", "Americans", 5, 5, 0, &rules)
+            .expect("attacker");
+        let target = sim
+            .spawn_object("E1", "Americans", 5, 11, 0, &rules)
+            .expect("target");
+        sim.intern_rule_type_ids(&rules);
+        sim.resolve_type_handles(&rules);
+        sim.substrate
+            .entities
+            .get_mut(attacker)
+            .unwrap()
+            .veterancy
+            .set_rank_for_test(100);
+        sim.substrate
+            .entities
+            .get_mut(attacker)
+            .unwrap()
+            .rearm_timer
+            .set_for_test(CdTimer::started(0, 100));
+        let terrain = sim.resolved_terrain.as_ref().expect("terrain");
+        let entity = sim.entities().get(attacker).unwrap();
+        assert!(
+            !super::compute_in_range(
+                entity,
+                (5 * 256 + 128, 5 * 256 + 128, 0),
+                &crate::sim::combat::TargetKind::Entity(target),
+                rules.weapon("GUN").unwrap(),
+                &rules,
+                sim.interner(),
+                &sim,
+                terrain,
+                &crate::sim::combat::line_of_fire::LineOfFireInputs::terrain_only(),
+            ),
+            "KeepRange -6 caps the reach at 1408 leptons; the veteran x2 must not double it"
         );
     }
 }

@@ -47,6 +47,12 @@ pub fn resolved(weapon: Option<i32>, global: i32) -> i32 {
     weapon.unwrap_or(global)
 }
 
+/// `Nullable<bool>::Get(global)` for `EBoltZAdjust.ClampInitialDepthForBuilding`:
+/// the weapon's own value, else the `[AudioVisual]` default.
+pub fn resolved_clamp(weapon: Option<bool>, global: bool) -> bool {
+    weapon.unwrap_or(global)
+}
+
 #[cfg(all(test, feature = "phobos"))]
 #[path = "phobos_beam_z_adjust_tests.rs"]
 mod tests;

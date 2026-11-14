@@ -308,26 +308,29 @@ impl Simulation {
         state.count_of_burst = weapon.burst;
         if let Some(firer) = self.substrate.entities.get(source_id) {
             if t.apply_range_modifiers {
-                state.detonation_distance = if state.detonation_distance >= 0 {
-                    crate::sim::attach_effect::range_with_attach_effects(
+                let range_with = |range: i32| {
+                    crate::sim::attach_effect::get_range_with_modifiers(
+                        rules,
+                        &self.interner,
+                        Some(&self.substrate.entities),
                         firer,
                         &weapon.id,
-                        state.detonation_distance,
-                        rules,
-                    )
-                } else {
-                    -crate::sim::attach_effect::range_with_attach_effects(
-                        firer,
-                        &weapon.id,
-                        -state.detonation_distance,
-                        rules,
+                        range,
                     )
                 };
-                state.attenuation_range = crate::sim::attach_effect::range_with_attach_effects(
-                    firer,
-                    &weapon.id,
-                    weapon.range_leptons,
+                state.detonation_distance = if state.detonation_distance >= 0 {
+                    range_with(state.detonation_distance)
+                } else {
+                    -range_with(-state.detonation_distance)
+                };
+                // The attenuation arm calls the two-argument overload
+                // (`StraightTrajectory.cpp:161`), which owns the -512 sentinel.
+                state.attenuation_range = crate::sim::attach_effect::weapon_range_with_modifiers(
                     rules,
+                    &self.interner,
+                    Some(&self.substrate.entities),
+                    firer,
+                    weapon,
                 );
             }
             state.current_burst = firer.weapon_burst.index();

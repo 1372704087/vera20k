@@ -202,10 +202,33 @@ pub(crate) fn materialize_combat_lights(
                     let minimum = detail.minimum_frame_rate();
                     detail.frame_rate() >= minimum
                 };
-                if !fps_admitted && flags & 0xF == 0 {
+                let warhead = rules.and_then(|rules| rules.warhead(interner.resolve(warhead_ref)));
+                // Phobos `CombatLightDetailLevel.CheckColored=`
+                // (`Ext/Rules/Body.cpp:405`, warhead `Ext/WarheadType/Body.cpp:342`,
+                // `DoFlash_CombatLightOptions @ 0x48A62E`,
+                // `Misc/Hooks.LightEffects.cpp:66-96`): the `bitmask & 0xF`
+                // bypass of the detail check only applies while this is off.
+                #[cfg(feature = "phobos")]
+                let check_colored = warhead.map_or_else(
+                    || {
+                        rules.is_some_and(|rules| {
+                            rules.phobos_globals.combat_light_detail_level_check_colored
+                        })
+                    },
+                    |warhead| {
+                        warhead
+                            .phobos_extras
+                            .combat_light_check_colored(rules.is_some_and(|rules| {
+                                rules.phobos_globals.combat_light_detail_level_check_colored
+                            }))
+                    },
+                );
+                #[cfg(not(feature = "phobos"))]
+                let check_colored = false;
+                let flags_bypass = flags & 0xF != 0 && !check_colored;
+                if !fps_admitted && !flags_bypass {
                     return None;
                 }
-                let warhead = rules.and_then(|rules| rules.warhead(interner.resolve(warhead_ref)));
                 if !force_create && !warhead.is_some_and(|warhead| warhead.bright) {
                     return None;
                 }
@@ -264,6 +287,60 @@ mod tests {
     use crate::sim::world::Simulation;
 
     #[test]
+    /// Phobos `CombatLightDetailLevel.CheckColored=` (`Ext/Rules/Body.cpp:405`,
+    /// warhead `Ext/WarheadType/Body.cpp:342`) at `DoFlash_CombatLightOptions`
+    /// (`0x48A62E`, `Misc/Hooks.LightEffects.cpp:66-96`): with the key off (the
+    /// default) a light whose colour channels are partly disabled still flashes
+    /// when the detail check fails; with it on that bypass is refused. The
+    /// warhead key overrides the `[AudioVisual]` global.
+    #[test]
+    fn combat_light_check_colored_gates_the_low_nibble_bypass() {
+        let admission = |ini: &str, flags: u32| {
+            let rules = RuleSet::from_ini(&IniFile::from_str(ini)).unwrap();
+            let mut sim = Simulation::new();
+            let mut detail = DetailState::default();
+            let request = CombatLightRequest::Impact {
+                target_id: None,
+                damage: 10,
+                warhead_ref: sim.intern("WH"),
+                coord: ProjectileCoord::new(0, 0, 0),
+                force_create: false,
+                flags,
+            };
+            materialize_combat_lights(
+                vec![request],
+                Some(&rules),
+                sim.interner(),
+                0,
+                &mut detail,
+                false,
+            )
+            .len()
+        };
+
+        // A bright warhead whose mask has channel bits set: the default
+        // `CheckColored=no` keeps the native low-nibble bypass.
+        let plain = "[Warheads]\n0=WH\n[WH]\nBright=yes\n";
+        assert_eq!(admission(plain, 0x1), 1);
+        assert_eq!(admission(plain, 0x0), 0, "no bits: no bypass");
+
+        // The warhead's own key turns the bypass off.
+        let warhead_on = "[Warheads]\n0=WH\n[WH]\nBright=yes\n\
+                          CombatLightDetailLevel.CheckColored=yes\n";
+        assert_eq!(admission(warhead_on, 0x1), 0);
+        // An explicit `no` keeps it even against a `yes` global.
+        let warhead_off = "[AudioVisual]\nCombatLightDetailLevel.CheckColored=yes\n\
+                           [Warheads]\n0=WH\n[WH]\nBright=yes\n\
+                           CombatLightDetailLevel.CheckColored=no\n";
+        assert_eq!(admission(warhead_off, 0x1), 1);
+
+        // Without a warhead the `[AudioVisual]` global decides.
+        assert_eq!(admission(warhead_on, 0x1), 0);
+        let global_on = "[AudioVisual]\nCombatLightDetailLevel.CheckColored=yes\n\
+             [Warheads]\n0=WH\n[WH]\nBright=yes\n";
+        assert_eq!(admission(global_on, 0x1), 0);
+    }
+
     fn welding_immediate_light_size_stage_and_admission_match_original_system_draw() {
         let native = crate::render::tactical_compat::welding_tests::native();
         let stage_bytes =

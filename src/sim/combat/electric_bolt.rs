@@ -178,13 +178,12 @@ pub(crate) fn create(
     #[cfg(not(feature = "phobos"))]
     let _ = visual_scatter;
     #[cfg(feature = "phobos")]
-    let clamp_positive = weapon
-        .phobos_ebolt_clamp_initial_depth_for_building
-        .unwrap_or(
-            rules
-                .phobos_beam_z_adjust
-                .ebolt_clamp_initial_depth_for_building,
-        );
+    let clamp_positive = crate::rules::phobos_beam_z_adjust::resolved_clamp(
+        weapon.phobos_ebolt_clamp_initial_depth_for_building,
+        rules
+            .phobos_beam_z_adjust
+            .ebolt_clamp_initial_depth_for_building,
+    );
     #[cfg(not(feature = "phobos"))]
     let clamp_positive = true;
     let z_adjust = super::fire_coord::effect_z_adjust(

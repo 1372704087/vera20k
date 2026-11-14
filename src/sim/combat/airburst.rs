@@ -301,7 +301,7 @@ fn spawn_ares_child(
     )
     // CreateBullet sets Range to the weapon's ProjectileRange, which only a
     // `Ranged=` type spends (as Fire_CreateBullet 1001ADE0 does).
-    .with_ares_range(child.ranged.then_some({
+    .with_ares_range(child.ranged.then(|| {
         let range = weapon.ares_projectile_range;
         #[cfg(feature = "phobos")]
         {

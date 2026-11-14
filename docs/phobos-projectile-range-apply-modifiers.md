@@ -56,6 +56,11 @@ The veteran arm and the key gate were each mutated red and restored.
 
 ## Residuals
 
+- VERA models the stock `Ranged=` distance budget (the `BulletClass_AI_Ranged`
+  `DistanceTraveled >= Range` test at `0x467B8E`) only in the Ares bullet
+  update today, so this key's consumer is active in `ares,phobos` builds; a
+  phobos-only build has no ranged budget to scale. `initial_projectile_range`
+  itself is feature-independent and tested directly.
 - VERA applies the fold when the bullet is created rather than on every
   update; the firer's rank, effects and transport at creation are the values
   the native update reads on the first step, so the spent budget matches

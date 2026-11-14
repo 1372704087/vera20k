@@ -87,7 +87,11 @@ impl PhobosSuperWeaponLimbo {
             types,
             ids: read_int_vector(section, "LimboDelivery.IDs"),
             roll_chances: read_roll_chances(section, "LimboDelivery.RollChances"),
-            random_weights: read_random_weights(section, "LimboDelivery"),
+            random_weights: read_random_weights(
+                section,
+                "LimboDelivery",
+                "LimboDelivery.RandomWeights",
+            ),
             kill_ids: read_int_vector(section, "LimboKill.IDs"),
             kill_counts: read_int_vector(section, "LimboKill.Counts"),
             kill_affects_house,
@@ -146,7 +150,7 @@ fn read_roll_chances(section: &IniSection, key: &str) -> Vec<NativeF32Bits> {
 
 /// The numbered weight lists, then the unnumbered alias for slot 0; the loop
 /// stops at the first empty list (`Body.cpp:222-256`).
-fn read_random_weights(section: &IniSection, prefix: &str) -> Vec<Vec<i32>> {
+fn read_random_weights(section: &IniSection, prefix: &str, alias: &str) -> Vec<Vec<i32>> {
     let mut lists = Vec::new();
     for index in 0.. {
         let key = format!("{prefix}.RandomWeights{index}");
@@ -158,8 +162,7 @@ fn read_random_weights(section: &IniSection, prefix: &str) -> Vec<Vec<i32>> {
         }
         lists.push(weights);
     }
-    let alias = format!("{prefix}.RandomWeights");
-    if let Some(weights) = section.read_int_list(&alias)
+    if let Some(weights) = section.read_int_list(alias)
         && !weights.is_empty()
     {
         if lists.is_empty() {

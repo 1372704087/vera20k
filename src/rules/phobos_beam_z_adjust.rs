@@ -17,11 +17,25 @@
 use crate::rules::ini_parser::IniFile;
 
 /// `RulesExt`'s `[AudioVisual] LaserZAdjust=` / `EBoltZAdjust=`
-/// (`Valueable<int>`, constructor default 0).
-#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash, Default)]
+/// (`Valueable<int>`, constructor default 0) and
+/// `EBoltZAdjust.ClampInitialDepthForBuilding=`
+/// (`Valueable<bool>`, constructor default **true**, `Ext/Rules/Body.h:720`).
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
 pub struct BeamZAdjustGlobals {
     pub laser: i32,
     pub ebolt: i32,
+    pub ebolt_clamp_initial_depth_for_building: bool,
+}
+
+impl Default for BeamZAdjustGlobals {
+    fn default() -> Self {
+        Self {
+            laser: 0,
+            ebolt: 0,
+            // `Body.h:720`: the constructor default, not an absent-key fallback.
+            ebolt_clamp_initial_depth_for_building: true,
+        }
+    }
 }
 
 impl BeamZAdjustGlobals {
@@ -30,12 +44,20 @@ impl BeamZAdjustGlobals {
         Self {
             laser: audio_visual.read_int("LaserZAdjust", 0),
             ebolt: audio_visual.read_int("EBoltZAdjust", 0),
+            // `Body.cpp:279`, read right after `EBoltZAdjust` (`:278`).
+            ebolt_clamp_initial_depth_for_building: audio_visual
+                .read_bool("EBoltZAdjust.ClampInitialDepthForBuilding", true),
         }
     }
 }
 
 /// `Nullable<int>::Get(global)`: the weapon's own value, else the global one.
 pub fn resolved(weapon: Option<i32>, global: i32) -> i32 {
+    weapon.unwrap_or(global)
+}
+
+/// `Nullable<bool>::Get(global)`: the weapon's own clamp, else the global one.
+pub fn resolved_clamp(weapon: Option<bool>, global: bool) -> bool {
     weapon.unwrap_or(global)
 }
 

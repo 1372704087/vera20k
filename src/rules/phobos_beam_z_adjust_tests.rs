@@ -1,7 +1,7 @@
 //! `[AudioVisual] LaserZAdjust=` / `EBoltZAdjust=` reads and the nullable
 //! fallback each weapon uses.
 
-use super::{BeamZAdjustGlobals, resolved};
+use super::{BeamZAdjustGlobals, resolved, resolved_clamp};
 use crate::rules::ini_parser::IniFile;
 
 fn z_adjusts(ini: &str) -> BeamZAdjustGlobals {
@@ -17,7 +17,8 @@ fn the_global_z_adjusts_default_to_zero_and_read_audio_visual() {
         z_adjusts("[AudioVisual]\nLaserZAdjust=5\nEBoltZAdjust=-3\n"),
         BeamZAdjustGlobals {
             laser: 5,
-            ebolt: -3
+            ebolt: -3,
+            ebolt_clamp_initial_depth_for_building: true,
         }
     );
 }

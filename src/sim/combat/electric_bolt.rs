@@ -177,11 +177,24 @@ pub(crate) fn create(
     };
     #[cfg(not(feature = "phobos"))]
     let _ = visual_scatter;
+    // Phobos `EBoltZAdjust.ClampInitialDepthForBuilding` (`0x6FD4E4`): the
+    // clamp arms off when the weapon or `[AudioVisual]` turns it off, keeping
+    // the positive depth delta.
+    #[cfg(feature = "phobos")]
+    let clamp_positive = crate::rules::phobos_beam_z_adjust::resolved_clamp(
+        weapon.phobos_ebolt_z_adjust_clamp,
+        rules
+            .phobos_beam_z_adjust
+            .ebolt_clamp_initial_depth_for_building,
+    );
+    #[cfg(not(feature = "phobos"))]
+    let clamp_positive = true;
     let z_adjust = super::fire_coord::effect_z_adjust(
         world,
         source,
         from,
         super::fire_coord::EffectDepthProjection::ClampedBuilding,
+        clamp_positive,
     );
     let Some(mut to) = super::fire_coord::effect_target_coordinate(world, rules, target) else {
         return;

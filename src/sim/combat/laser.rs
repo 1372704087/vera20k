@@ -313,6 +313,9 @@ pub(crate) fn create<'w>(
                     source,
                     from,
                     super::fire_coord::EffectDepthProjection::ClampedBuilding,
+                    // The clamp key covers EBolt only; the laser keeps its
+                    // native `delta.min(0)` (6FD210).
+                    true,
                 ),
             )
         };

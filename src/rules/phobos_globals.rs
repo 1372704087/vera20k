@@ -200,6 +200,10 @@ pub struct PhobosGlobals {
     /// particle AlphaImage above `GameOptions.DetailLevel` is not created
     /// (`0x005F5053`).
     pub light_flash_alpha_image_detail_level: i32,
+    /// `[AudioVisual] FiringAnim.Update=`, default **no**
+    /// (`Ext/Rules/Body.cpp:548`, `Ext/Rules/Body.h:964`): the fallback for
+    /// a weapon whose own `Anim.Update=` is unset.
+    pub firing_anim_update: bool,
     /// `[AudioVisual] HeightShadowScaling=`, default `no` (`Ext/Rules/Body.cpp:186`,
     /// constructor `Ext/Rules/Body.h:630`): a drawing unit scales its voxel
     /// shadow by its live height (`Ext/TechnoType/Hooks.MatrixOp.cpp:677`).
@@ -1340,6 +1344,7 @@ impl Default for PhobosGlobals {
             anim_remap_default_color_scheme: 0,
             warhead_particle_alpha_image_is_light_flash: false,
             light_flash_alpha_image_detail_level: 0,
+            firing_anim_update: false,
             height_shadow_scaling: false,
             height_shadow_scaling_min_scale: NativeF64Bits::from_bits(0.0f64.to_bits()),
             air_shadow_base_scale_log: NativeF64Bits::from_bits(0.693_376_137f64.to_bits()),
@@ -1580,6 +1585,8 @@ impl PhobosGlobals {
             "LightFlashAlphaImageDetailLevel",
             globals.light_flash_alpha_image_detail_level,
         );
+        globals.firing_anim_update =
+            audio_visual.read_bool("FiringAnim.Update", globals.firing_anim_update);
         // `Ext/Rules/Body.cpp:291-297`: the income-label switch and cadence. A
         // read `DisplayIncome.Delay=0` would crash the native label, so the
         // reader forces it to 1.

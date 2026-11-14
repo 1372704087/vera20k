@@ -300,8 +300,19 @@ fn spawn_ares_child(
         weapon.bright,
     )
     // CreateBullet sets Range to the weapon's ProjectileRange, which only a
-    // `Ranged=` type spends (as Fire_CreateBullet 1001ADE0 does).
-    .with_ares_range(child.ranged.then_some(weapon.ares_projectile_range));
+    // `Ranged=` type spends (as Fire_CreateBullet 1001ADE0 does); Phobos
+    // `BulletClass_AI_Ranged` (`0x467B8E`) runs it through
+    // `GetRangeWithModifiers` like the parent shot.
+    .with_ares_range(child.ranged.then_some({
+        #[cfg(all(feature = "ares", feature = "phobos"))]
+        {
+            super::world_fire::projectile_range_with_modifiers(world, firer, weapon, rules)
+        }
+        #[cfg(not(all(feature = "ares", feature = "phobos")))]
+        {
+            weapon.ares_projectile_range
+        }
+    }));
     // 1001A6B0: one Scenario draw after the constructor.
     let velocity = crate::sim::projectile::launch::ares_airburst_launch_velocity(
         weapon.speed,

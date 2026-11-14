@@ -554,11 +554,12 @@ pub(crate) fn weapon_range(
     };
     let source =
         crate::sim::attach_effect::range_modifier_source(entity, Some(entities), rules, interner);
-    let range = crate::sim::attach_effect::range_with_attach_effects(
+    let range = crate::sim::attach_effect::range_with_modifiers(
         source,
         &weapon.id,
         weapon.range_leptons,
         rules,
+        interner,
     );
     // Phobos `TechnoClass_WeaponRange @ 0x7012C2`
     // (`Ext/Techno/Hooks.WeaponRange.cpp:4-49`): `OpenTopped.IgnoreRangefinding`
@@ -612,11 +613,12 @@ pub(crate) fn open_topped_cargo_range(
                 rules,
                 interner,
             );
-            let range = crate::sim::attach_effect::range_with_attach_effects(
+            let range = crate::sim::attach_effect::range_with_modifiers(
                 source,
                 &weapon.id,
                 weapon.range_leptons,
                 rules,
+                interner,
             );
             shortest = Some(shortest.map_or(range, |shortest: i32| shortest.min(range)));
         }
@@ -1622,8 +1624,8 @@ fn phobos_force_weapon_index(
                                 weapon.range_leptons
                             };
                             range = if apply {
-                                crate::sim::attach_effect::range_with_attach_effects(
-                                    source, &weapon.id, base, rules,
+                                crate::sim::attach_effect::range_with_modifiers(
+                                    source, &weapon.id, base, rules, interner,
                                 )
                             } else {
                                 base

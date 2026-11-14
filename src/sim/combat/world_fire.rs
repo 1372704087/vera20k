@@ -71,6 +71,39 @@ pub(crate) enum FireAtEffect {
     MagneticWave,
 }
 
+/// Phobos `0x467B8E` (`Ext/Bullet/Hooks.cpp:647-655`): the distance a
+/// `Ranged=` bullet may travel, from its weapon's `ProjectileRange=` through
+/// `WeaponTypeExt::GetRangeWithModifiers(pWeapon, pOwner, maxRange)`; the
+/// weapon's `ProjectileRange.ApplyModifiers` (else `[CombatDamage]`) may
+/// switch the modifiers off.
+#[cfg(all(feature = "ares", feature = "phobos"))]
+pub(super) fn projectile_range_with_modifiers(
+    world: &crate::sim::world::Simulation,
+    firer: u64,
+    weapon: &crate::rules::weapon_type::WeaponType,
+    rules: &crate::rules::ruleset::RuleSet,
+) -> i32 {
+    if !weapon.phobos_extras.projectile_range_apply_modifiers(rules) {
+        return weapon.ares_projectile_range;
+    }
+    let Some(source) = world.substrate.entities.get(firer) else {
+        return weapon.ares_projectile_range;
+    };
+    let source = crate::sim::attach_effect::range_modifier_source(
+        source,
+        Some(&world.substrate.entities),
+        rules,
+        &world.interner,
+    );
+    crate::sim::attach_effect::range_with_modifiers(
+        source,
+        &weapon.id,
+        weapon.ares_projectile_range,
+        rules,
+        &world.interner,
+    )
+}
+
 pub(crate) fn fire_at_effect(weapon: &crate::rules::weapon_type::WeaponType) -> FireAtEffect {
     if weapon.is_laser {
         FireAtEffect::Laser
@@ -2710,13 +2743,25 @@ pub(super) fn emit_admitted_fire(
             .with_damage_multiplier(damage_multiplier);
             // Ares TechnoClass_Fire_CreateBullet (1001ADE0, hook 0x6FE53F):
             // the bullet's Range is the weapon's ProjectileRange, which only
-            // a `Ranged=` type spends.
+            // a `Ranged=` type spends. Phobos `BulletClass_AI_Ranged`
+            // (`0x467B8E`, `Ext/Bullet/Hooks.cpp:647-655`) runs that distance
+            // through `WeaponTypeExt::GetRangeWithModifiers` unless the weapon
+            // opts out with `ProjectileRange.ApplyModifiers=no`.
             #[cfg(feature = "ares")]
-            let payload = payload.with_ares_range(
-                projectile_type
-                    .filter(|kind| kind.ranged)
-                    .map(|_| weapon.ares_projectile_range),
-            );
+            let payload =
+                payload.with_ares_range(projectile_type.filter(|kind| kind.ranged).map(|_| {
+                    #[cfg(feature = "phobos")]
+                    {
+                        return projectile_range_with_modifiers(
+                            world,
+                            snap.stable_id,
+                            weapon,
+                            rules,
+                        );
+                    }
+                    #[cfg(not(feature = "phobos"))]
+                    weapon.ares_projectile_range
+                }));
             #[cfg(feature = "phobos")]
             let payload =
                 payload.with_firepower_multiplier(phobos_firepower_multiplier(&damage_stages));

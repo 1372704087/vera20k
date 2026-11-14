@@ -68,6 +68,12 @@ pub struct PhobosWeaponExtras {
     /// scanner may auto-target an enemy building that is unarmed or poses no
     /// threat (`Ext/Techno/Hooks.cpp:1848-1858`).
     pub attack_no_threat_buildings: Option<bool>,
+    /// `ProjectileRange.ApplyModifiers=` (`Body.cpp:88`, `Nullable<bool>`,
+    /// constructed unset `Body.h:125`): whether a `Ranged=` bullet fired from
+    /// this weapon has its range run through
+    /// `WeaponTypeExt::GetRangeWithModifiers`; unset inherits
+    /// `[CombatDamage]`'s default yes.
+    pub projectile_range_apply_modifiers: Option<bool>,
     /// `TurretRecoil.Suppress=` (`Body.cpp:138`, `Valueable<bool>` default
     /// `false`, `Ext/WeaponType/Body.h:68,163`): the fired weapon skips the
     /// unit recoil record (`Ext/Techno/Hooks.Firing.cpp:821-836`, hook
@@ -106,6 +112,7 @@ impl Default for PhobosWeaponExtras {
             feedback_weapon: None,
             visual_scatter: false,
             attack_no_threat_buildings: None,
+            projectile_range_apply_modifiers: None,
             turret_recoil_suppress: false,
             fire_once_reset_sequence: true,
             area_fire_target: AreaFireTarget::Base,
@@ -123,6 +130,8 @@ impl PhobosWeaponExtras {
             visual_scatter: section.read_ares_bool("VisualScatter", false),
             attack_no_threat_buildings: section
                 .read_phobos_nullable_bool("AttackNoThreatBuildings", None),
+            projectile_range_apply_modifiers: section
+                .read_phobos_nullable_bool("ProjectileRange.ApplyModifiers", None),
             turret_recoil_suppress: section.read_bool("TurretRecoil.Suppress", false),
             fire_once_reset_sequence: section.read_bool("FireOnce.ResetSequence", true),
             area_fire_target: section.read_string_with(
@@ -135,6 +144,13 @@ impl PhobosWeaponExtras {
                 .read_ares_int_list("ChargeTurret.Delays")
                 .unwrap_or_default(),
         }
+    }
+
+    /// `ProjectileRange.ApplyModifiers.Get([CombatDamage] ProjectileRange.ApplyModifiers)`
+    /// (`Ext/Bullet/Hooks.cpp:649-650`).
+    pub fn projectile_range_apply_modifiers(&self, rules: &RuleSet) -> bool {
+        self.projectile_range_apply_modifiers
+            .unwrap_or(rules.phobos_globals.projectile_range_apply_modifiers)
     }
 
     /// `AttackNoThreatBuildings.Get(human ? [General] AutoTarget_NoThreatBuildings

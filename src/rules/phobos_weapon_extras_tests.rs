@@ -88,3 +88,30 @@ AreaFire.Target=nearest
         "an unknown name keeps the previous value"
     );
 }
+
+#[test]
+fn projectile_range_modifiers_fall_back_to_the_combat_damage_global() {
+    // `[CombatDamage] ProjectileRange.ApplyModifiers=` constructs yes
+    // (`Ext/Rules/Body.cpp:650`, `Body.h:1044`); the weapon key is a
+    // `Nullable<bool>` constructed unset (`Body.cpp:88`, `Body.h:125`).
+    let rules = RuleSet::from_ini(&IniFile::from_str("[CombatDamage]\n")).expect("rules");
+    let unset = read("[Q]\n");
+    assert_eq!(unset.projectile_range_apply_modifiers, None);
+    assert!(
+        unset.projectile_range_apply_modifiers(&rules),
+        "default yes"
+    );
+
+    let off = read("[Q]\nProjectileRange.ApplyModifiers=no\n");
+    assert_eq!(off.projectile_range_apply_modifiers, Some(false));
+    assert!(!off.projectile_range_apply_modifiers(&rules));
+
+    let rules = RuleSet::from_ini(&IniFile::from_str(
+        "[CombatDamage]\nProjectileRange.ApplyModifiers=no\n",
+    ))
+    .expect("rules");
+    assert!(
+        !unset.projectile_range_apply_modifiers(&rules),
+        "an unset weapon key inherits the global"
+    );
+}

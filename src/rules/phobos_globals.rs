@@ -512,6 +512,13 @@ pub struct PhobosGlobals {
     /// (`Ext/Rules/Body.h:945`): the fallback for a transport type whose own
     /// level is unset.
     pub penetrates_transport_level: i32,
+    /// `[CombatDamage] ProjectileRange.ApplyModifiers=`, `Valueable<bool>`
+    /// default **yes** (`Ext/Rules/Body.cpp:650`, `Ext/Rules/Body.h:1044`):
+    /// a `Ranged=` bullet's remaining range runs through
+    /// `WeaponTypeExt::GetRangeWithModifiers` before the distance check at
+    /// `BulletClass_AI_Ranged 0x467B8E` (`Ext/Bullet/Hooks.cpp:647-655`).
+    #[serde(default = "true_bool")]
+    pub projectile_range_apply_modifiers: bool,
     /// `[CombatDamage] DriverKilled.KeptPassengers=`, default `no`
     /// (`Ext/Rules/Body.cpp:533`, `Body.h:949`): the fallback for a vehicle
     /// type whose own key is unset; `yes` keeps the passengers of a
@@ -1359,6 +1366,7 @@ impl Default for PhobosGlobals {
             force_weapon_in_range_apply_range_modifiers: false,
             force_aa_weapon_in_range_apply_range_modifiers: false,
             penetrates_transport_level: 10,
+            projectile_range_apply_modifiers: true,
             driver_killed_kept_passengers: false,
             driver_killed_kill_passengers: false,
             build_limit_group_content_if_any_match: false,
@@ -2329,6 +2337,10 @@ fn section_settings(section: &crate::rules::ini_parser::IniSection) -> PhobosGlo
         penetrates_transport_level: section.read_ares_int(
             "PenetratesTransport.Level",
             defaults.penetrates_transport_level,
+        ),
+        projectile_range_apply_modifiers: section.read_bool(
+            "ProjectileRange.ApplyModifiers",
+            defaults.projectile_range_apply_modifiers,
         ),
         driver_killed_kept_passengers: section.read_bool(
             "DriverKilled.KeptPassengers",

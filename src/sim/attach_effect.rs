@@ -903,6 +903,61 @@ pub(crate) fn open_topped_transport_type<'r>(
     kind.open_topped.then_some(kind)
 }
 
+/// Phobos `WeaponTypeExt::GetRangeWithModifiers(pThis, pFirer, range)`
+/// (`Ext/WeaponType/Body.cpp:379-443`): the `-512` always-in-range sentinel
+/// returns untouched, an `AdditionalAbility::Range` veteran scales by
+/// `VeteranRange` (`:406-407`), then [`range_with_attach_effects`] folds the
+/// AttachEffects (`:411-443`). `source` is the techno
+/// [`range_modifier_source`] resolved: the open-topped transport when its type
+/// lends its modifiers (`:393-401`).
+#[cfg(feature = "phobos")]
+pub(crate) fn range_with_modifiers(
+    source: &crate::sim::game_entity::GameEntity,
+    weapon: &str,
+    range: i32,
+    rules: &crate::rules::ruleset::RuleSet,
+    interner: &crate::sim::intern::StringInterner,
+) -> i32 {
+    use crate::rules::phobos_crit::PhobosAbilityFlags;
+    use crate::sim::combat::veterancy::VeterancyRank;
+
+    const WEAPON_RANGE_ALWAYS_IN_RANGE_LEPTONS: i32 = -512;
+    if range == WEAPON_RANGE_ALWAYS_IN_RANGE_LEPTONS {
+        return range;
+    }
+    let mut range = range;
+    let rank = source.veterancy.rank_kind();
+    if !matches!(rank, VeterancyRank::Rookie) {
+        let elite = matches!(rank, VeterancyRank::Elite);
+        if let Some(object) = interner.object_type(source.type_ref(), rules) {
+            if object
+                .phobos_abilities()
+                .has(PhobosAbilityFlags::RANGE, elite)
+            {
+                let veteran = object
+                    .phobos_techno_extras
+                    .veteran_range_multiplier(f64::from_bits(
+                        rules.phobos_globals.veteran_range.bits(),
+                    ));
+                range = safe_multiply(range, veteran.max(0.0));
+            }
+        }
+    }
+    range_with_attach_effects(source, weapon, range, rules)
+}
+
+#[cfg(not(feature = "phobos"))]
+pub(crate) fn range_with_modifiers(
+    source: &crate::sim::game_entity::GameEntity,
+    weapon: &str,
+    range: i32,
+    _rules: &crate::rules::ruleset::RuleSet,
+    _interner: &crate::sim::intern::StringInterner,
+) -> i32 {
+    let _ = (source, weapon);
+    range
+}
+
 /// Phobos `WeaponTypeExt::GetRangeWithModifiers`'s AttachEffect arm: every
 /// active effect whose weapon lists admit `weapon` multiplies the range (in
 /// leptons, clamped) and sums its `WeaponRange.ExtraRange`; the summed cells
@@ -1557,11 +1612,12 @@ impl Simulation {
                         rules,
                         &self.interner,
                     );
-                    range_with_attach_effects(
+                    range_with_modifiers(
                         source,
                         &selected.weapon.id,
                         selected.weapon.range_leptons,
                         rules,
+                        &self.interner,
                     )
                 });
                 Some((distance, range))
@@ -6757,5 +6813,58 @@ AttachEffect.InitialDelays=3
             0,
             "a matching DisallowWarheads list skips the effect"
         );
+    }
+
+    /// Phobos `WeaponTypeExt::GetRangeWithModifiers`'s veteran arm
+    /// (`Ext/WeaponType/Body.cpp:404-407`): an `AdditionalAbility::Range`
+    /// rank scales the range by the type's `VeteranRange=` (else
+    /// `[CombatDamage]`), clamped at zero; a rookie or a type without the
+    /// ability keeps the plain range.
+    #[test]
+    fn range_with_modifiers_scales_a_range_ability_veteran() {
+        fn rules(abilities: &str, veteran_range: &str) -> crate::rules::ruleset::RuleSet {
+            crate::rules::ruleset::RuleSet::from_ini_with_fixed_art_for_test(
+                &crate::rules::ini_parser::IniFile::from_str(&format!(
+                    "[VehicleTypes]\n0=SMIN\n[Weapons]\n0=W\n\
+                     [SMIN]\nStrength=100\nSpeed=3\nPrimary=W\n{abilities}{veteran_range}\
+                     [W]\nDamage=10\nRange=5\nROF=10\n\
+                     [Clear]\nBuildable=yes\n"
+                )),
+                &crate::rules::ini_parser::IniFile::from_str(""),
+            )
+            .expect("rules read")
+        }
+
+        for (abilities, veteran_range, elite, expected) in [
+            ("", "VeteranRange=2.0\n", false, 1280),
+            ("VeteranAbilities=RANGE\n", "", false, 1280),
+            (
+                "VeteranAbilities=RANGE\n",
+                "VeteranRange=2.0\n",
+                false,
+                2560,
+            ),
+            ("EliteAbilities=RANGE\n", "VeteranRange=2.0\n", true, 2560),
+            ("EliteAbilities=RANGE\n", "VeteranRange=2.0\n", false, 1280),
+        ] {
+            let rules = rules(abilities, veteran_range);
+            let mut sim = crate::sim::world::Simulation::with_seed(7);
+            crate::sim::arena_fixture::flat_ground(&mut sim, &rules);
+            let id = sim
+                .spawn_object_at_height("SMIN", "Neutral", 10, 10, 0, 0, &rules)
+                .expect("SMIN spawns");
+            let entity = sim.substrate.entities.get_mut(id).expect("entity");
+            if elite {
+                entity.veterancy.set_elite();
+            } else {
+                entity.veterancy.set_veteran();
+            }
+            let entity = sim.substrate.entities.get(id).expect("entity");
+            assert_eq!(
+                range_with_modifiers(entity, "W", 1280, &rules, &sim.interner),
+                expected,
+                "{abilities:?} {veteran_range:?} elite={elite}"
+            );
+        }
     }
 }

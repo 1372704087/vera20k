@@ -10,6 +10,7 @@
 pub mod base64;
 pub(crate) mod bit_span;
 pub mod case_insensitive_path;
+pub mod cjk;
 pub mod config;
 pub mod direction;
 pub mod direction_tables;

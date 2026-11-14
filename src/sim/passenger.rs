@@ -2193,6 +2193,50 @@ impl Simulation {
     }
 }
 
+/// Phobos `ScenarioExt::TransportReloaders` (`Ext/Scenario/Body.h:34`): the
+/// passengers reloaded by the pre-Logic pass while inside a transport, in
+/// boarding order. One owner for the queue; serialized as its former plain
+/// list so existing saves load unchanged.
+#[cfg(feature = "phobos")]
+#[derive(Debug, Clone, Default, PartialEq, Eq, Hash, serde::Serialize, serde::Deserialize)]
+#[serde(transparent)]
+pub(crate) struct TransportReloaderQueue {
+    ids: Vec<u64>,
+}
+
+#[cfg(feature = "phobos")]
+impl TransportReloaderQueue {
+    fn add(&mut self, id: u64) {
+        if !self.ids.contains(&id) {
+            self.ids.push(id);
+        }
+    }
+
+    fn remove(&mut self, id: u64) {
+        if let Some(index) = self.ids.iter().position(|&listed| listed == id) {
+            self.ids.remove(index);
+        }
+    }
+
+    fn is_empty(&self) -> bool {
+        self.ids.is_empty()
+    }
+
+    fn take(&mut self) -> Vec<u64> {
+        std::mem::take(&mut self.ids)
+    }
+
+    fn replace(&mut self, ids: Vec<u64>) {
+        self.ids = ids;
+    }
+
+    /// The listed passengers in boarding order, for the reload pass's readers
+    /// and fixtures.
+    pub(crate) fn listed(&self) -> &[u64] {
+        &self.ids
+    }
+}
+
 /// Phobos `ReloadInTransport` (`Ext/Techno/Hooks.Transport.cpp:70-165`):
 /// the scenario reloader list, its pre-Logic pass and the infantry FireAt
 /// restart.
@@ -2221,18 +2265,14 @@ impl Simulation {
         {
             return;
         }
-        if !self.transport_reloaders.contains(&pax_id) {
-            self.transport_reloaders.push(pax_id);
-        }
+        self.transport_reloaders.add(pax_id);
     }
 
     /// `FootClass_LeaveTransport` (hook `0x4DE722`, `:97-105`) and
     /// `TechnoClass::UnInit` (`Ext/Techno/Body.cpp:30`): the order-preserving
     /// erase of `std::remove` + erase.
     pub(crate) fn remove_transport_reloader(&mut self, pax_id: u64) {
-        if let Some(index) = self.transport_reloaders.iter().position(|&id| id == pax_id) {
-            self.transport_reloaders.remove(index);
-        }
+        self.transport_reloaders.remove(pax_id);
     }
 
     /// `ScenarioExt::ExtData::UpdateTransportReloaders`
@@ -2246,7 +2286,7 @@ impl Simulation {
             return;
         }
         let now = self.session.binary_frame() as i32;
-        let ids = std::mem::take(&mut self.transport_reloaders);
+        let ids = self.transport_reloaders.take();
         let mut keep = Vec::with_capacity(ids.len());
         for id in ids {
             let Some((category, type_ref)) = self.substrate.entities.get(id).and_then(|entity| {
@@ -2294,7 +2334,7 @@ impl Simulation {
                 );
             }
         }
-        self.transport_reloaders = keep;
+        self.transport_reloaders.replace(keep);
     }
 
     /// `InfantryClass_FireAt_ReloadInTransport` (`0x51DF82`, `:151-165`):
@@ -2821,7 +2861,7 @@ FixtureOnly=1
             None,
             crate::sim::world::FrameEffects::default(),
         ));
-        assert_eq!(sim.transport_reloaders, vec![passenger]);
+        assert_eq!(sim.transport_reloaders.listed(), [passenger]);
 
         sim.session.set_binary_frame_for_test(200);
         sim.phobos_update_transport_reloaders(&rules);
@@ -2945,6 +2985,6 @@ ReloadInTransport=yes
                 crate::sim::world::FrameEffects::default(),
             ));
         }
-        assert_eq!(sim.transport_reloaders, vec![global_pax]);
+        assert_eq!(sim.transport_reloaders.listed(), [global_pax]);
     }
 }

@@ -52,6 +52,8 @@ pub mod chronosphere_tests;
 #[cfg(feature = "phobos")]
 mod chaining;
 #[cfg(feature = "phobos")]
+pub(crate) use chaining::ChainDepth;
+#[cfg(feature = "phobos")]
 mod detonate;
 #[cfg(all(test, feature = "phobos"))]
 mod detonate_tests;

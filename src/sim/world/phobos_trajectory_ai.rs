@@ -623,9 +623,13 @@ impl Simulation {
             let z = f64::from_bits(velocity.z.bits())
                 + f64::from(difference.wrapping_add(t.confine_at_height));
             velocity.z = NativeF64Bits::from_bits(z.to_bits());
-            let length = f64::from_bits(velocity.x.bits())
-                .hypot(f64::from_bits(velocity.y.bits()))
-                .hypot(z);
+            let length = libm::hypot(
+                libm::hypot(
+                    f64::from_bits(velocity.x.bits()),
+                    f64::from_bits(velocity.y.bits()),
+                ),
+                z,
+            );
             let (velocity, burned) = if length > 1e-10 {
                 let scale = speed / length;
                 (scale_velocity_f(velocity, scale), false)
@@ -669,9 +673,13 @@ impl Simulation {
         let current = projectile.position();
         let distance = distance(position, current);
         let velocity = projectile.velocity();
-        let magnitude = f64::from_bits(velocity.x.bits())
-            .hypot(f64::from_bits(velocity.y.bits()))
-            .hypot(f64::from_bits(velocity.z.bits()));
+        let magnitude = libm::hypot(
+            libm::hypot(
+                f64::from_bits(velocity.x.bits()),
+                f64::from_bits(velocity.y.bits()),
+            ),
+            f64::from_bits(velocity.z.bits()),
+        );
         let mut new_velocity = velocity;
         if magnitude.abs() > 1e-10 && distance < magnitude {
             new_velocity = scale_velocity(velocity, distance / magnitude);
@@ -983,7 +991,7 @@ pub(super) fn distance_f64(a: ProjectileCoord, b: ProjectileCoord) -> f64 {
     let x = f64::from(a.x.wrapping_sub(b.x));
     let y = f64::from(a.y.wrapping_sub(b.y));
     let z = f64::from(a.z.wrapping_sub(b.z));
-    (x * x + y * y + z * z).sqrt()
+    libm::sqrt(x * x + y * y + z * z)
 }
 
 pub(super) fn scale_velocity(velocity: ProjectileVelocity, scale: f64) -> ProjectileVelocity {

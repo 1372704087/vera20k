@@ -54,6 +54,28 @@ use crate::sim::world::{FrameEffects, SimSoundEvent, Simulation};
 /// cyclic chain (native recurses to stack exhaustion).
 pub(super) const MAX_CHAIN_DEPTH: u32 = 16;
 
+/// `Simulation`'s `SW.Next`/`SW.Link` nesting counter. Transient owner: it
+/// only stops a cyclic chain (native would recurse to stack exhaustion) and is
+/// zero outside a launch.
+#[derive(Debug, Default)]
+pub(crate) struct ChainDepth {
+    depth: u32,
+}
+
+impl ChainDepth {
+    pub(crate) fn at_limit(&self) -> bool {
+        self.depth >= MAX_CHAIN_DEPTH
+    }
+
+    fn enter(&mut self) {
+        self.depth += 1;
+    }
+
+    fn leave(&mut self) {
+        self.depth -= 1;
+    }
+}
+
 /// The `FireSuperWeaponExt` tail, in its native order: `SW.Next`, the type
 /// conversion, then `SW.Link`.
 #[allow(clippy::too_many_arguments)]
@@ -66,14 +88,14 @@ pub(super) fn apply_phobos_launch_tail(
     overlay_registry: Option<&OverlayTypeRegistry>,
     effects: FrameEffects<'_>,
 ) {
-    if sim.super_weapon_chain_depth >= MAX_CHAIN_DEPTH {
+    if sim.super_weapon_chain_depth.at_limit() {
         log::warn!(
             "Phobos superweapon chain from \"{}\" stopped at depth {MAX_CHAIN_DEPTH}",
             sw.id
         );
         return;
     }
-    sim.super_weapon_chain_depth += 1;
+    sim.super_weapon_chain_depth.enter();
     // Native order: LimboDelivery, LimboKill, Detonate, SW.Next, Convert,
     // SW.Link (`Ext/SWType/FireSuperWeapon.cpp:13-40`).
     super::limbo::apply_limbo_delivery(sim, rules, owner, sw, overlay_registry, effects);
@@ -102,7 +124,7 @@ pub(super) fn apply_phobos_launch_tail(
         sim.sound_events
             .emit(SimSoundEvent::SuperWeaponActivatedMessage { owner, sw_type });
     }
-    sim.super_weapon_chain_depth -= 1;
+    sim.super_weapon_chain_depth.leave();
 }
 
 /// `SWTypeExt::ApplySWNext`: one launch per selected index, in roll order.

@@ -1549,8 +1549,9 @@ impl PhobosGlobals {
         let air_shadow_base_scale =
             audio_visual.read_phobos_nullable_double("AirShadowBaseScale", None);
         if let Some(base) = air_shadow_base_scale.filter(|base| *base > 0.0) {
+            // `libm` keeps the log identical on every target.
             globals.air_shadow_base_scale_log =
-                NativeF64Bits::from_bits((-base.min(1.0).ln()).to_bits());
+                NativeF64Bits::from_bits((-libm::log(base.min(1.0))).to_bits());
         }
         if air_shadow_base_scale.is_some_and(|base| base > 0.98) {
             globals.height_shadow_scaling = false;

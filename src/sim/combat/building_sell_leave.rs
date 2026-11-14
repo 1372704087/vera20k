@@ -92,12 +92,13 @@ pub(crate) fn strongest_bin(record: &ThreatRecord) -> Option<usize> {
 ///
 /// The `- 4` quarter turn and the outer negation are both real; the short
 /// casts truncate toward zero and the `CellStruct` adds wrap as the native
-/// `short` arithmetic does. The trig is the CRT's, not the game's table —
-/// Phobos calls plain `cos`/`sin` here.
+/// `short` arithmetic does. `libm` (musl) keeps the result identical on every
+/// target; native calls the CRT, so an ulp-level difference is a recorded
+/// deviation.
 pub(crate) fn leave_target_cell(origin: (i16, i16), dir: usize) -> (i16, i16) {
     let radian = -(((dir as f64 - 4.0) / 16.0) * std::f64::consts::TAU);
-    let dx = (14.0 * radian.cos()) as i16;
-    let dy = (14.0 * radian.sin()) as i16;
+    let dx = (14.0 * libm::cos(radian)) as i16;
+    let dy = (14.0 * libm::sin(radian)) as i16;
     (origin.0.wrapping_sub(dx), origin.1.wrapping_add(dy))
 }
 

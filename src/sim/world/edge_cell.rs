@@ -97,8 +97,9 @@ pub(crate) fn edge_for_mode(
 /// The port keeps both quantizations the original applies: the direction
 /// passes through a `DirStruct` (`SetRadian<65536>` truncates into the
 /// `short` word, `GetRadian<65536>` reads it back) before `Math::Pi` is
-/// added, and the final `static_cast<int>` truncates towards zero. The CRT
-/// `atan2`/`cos`/`sin` are the same double functions Phobos calls.
+/// added, and the final `static_cast<int>` truncates towards zero. `libm`
+/// keeps `atan2`/`cos`/`sin` identical on every target; native calls the
+/// CRT, so an ulp-level difference is a recorded deviation.
 pub(crate) fn spawn_distance_cell(
     edge_cell: (u16, u16),
     target_leptons: (i32, i32),
@@ -114,7 +115,7 @@ pub(crate) fn spawn_distance_cell(
     );
     // Game degrees: `(atan - HalfPi) * 180/pi - 90` degrees back to radians.
     const GAME_DEGREES_TO_RADIANS: f64 = std::f64::consts::PI / 180.0;
-    let atan = f64::atan2(
+    let atan = libm::atan2(
         f64::from(edge.1.wrapping_sub(target_leptons.1)),
         f64::from(target_leptons.0.wrapping_sub(edge.0)),
     );
@@ -123,8 +124,8 @@ pub(crate) fn spawn_distance_cell(
     // C++ `(short)` narrowing keeps the low word of the truncated value.
     let raw = (radians / std::f64::consts::TAU * 65536.0) as i32 as i16;
     let radians = f64::from(raw) * (std::f64::consts::TAU / 65536.0) + std::f64::consts::PI;
-    let x = (f64::from(target_leptons.0) + radians.cos() * f64::from(distance)) as i32;
-    let y = (f64::from(target_leptons.1) - radians.sin() * f64::from(distance)) as i32;
+    let x = (f64::from(target_leptons.0) + libm::cos(radians) * f64::from(distance)) as i32;
+    let y = (f64::from(target_leptons.1) - libm::sin(radians) * f64::from(distance)) as i32;
     (
         lepton_to_cell_packed(x) as u16,
         lepton_to_cell_packed(y) as u16,

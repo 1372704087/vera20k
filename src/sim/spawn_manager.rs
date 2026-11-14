@@ -1854,10 +1854,12 @@ impl SpawnHost for WorldSpawn<'_, '_> {
         } else {
             // `CoordStruct::Magnitude()`: the Euclidean root; no root
             // approximation participates, so compare it against the range.
-            let magnitude = (f64::from(delta[0]).powi(2)
-                + f64::from(delta[1]).powi(2)
-                + f64::from(delta[2]).powi(2))
-            .sqrt();
+            // `libm` keeps the root identical on every target.
+            let magnitude = libm::sqrt(
+                f64::from(delta[0]) * f64::from(delta[0])
+                    + f64::from(delta[1]) * f64::from(delta[1])
+                    + f64::from(delta[2]) * f64::from(delta[2]),
+            );
             magnitude <= f64::from(range)
         }
     }

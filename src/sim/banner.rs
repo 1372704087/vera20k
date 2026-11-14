@@ -6,8 +6,6 @@
 //! the app's banner pass resolves each against the `[BannerTypes]` catalog
 //! and owns the blink phase its `Render` ticks per drawn frame.
 
-use super::scenario_session::ScenarioSession;
-
 /// One `BannerClass` (`BannerClass.h:9-21`). The position stays the action's
 /// percent pair; the display scales it against the tactical view per frame,
 /// as the native constructor and the replace arm both do
@@ -29,12 +27,21 @@ pub struct RuntimeBanner {
     pub global_variable: bool,
 }
 
-impl ScenarioSession {
+/// The scenario's `BannerClass::Array` (`BannerClass.cpp:218-232`): the live
+/// instances in creation order, created and deleted by trigger actions
+/// 800-802.
+#[derive(Debug, Clone, Default, PartialEq, Eq, serde::Serialize, serde::Deserialize)]
+#[serde(transparent)]
+pub(crate) struct BannerList {
+    banners: Vec<RuntimeBanner>,
+}
+
+impl BannerList {
     /// `CreateOrReplaceBanner` (`Ext/TAction/Body.cpp:813-843`): a found
     /// type is required; the existing id replaces type, position, variable
     /// and variable kind and keeps its blink phase, a new id appends with
     /// the type's period (`BannerClass.cpp:31-33`).
-    pub fn banner_create_or_replace(&mut self, banner: RuntimeBanner) {
+    pub(crate) fn create_or_replace(&mut self, banner: RuntimeBanner) {
         let existing = self
             .banners
             .iter_mut()
@@ -52,7 +59,7 @@ impl ScenarioSession {
 
     /// `TActionExt::DeleteBanner` (`Ext/TAction/Body.cpp:858-875`): the
     /// first banner with the id goes; one action removes one banner.
-    pub fn banner_delete(&mut self, id: i32) -> bool {
+    pub(crate) fn delete(&mut self, id: i32) -> bool {
         let position = self.banners.iter().position(|instance| instance.id == id);
         match position {
             Some(position) => {
@@ -64,7 +71,7 @@ impl ScenarioSession {
     }
 
     /// The live banners, in creation order (`BannerClass::Array`).
-    pub fn banners(&self) -> &[RuntimeBanner] {
+    pub(crate) fn entries(&self) -> &[RuntimeBanner] {
         &self.banners
     }
 }

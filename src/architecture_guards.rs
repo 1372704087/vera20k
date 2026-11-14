@@ -388,11 +388,15 @@ fn engine_per_client_reads_have_pinned_callers() {
         (
             "current_house",
             &[
-                ("sim/anim_class.rs", 1),
+                // The cloak-visible anim gate asks the viewer house
+                // (Phobos Anim.VisibleTo); both reads feed drawing.
+                ("sim/anim_class.rs", 2),
                 ("sim/campaign_carry_over.rs", 2),
                 ("sim/cheats.rs", 1),
                 ("sim/cloak_disguise.rs", 2),
                 ("sim/combat/aircraft_release.rs", 1),
+                // Phobos Warhead Reveal's fog notification, per-house view state.
+                ("sim/combat/crit.rs", 1),
                 ("sim/combat/world_fire.rs", 1),
                 ("sim/combat/world_receiver.rs", 1),
                 ("sim/flashing.rs", 1),
@@ -441,8 +445,12 @@ fn engine_per_client_reads_have_pinned_callers() {
         (
             "is_observer_house",
             &[
+                // The anim visibility gate and the SW chain skip both read
+                // the scenario's observer list, not a per-client choice.
+                ("sim/anim_class.rs", 1),
                 ("sim/scenario_session.rs", 1),
                 ("sim/score.rs", 1),
+                ("sim/superweapon/chaining.rs", 1),
                 ("sim/superweapon/mod.rs", 1),
                 ("sim/world/house_defeat.rs", 2),
             ],
@@ -485,7 +493,9 @@ fn engine_per_client_reads_have_pinned_callers() {
                 ("sim/world/shroud_refresh.rs", 2),
                 ("sim/world/techno_ai.rs", 1),
                 ("sim/world/world_commands.rs", 2),
-                ("sim/world/world_orders.rs", 12),
+                // The Phobos Grinding cursor gate (Hooks.Grinding.cpp:68-89)
+                // reads the actor's player to answer the click action.
+                ("sim/world/world_orders.rs", 13),
             ],
         ),
         (
@@ -1374,6 +1384,31 @@ fn composition_root_slots_are_owner_types() {
             "mission_leaf",
             "an enum of owner leaves, built once at entity construction; only fixtures replace it",
         ),
+        (
+            "GameEntity",
+            "should_be_dead",
+            "the AutoDeath latch (`sim/auto_death.rs`), the native death byte; its own AI reads it",
+        ),
+        (
+            "GameEntity",
+            "phobos_revert_on_exit_latch",
+            "the PassengerSync owner/revert latch written by `sim/auto_death.rs` and read on exit",
+        ),
+        (
+            "GameEntity",
+            "phobos_prevent_crew_escape",
+            "set by the Phobos ReceiveDamage arm and read by the crew-survival owner",
+        ),
+        (
+            "GameEntity",
+            "phobos_be_controlled_threat_frame",
+            "the mind-control threat-frame latch in `sim/capture_manager.rs`",
+        ),
+        (
+            "GameEntity",
+            "phobos_extra_threat_last_target_crd",
+            "the ExtraThreat scorer's last-coordinate cache (`sim/combat/extra_threat.rs`)",
+        ),
     ];
     let src_root = Path::new(env!("CARGO_MANIFEST_DIR")).join("src");
     let files = source_files(&src_root);
@@ -1756,6 +1791,36 @@ fn mutable_handouts_and_setters_are_owner_operations() {
         ("sim/combat/laser.rs", "create", LASER),
         ("sim/combat/laser.rs", "construct", LASER),
         (
+            "sim/combat/laser.rs",
+            "create_effect",
+            "Phobos `BulletExt::SimulatedFiringLaser` copies the same birth for a shot whose \
+             Techno already expired; the caller keeps the native CreateLaser postprocessing",
+        ),
+        (
+            "sim/projectile.rs",
+            "phobos_trajectory_mut",
+            "the trajectory state is plain native data; the per-frame trajectory AI mutates it \
+             in place, as the native trajectory switch does",
+        ),
+        (
+            "sim/projectile.rs",
+            "payload_mut",
+            "the bullet packet is filled once by FireAt and spent in place by the Ares \
+             BulletClass_Update_Ranged distance step",
+        ),
+        (
+            "sim/projectile.rs",
+            "get_mut",
+            "the bullet store is the update owner; the per-frame update, snapshot restore and \
+             EMP probe edit one projectile through it",
+        ),
+        (
+            "sim/projectile.rs",
+            "iter_mut",
+            "the bullet store's bulk walk: collision cleanup and the firestorm sweep mutate \
+             projectiles in place",
+        ),
+        (
             "sim/pathfinding/zone_hierarchy.rs",
             "cell_zone_ids_mut",
             "the zone build writes a level's cell zone ids (zone_build/hierarchy.rs)",
@@ -2055,6 +2120,175 @@ fn mutable_handouts_and_setters_are_owner_operations() {
             "sim/world/mod.rs",
             "set_input_delay_ticks",
             "the match's configured input delay, installed by the app at match start",
+        ),
+        (
+            "map/resolved_terrain/deformation.rs",
+            "set_terrain_deformation",
+            "a terraform event stores the deformation once; the grid owns how it is applied",
+        ),
+        (
+            "rules/object_type.rs",
+            "set_phobos_shadow_index_frame",
+            "runs only inside the ART pass: Phobos ShadowIndex.Frame",
+        ),
+        (
+            "rules/object_type.rs",
+            "set_phobos_shadow_indices",
+            "runs only inside the ART pass: the Phobos ShadowIndices vector",
+        ),
+        (
+            "rules/personal_rules.rs",
+            "set_terrain_deformation",
+            "the personal-rules overlay stores the deformation read for the match",
+        ),
+        (
+            "sim/aircraft/mod.rs",
+            "set",
+            "the native +0x3D4 byte; Phobos' IsALoaner UnLimbo override assigns both values \
+             (Ext/Aircraft/Hooks.cpp:1320)",
+        ),
+        (
+            "sim/ammo.rs",
+            "set_current",
+            "Phobos HandleOnDeployAmmoChange's clamped deploy rewrite (Ext/Unit/Body.cpp:249)",
+        ),
+        (
+            "sim/combat/burst.rs",
+            "set_index",
+            "the plain Techno+3B8 store without the increment; Phobos AircraftExt::FireWeapon \
+             writes it before a single-shot strafing shot (Ext/Aircraft/Body.cpp:26-27)",
+        ),
+        (
+            "sim/docking/bunker_install.rs",
+            "set_state_for_test",
+            "a test-support fixture writer only",
+        ),
+        (
+            "sim/game_entity.rs",
+            "set_should_be_dead",
+            "the AutoDeath latch (Ext/Techno/Body.Update.cpp:159-163), read by its own AI",
+        ),
+        (
+            "sim/game_entity.rs",
+            "set_phobos_original_passenger_owner",
+            "the FootExt original-owner record serialized by Ext/Foot/Body.cpp:943",
+        ),
+        (
+            "sim/game_entity.rs",
+            "set_phobos_revert_on_exit_latch",
+            "the PassengerSync revert latch written by Ext/House/Hooks.cpp:225",
+        ),
+        (
+            "sim/game_entity.rs",
+            "set_phobos_extra_threat_last_target_crd",
+            "the ExtraThreat scorer's last-coordinate cache, written by its own update pass",
+        ),
+        (
+            "sim/game_entity.rs",
+            "set_phobos_grinding_weapon_accumulated_credits",
+            "Phobos Grinding's accumulated refund, written by the grinder's own fire handling",
+        ),
+        (
+            "sim/game_entity.rs",
+            "set_phobos_grinding_weapon_last_fired_frame",
+            "Phobos Grinding's last-fired frame, written beside the refund accumulator",
+        ),
+        (
+            "sim/game_entity.rs",
+            "set_phobos_skip_target_change_reset_sequence",
+            "the Phobos FireUp.ResetInRetarget latch, cleared by the target-change writer",
+        ),
+        (
+            "sim/game_entity.rs",
+            "set_phobos_delayed_fire_sequence_paused",
+            "the delayed-fire pause latch of the FireUp sequence owner",
+        ),
+        (
+            "sim/game_entity.rs",
+            "set_phobos_keep_target_on_move",
+            "the Phobos FireUp keep-target latch on the delayed-fire sequence owner",
+        ),
+        (
+            "sim/game_entity.rs",
+            "set_phobos_random_factor",
+            "the Phobos DistributeTargeting draw cached at deploy/undeploy",
+        ),
+        (
+            "sim/game_entity.rs",
+            "set_created_from_map_file",
+            "the map-file spawn flag, installed once at scenario load",
+        ),
+        (
+            "sim/game_entity.rs",
+            "set_phobos_infantry_undeploy_converted",
+            "the Phobos deploy conversion latch, written by its one conversion arm",
+        ),
+        (
+            "sim/game_entity.rs",
+            "set_phobos_infantry_deploy_converted",
+            "the Phobos undeploy conversion latch, written by its one conversion arm",
+        ),
+        (
+            "sim/game_entity.rs",
+            "set_phobos_attack_move_follower_temp_count",
+            "the FootClass_AI follower count, written only by the follow search tail",
+        ),
+        (
+            "sim/game_entity.rs",
+            "set_phobos_construction_start_facing",
+            "the one random start facing drawn for a new building",
+        ),
+        (
+            "sim/house_state.rs",
+            "set_repair_base_nodes_for_test",
+            "a test-support fixture writer only",
+        ),
+        (
+            "sim/movement/teleport_movement.rs",
+            "set_warp_distance_leptons_for_test",
+            "a test-support fixture writer only",
+        ),
+        (
+            "sim/projectile.rs",
+            "set_phobos_trajectory",
+            "the trajectory state installed once when the attack launches",
+        ),
+        (
+            "sim/projectile.rs",
+            "set_position",
+            "the bullet store's per-step location write, the SetLocation call itself",
+        ),
+        (
+            "sim/projectile.rs",
+            "set_velocity",
+            "the bullet store's per-step velocity write, the native MoveTo result",
+        ),
+        (
+            "sim/projectile.rs",
+            "set_last_target_position",
+            "the trajectory owner's last-target record, one write per retarget",
+        ),
+        (
+            "sim/projectile.rs",
+            "set_target",
+            "Bullet +0x10C replacement: the Ares firestorm wall and the Phobos all-map \
+             detonation re-point the bullet at each target",
+        ),
+        (
+            "sim/projectile.rs",
+            "set_previous_cell",
+            "the bullet's previous-cell record, written by its own move step",
+        ),
+        (
+            "sim/superweapon/mod.rs",
+            "set_readiness",
+            "SuperClass::SetReadiness 0x006CB820: a byte write to +0x6F, no timer, ready-frame \
+             or animation change",
+        ),
+        (
+            "sim/terrain_object.rs",
+            "set_crumbling",
+            "the terrain crumbling latch, stored when the object starts crumbling",
         ),
     ];
     let src_root = Path::new(env!("CARGO_MANIFEST_DIR")).join("src");

@@ -162,9 +162,9 @@ impl PhobosTurretAnim {
 /// voxel `TurretAnimCounter` (`sim/combat/gattling.rs:528`).
 #[derive(Debug, Clone, Copy, PartialEq, Eq, serde::Serialize, serde::Deserialize)]
 pub struct TurretAnimState {
-    pub idle_frame: i32,
-    pub firing_frame: i32,
-    pub rate_tick: i32,
+    idle_frame: i32,
+    firing_frame: i32,
+    rate_tick: i32,
 }
 
 impl Default for TurretAnimState {

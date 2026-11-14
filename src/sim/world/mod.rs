@@ -1931,7 +1931,7 @@ pub struct Simulation {
     /// zero outside a launch. Not saved or hashed.
     #[cfg(feature = "phobos")]
     #[serde(skip)]
-    pub(crate) super_weapon_chain_depth: u32,
+    pub(crate) super_weapon_chain_depth: crate::sim::superweapon::ChainDepth,
     /// Serialized map trigger state, initialized and mutated by trigger_runtime.
     /// Remains installed while actions call other Simulation mechanisms.
     pub(crate) trigger_runtime: TriggerRuntime,
@@ -1940,7 +1940,7 @@ pub struct Simulation {
     /// boarding order. Saved (`Ext/Scenario/Body.cpp:182`) and hashed.
     #[cfg(feature = "phobos")]
     #[serde(default)]
-    pub(crate) transport_reloaders: Vec<u64>,
+    pub(crate) transport_reloaders: crate::sim::passenger::TransportReloaderQueue,
 }
 
 #[cfg(any(test, feature = "test-support"))]
@@ -4915,10 +4915,10 @@ impl Simulation {
             planning: planning::PlanningState::default(),
             replaying_recorded_commands: false,
             #[cfg(feature = "phobos")]
-            super_weapon_chain_depth: 0,
+            super_weapon_chain_depth: crate::sim::superweapon::ChainDepth::default(),
             trigger_runtime: TriggerRuntime::default(),
             #[cfg(feature = "phobos")]
-            transport_reloaders: Vec::new(),
+            transport_reloaders: crate::sim::passenger::TransportReloaderQueue::default(),
         };
         debug_assert_eq!(out.scenario_rng.state(), out.main_rng.state());
         // Authoritative map bounds are session state, known at construction —

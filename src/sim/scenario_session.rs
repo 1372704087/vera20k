@@ -902,7 +902,7 @@ pub struct ScenarioSession {
     /// [`crate::sim::banner`], the draw reads them.
     #[cfg(feature = "phobos")]
     #[serde(default)]
-    pub(crate) banners: Vec<crate::sim::banner::RuntimeBanner>,
+    banners: crate::sim::banner::BannerList,
     /// Destination Scenario+1C78/+1C80; immutable after its Basic read.
     #[serde(default)]
     carry_over_money: Option<crate::util::native_x87::NativeF64Bits>,
@@ -2100,7 +2100,7 @@ impl ScenarioSession {
             scenario_pause: pause::ScenarioPause::default(),
             scenario_countdown: countdown::ScenarioCountdown::new(desc.timer_inherit),
             #[cfg(feature = "phobos")]
-            banners: Vec::new(),
+            banners: crate::sim::banner::BannerList::default(),
             carry_over_money: desc.carry_over_money,
             carry_over_cap: desc.carry_over_cap.unwrap_or(0),
             started: false,
@@ -2679,6 +2679,21 @@ mod tests {
         json.as_object_mut().unwrap().remove("harvester_immune");
         let missing: ScenarioSession = serde_json::from_value(json).unwrap();
         assert!(!missing.harvester_immune);
+    }
+}
+
+#[cfg(feature = "phobos")]
+impl ScenarioSession {
+    pub fn banner_create_or_replace(&mut self, banner: crate::sim::banner::RuntimeBanner) {
+        self.banners.create_or_replace(banner);
+    }
+
+    pub fn banner_delete(&mut self, id: i32) -> bool {
+        self.banners.delete(id)
+    }
+
+    pub fn banners(&self) -> &[crate::sim::banner::RuntimeBanner] {
+        self.banners.entries()
     }
 }
 

@@ -2512,6 +2512,20 @@ impl ProjectileStore {
         }
     }
 
+    /// Phobos `BulletExt::InterceptBullet`'s trail reset
+    /// (`Ext/Bullet/Body.cpp:68..72`): a replaced BulletType clears the old
+    /// list and initializes the new type's, unless that type is `Inviso`.
+    #[cfg(feature = "phobos")]
+    pub(crate) fn reset_phobos_laser_trails(&mut self, id: u64, names: Option<&[String]>) {
+        if let Some(projectile) = self.get_mut(id) {
+            projectile.laser_trails.clear();
+            if let Some(names) = names {
+                projectile.laser_trails =
+                    crate::sim::laser_trail::LaserTrailState::from_names(names);
+            }
+        }
+    }
+
     /// Phobos `InterceptorTechnoType` written by the FireAt late logic.
     #[cfg(feature = "phobos")]
     pub(crate) fn set_phobos_interceptor_type(&mut self, id: u64, value: Option<InternedId>) {

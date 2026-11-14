@@ -163,8 +163,9 @@ AttachEffect.SameSourceOnly=no            ; match only same-source instances
 
 ## Residuals
 
-- `LaserTrail.Type` draws only `DrawType=laser` entries; `ebolt` and `radbeam`
-  parse (with their `Bolt.*` and `Beam.*` keys) but emit nothing yet.
+- `LaserTrail.Type` draws `laser`, `ebolt` and `radbeam` entries. A laser
+  trail with no owner House draws nothing (native forces `IsHouseColor` on the
+  trail LaserDraw and resolves the null House itself).
   `CloakVisible.DetectedOnly`, `DropPodOnly` and the global
   `HideLaserTrailEffects` switch have no reader, and the trail update runs in
   the shared techno AI phase rather than after the foot locomotor process.

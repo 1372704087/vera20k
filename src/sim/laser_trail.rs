@@ -23,9 +23,12 @@ use serde::{Deserialize, Serialize};
 
 use crate::rules::phobos_laser_trail::{LaserTrailDrawType, LaserTrailType};
 use crate::rules::ruleset::RuleSet;
+use crate::sim::combat::electric_bolt::ElectricBoltBirth;
 use crate::sim::combat::laser::{self, LaserColor};
+use crate::sim::combat::radiation_beam::{BeamHouseColor, RadiationBeamBirth};
 use crate::sim::intern::InternedId;
 use crate::sim::projectile::ProjectileCoord;
+use crate::sim::rng::MainRng;
 use crate::sim::scenario_session::ScenarioSession;
 use crate::sim::world::{FrameChannel, LifecycleOutput, Simulation};
 use crate::util::native_x87::NativeF64Bits;
@@ -70,10 +73,16 @@ impl LaserTrailState {
 /// trails derive them from cloak state, projectile trails are always visible,
 /// and voxel trails mirror `VoxelAnimClass::IsVisible`.
 ///
-/// RESIDUALS: only `DrawType=laser` draws (EBolt/RadBeam are parsed but
-/// unported, as in the techno caller); `LaserDraw` is forced to
-/// `IsHouseColor = true`, so a trail with no owner House draws nothing here
-/// instead of native's null-House lookup.
+/// Every draw system is built from the copied segment:
+/// - `Laser` constructs a `LaserDraw` with the owner House's colour;
+/// - `EBolt` emits the constructor's phase draw and its per-strand colours
+///   (`LaserTrailClass.cpp:38..64`);
+/// - `RadBeam` emits the copied beam with `Beam.Color.Get(RadColor)`,
+///   `FadeDuration.Get(15)` and `Beam.Amplitude` (`:65..75`).
+///
+/// RESIDUAL: `LaserDraw` is forced to `IsHouseColor = true`, so a laser
+/// trail with no owner House draws nothing here instead of native's
+/// null-House lookup.
 pub(crate) fn update(
     last_location: &mut Option<[i32; 3]>,
     trail: &LaserTrailType,
@@ -81,7 +90,9 @@ pub(crate) fn update(
     visible: bool,
     cloaked: bool,
     owner: Option<InternedId>,
+    rad_color: (u8, u8, u8),
     session: &ScenarioSession,
+    main_rng: &MainRng,
     outputs: &mut FrameChannel<LifecycleOutput>,
 ) -> bool {
     let Some(last) = *last_location else {
@@ -102,24 +113,66 @@ pub(crate) fn update(
     if trail.ignore_vertical && dx.abs() <= 16 && dy.abs() <= 16 {
         return false;
     }
-    if trail.draw_type != LaserTrailDrawType::Laser {
-        return false;
+    let from = ProjectileCoord::new(last[0], last[1], last[2]);
+    let to = ProjectileCoord::new(location[0], location[1], location[2]);
+    match trail.draw_type {
+        LaserTrailDrawType::Laser => {
+            let Some(owner) = owner else {
+                return false;
+            };
+            let birth = laser::construct(
+                session,
+                outputs,
+                from,
+                to,
+                0,
+                trail.fade_duration(),
+                LaserColor::House(owner),
+                NativeF64Bits::POSITIVE_ZERO,
+            );
+            birth.width = trail.thickness;
+            birth.supported = trail.is_intense;
+        }
+        LaserTrailDrawType::EBolt => {
+            // `LaserTrailClass.cpp:43..63`: a disabled strand keeps the
+            // constructor's black colour, and the bolt constructor's
+            // phase draw is part of Main.
+            let colors: [Option<[u8; 3]>; 3] = std::array::from_fn(|index| {
+                if trail.bolt_disable[index] {
+                    Some([0, 0, 0])
+                } else {
+                    trail.bolt_color[index]
+                }
+            });
+            outputs.emit(LifecycleOutput::ElectricBoltCreated(ElectricBoltBirth {
+                frame: session.binary_frame() as i32,
+                from,
+                to,
+                z_adjust: trail.bolt_z_adjust,
+                phase: main_rng.next_range_i32_inclusive(0, 256),
+                alternate_color: trail.is_alternate_color,
+                colors,
+                arcs: trail.bolt_arcs,
+                owner: None,
+                decay: 1_i32 << (trail.fade_duration().clamp(1, 31) - 1),
+            }));
+        }
+        LaserTrailDrawType::RadBeam => {
+            let (red, green, blue) = rad_color;
+            outputs.emit(LifecycleOutput::RadiationBeamCreated(RadiationBeamBirth {
+                frame: session.binary_frame() as i32,
+                from,
+                to,
+                z_adjust: 0,
+                color: trail.beam_color.unwrap_or([red, green, blue]),
+                house: None,
+                house_color: BeamHouseColor::None,
+                duration: trail.fade_duration(),
+                amplitude: NativeF64Bits::from_bits(trail.beam_amplitude.to_bits()),
+                eruption: false,
+            }));
+        }
     }
-    let Some(owner) = owner else {
-        return false;
-    };
-    let birth = laser::construct(
-        session,
-        outputs,
-        ProjectileCoord::new(last[0], last[1], last[2]),
-        ProjectileCoord::new(location[0], location[1], location[2]),
-        0,
-        trail.fade_duration(),
-        LaserColor::House(owner),
-        NativeF64Bits::POSITIVE_ZERO,
-    );
-    birth.width = trail.thickness;
-    birth.supported = trail.is_intense;
     true
 }
 
@@ -129,10 +182,6 @@ impl Simulation {
     /// coordinate `Location + Velocity`, one frame ahead of the stock move.
     /// `Inviso` bullets never initialized a list, and a trajectory draws its
     /// own trails after `OnAI` (so this skips them).
-    ///
-    /// RESIDUAL: an interceptor's weapon replacement clears and reinitializes
-    /// the list (`Ext/Bullet/Body.cpp:68..72`); VERA does not replace the
-    /// bullet type there yet, so the list keeps the construct-time entry.
     pub(crate) fn update_projectile_laser_trails(&mut self, id: u64, rules: &RuleSet) {
         let Some(projectile) = self.projectiles.get(id) else {
             return;
@@ -169,7 +218,9 @@ impl Simulation {
                     true,
                     false,
                     owner,
+                    rules.radiation.color,
                     session,
+                    &self.main_rng,
                     outputs,
                 );
             }
@@ -215,7 +266,9 @@ impl Simulation {
                     true,
                     false,
                     owner,
+                    rules.radiation.color,
                     session,
+                    &self.main_rng,
                     outputs,
                 );
             }
@@ -292,7 +345,9 @@ mod tests {
                 visible,
                 cloaked,
                 owner,
+                (0, 0, 0),
                 &sim.session,
+                &sim.main_rng,
                 &mut sim.lifecycle_outputs,
             )
         };
@@ -451,5 +506,129 @@ mod tests {
         sim.visit_voxel_anim(id, &rules, FrameEffects::default())
             .unwrap();
         assert_eq!(lasers(&sim).len(), 1, "the bounce moved the location");
+    }
+
+    /// `LaserTrailClass::Update`'s EBolt and RadBeam arms: the bolt carries
+    /// `Bolt.ZAdjust`, `Bolt.Arcs`, alternate colour, per-strand colours and
+    /// `FadeDuration`'s lifetime exponent; the beam carries
+    /// `Beam.Color.Get(RadColor)`, `FadeDuration.Get(15)` and
+    /// `Beam.Amplitude`.
+    #[test]
+    fn ebolt_and_radbeam_trails_emit_their_visuals() {
+        let mut sim = Simulation::with_seed(3);
+        let mut last = None;
+        let mut bolt = LaserTrailType {
+            draw_type: LaserTrailDrawType::EBolt,
+            bolt_z_adjust: -7,
+            bolt_arcs: 3,
+            is_alternate_color: true,
+            bolt_disable: [false, true, false],
+            bolt_color: [Some([1, 2, 3]), None, None],
+            fade_duration: Some(4),
+            ..LaserTrailType::default()
+        };
+        bolt.segment_length = 1;
+        let mut beam = LaserTrailType {
+            draw_type: LaserTrailDrawType::RadBeam,
+            beam_color: Some([4, 5, 6]),
+            beam_amplitude: 12.5,
+            fade_duration: Some(9),
+            ..LaserTrailType::default()
+        };
+        beam.segment_length = 1;
+        let mut fallback = LaserTrailType {
+            draw_type: LaserTrailDrawType::RadBeam,
+            ..LaserTrailType::default()
+        };
+        fallback.segment_length = 1;
+        let rad_color = (9, 8, 7);
+
+        assert!(!update(
+            &mut last,
+            &bolt,
+            [0, 0, 0],
+            true,
+            false,
+            None,
+            rad_color,
+            &sim.session,
+            &sim.main_rng,
+            &mut sim.lifecycle_outputs,
+        ));
+        assert!(update(
+            &mut last,
+            &bolt,
+            [10, 0, 0],
+            true,
+            false,
+            None,
+            rad_color,
+            &sim.session,
+            &sim.main_rng,
+            &mut sim.lifecycle_outputs,
+        ));
+        for trail in [&beam, &fallback] {
+            last = None;
+            assert!(!update(
+                &mut last,
+                trail,
+                [0, 0, 0],
+                true,
+                false,
+                None,
+                rad_color,
+                &sim.session,
+                &sim.main_rng,
+                &mut sim.lifecycle_outputs,
+            ));
+            assert!(update(
+                &mut last,
+                trail,
+                [10, 0, 0],
+                true,
+                false,
+                None,
+                rad_color,
+                &sim.session,
+                &sim.main_rng,
+                &mut sim.lifecycle_outputs,
+            ));
+        }
+
+        let facts = sim.lifecycle_outputs.as_slice();
+        let bolt_birth = facts
+            .iter()
+            .find_map(|fact| match fact {
+                LifecycleOutput::ElectricBoltCreated(birth) => Some(birth),
+                _ => None,
+            })
+            .expect("the EBolt trail emits one bolt");
+        assert_eq!(bolt_birth.z_adjust, -7);
+        assert_eq!(bolt_birth.arcs, 3);
+        assert!(bolt_birth.alternate_color);
+        assert_eq!(
+            bolt_birth.colors,
+            [Some([1, 2, 3]), Some([0, 0, 0]), None],
+            "a disabled strand keeps the constructor's black colour"
+        );
+        assert_eq!(bolt_birth.decay, 1 << 3, "FadeDuration=4");
+        assert_eq!((bolt_birth.from.x, bolt_birth.to.x), (0, 10));
+        let beams: Vec<_> = facts
+            .iter()
+            .filter_map(|fact| match fact {
+                LifecycleOutput::RadiationBeamCreated(birth) => Some(birth),
+                _ => None,
+            })
+            .collect();
+        assert_eq!(beams.len(), 2);
+        assert_eq!(beams[0].color, [4, 5, 6], "Beam.Color wins");
+        assert_eq!(beams[0].duration, 9);
+        assert_eq!(
+            f64::from_bits(beams[0].amplitude.bits()),
+            12.5,
+            "Beam.Amplitude"
+        );
+        assert_eq!(beams[1].color, [9, 8, 7], "unset takes RadColor");
+        assert_eq!(beams[1].duration, 15, "RadBeam's FadeDuration default");
     }
 }

@@ -1959,7 +1959,9 @@ impl Simulation {
                 true,
                 cloaked,
                 Some(owner),
+                rules.radiation.color,
                 &self.session,
+                &self.main_rng,
                 &mut self.lifecycle_outputs,
             );
         }

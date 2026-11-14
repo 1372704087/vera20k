@@ -22,6 +22,10 @@ pub struct ElectricBoltBirth {
     /// replaces the palette colour of the first outer, second outer and
     /// centre strand. Always `None` in default builds.
     pub colors: [Option<[u8; 3]>; 3],
+    /// Phobos `EBoltExt::Arcs` (`Ext/EBolt/Body.h:19`, constructor 8):
+    /// `EBolt_DrawArcs` stops the subdivision loop once `plotIndex` reaches
+    /// this count (`Ext/EBolt/Hooks.cpp:57..64`).
+    pub arcs: i32,
     /// The firer [`fired`] names for `EBolt::SetOwner @ 0x004C2BD0`
     /// (bolt `+0x20`/`+0x24`); the app keeps it only while the Unit holds
     /// no other bolt (`+0x6DC`).
@@ -288,6 +292,9 @@ fn emit(
                 phase,
                 alternate_color,
                 colors,
+                // Phobos `WeaponTypeExt::Bolt_Arcs` is not read by VERA's
+                // weapon reader; the constructor's 8 stands (residual).
+                arcs: 8,
                 owner,
                 decay,
             },

@@ -43,6 +43,7 @@ fn lifetime_bolt() -> (ElectricBoltBirth, SurfaceLineViewport, ElectricBoltPalet
         phase: int(&source["phase"]),
         alternate_color: source["alternate"].as_bool().unwrap(),
         colors: [None; 3],
+        arcs: 8,
         owner: None,
         decay: 0x10000,
     };
@@ -181,6 +182,7 @@ fn native_tactical_visits_own_lifetime_reverse_order_and_clear() {
                 phase: int(&birth["phase"]),
                 alternate_color: birth["alternate"].as_bool().unwrap(),
                 colors: [None; 3],
+                arcs: 8,
                 owner: None,
                 decay: 0x10000,
             });
@@ -322,6 +324,7 @@ fn accepted_bolt_composites_preserve_the_next_actual_bullet_identity() {
             phase: int(&birth["phase"]),
             alternate_color: birth["alternate"].as_bool().unwrap(),
             colors: [None; 3],
+            arcs: 8,
             owner: None,
             decay: 0x10000,
         });
@@ -406,6 +409,7 @@ fn a_unit_owns_one_bolt_whose_source_follows_it() {
         phase: 0,
         alternate_color: false,
         colors: [None; 3],
+        arcs: 8,
         owner: Some(owner),
         decay: 0x10000,
     };
@@ -456,6 +460,7 @@ fn the_registry_seeds_decay_from_the_birth() {
         phase: 0,
         alternate_color: false,
         colors: [None; 3],
+        arcs: 8,
         owner: None,
         decay: 4,
     };

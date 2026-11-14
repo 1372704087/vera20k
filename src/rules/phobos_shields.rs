@@ -21,6 +21,7 @@
 //! warhead-side shield keys live in [`ShieldWarheadRules`]; the simulation
 //! owner `sim::shield` consumes them.
 
+use crate::rules::attach_effect::AttachedAnimFlag;
 #[cfg(feature = "phobos")]
 use crate::rules::ini_parser::IniFile;
 #[cfg(feature = "phobos")]
@@ -126,6 +127,104 @@ pub fn can_target_house_ladder(
     }
 }
 
+/// `ShieldTypeClass`'s constructor value for both `IdleAnim` actions.
+fn attached_anim_hides() -> AttachedAnimFlag {
+    AttachedAnimFlag::Hides
+}
+
+/// Phobos `Damageable<AnimTypeClass*>` (`Utilities/Template.h:409-474`): the
+/// base animation plus nullable `ConditionYellow`/`ConditionRed` overrides.
+/// The base flag's trailing dot is stripped (`Utilities/TemplateDef.h:2227-2245`).
+#[derive(Debug, Clone, Default, PartialEq, Eq, Hash, serde::Serialize, serde::Deserialize)]
+pub struct ShieldIdleAnimSet {
+    /// `<Key>`: the base animation, null when unset.
+    #[serde(default)]
+    base: Option<String>,
+    /// `<Key>.ConditionYellow=`: `Nullable<AnimTypeClass*>`, `Some(None)` is a
+    /// present `none` (no animation), `None` keeps the unset state.
+    #[serde(default)]
+    condition_yellow: Option<Option<String>>,
+    /// `<Key>.ConditionRed=`.
+    #[serde(default)]
+    condition_red: Option<Option<String>>,
+}
+
+impl ShieldIdleAnimSet {
+    pub(crate) fn apply(&mut self, section: &crate::rules::ini_parser::IniSection, key: &str) {
+        if let Some(name) = section.read_type_name(key, 2048) {
+            self.base = Some(name.to_owned());
+        }
+        self.condition_yellow = read_anim_ref(
+            section,
+            &format!("{key}.ConditionYellow"),
+            self.condition_yellow.take(),
+        );
+        self.condition_red = read_anim_ref(
+            section,
+            &format!("{key}.ConditionRed"),
+            self.condition_red.take(),
+        );
+    }
+
+    /// `ConditionYellow || ConditionRed` set.
+    pub(crate) fn is_damaged_value_set(&self) -> bool {
+        self.condition_yellow.is_some() || self.condition_red.is_some()
+    }
+
+    /// `BaseValue || ConditionYellow.isset() || ConditionRed.isset()`.
+    pub(crate) fn isset(&self) -> bool {
+        self.base.is_some() || self.is_damaged_value_set()
+    }
+
+    /// `Damageable::Get(ratio, conditionYellow, conditionRed)`; a selected
+    /// null value answers no animation.
+    pub(crate) fn get(&self, ratio: f64, yellow: f64, red: f64) -> Option<&str> {
+        if self.condition_red.is_some() && ratio <= red {
+            return self
+                .condition_red
+                .as_ref()
+                .and_then(|value| value.as_deref());
+        }
+        if self.condition_yellow.is_some() && ratio <= yellow {
+            return self
+                .condition_yellow
+                .as_ref()
+                .and_then(|value| value.as_deref());
+        }
+        self.base.as_deref()
+    }
+
+    /// The unset base, for the no-damaged-values arm of `CreateAnim`.
+    pub(crate) fn base(&self) -> Option<&str> {
+        self.base.as_deref()
+    }
+}
+
+/// `Nullable<AnimTypeClass*>::Read<true>`: `<default>` clears, `none`/`<none>`
+/// answer a present null, any other name is the value. The default build has
+/// no shield idle animations, so it leaves the value unset.
+fn read_anim_ref(
+    section: &crate::rules::ini_parser::IniSection,
+    key: &str,
+    current: Option<Option<String>>,
+) -> Option<Option<String>> {
+    #[cfg(feature = "phobos")]
+    {
+        section.read_phobos_nullable_allow_none_with(key, current, |raw| {
+            Some(if is_none_name(raw) {
+                None
+            } else {
+                Some(raw.to_owned())
+            })
+        })
+    }
+    #[cfg(not(feature = "phobos"))]
+    {
+        let _ = (section, key);
+        current
+    }
+}
+
 /// `ShieldTypeClass`'s constructor values. Every field keeps the current value
 /// when its key is absent, so one `apply_pass` may replace or retain each value.
 #[derive(Debug, Clone, PartialEq, Default, serde::Serialize, serde::Deserialize)]
@@ -135,6 +234,22 @@ pub struct ShieldType {
     initial_strength: Option<i32>,
     condition_yellow: Option<f64>,
     condition_red: Option<f64>,
+    /// Phobos `IdleAnim=` (`ShieldTypeClass.h:36`, `Damageable<AnimTypeClass*>`,
+    /// constructor unset `ShieldTypeClass.cpp:94`): the shield's idle
+    /// animation, with per-condition variants.
+    #[serde(default)]
+    idle_anim: ShieldIdleAnimSet,
+    /// `IdleAnimDamaged=` (`ShieldTypeClass.h:37`, unset `:95`): the idle
+    /// animation while the techno is at or below `[General] ConditionYellow`.
+    #[serde(default)]
+    idle_anim_damaged: ShieldIdleAnimSet,
+    /// `IdleAnim.OfflineAction=` (`ShieldTypeClass.cpp:56`,
+    /// `Valueable<AttachedAnimFlag>` constructor `Hides` `:92`).
+    #[serde(default = "attached_anim_hides")]
+    idle_anim_offline_action: AttachedAnimFlag,
+    /// `IdleAnim.TemporalAction=` (`:57`, constructor `Hides` `:93`).
+    #[serde(default = "attached_anim_hides")]
+    idle_anim_temporal_action: AttachedAnimFlag,
     armor: String,
     inherit_armor_from_techno: bool,
     inherit_armor_allowed: Vec<String>,
@@ -198,6 +313,8 @@ impl ShieldType {
             received_damage_maximum: i32::MAX,
             pips: [-1, -1, -1],
             pips_building: [-1, -1, -1],
+            idle_anim_offline_action: AttachedAnimFlag::Hides,
+            idle_anim_temporal_action: AttachedAnimFlag::Hides,
             ..Self::default()
         }
     }
@@ -217,6 +334,22 @@ impl ShieldType {
 
     pub fn condition_red(&self, global: f64) -> f64 {
         self.condition_red.unwrap_or(global)
+    }
+
+    pub(crate) fn idle_anim(&self) -> &ShieldIdleAnimSet {
+        &self.idle_anim
+    }
+
+    pub(crate) fn idle_anim_damaged(&self) -> &ShieldIdleAnimSet {
+        &self.idle_anim_damaged
+    }
+
+    pub(crate) fn idle_anim_offline_action(&self) -> AttachedAnimFlag {
+        self.idle_anim_offline_action
+    }
+
+    pub(crate) fn idle_anim_temporal_action(&self) -> AttachedAnimFlag {
+        self.idle_anim_temporal_action
     }
 
     pub fn has_tint(&self) -> bool {
@@ -480,6 +613,20 @@ impl ShieldTypeCatalog {
                 section.read_phobos_nullable_double("ConditionYellow", entry.condition_yellow);
             entry.condition_red =
                 section.read_phobos_nullable_double("ConditionRed", entry.condition_red);
+            entry.idle_anim.apply(section, "IdleAnim");
+            entry.idle_anim_damaged.apply(section, "IdleAnimDamaged");
+            entry.idle_anim_offline_action = section.read_string_with(
+                "IdleAnim.OfflineAction",
+                0x40,
+                entry.idle_anim_offline_action,
+                |current, raw| AttachedAnimFlag::parse(raw).unwrap_or(current),
+            );
+            entry.idle_anim_temporal_action = section.read_string_with(
+                "IdleAnim.TemporalAction",
+                0x40,
+                entry.idle_anim_temporal_action,
+                |current, raw| AttachedAnimFlag::parse(raw).unwrap_or(current),
+            );
             entry.armor = section.read_string("Armor", &entry.armor, 0x80);
             entry.inherit_armor_from_techno =
                 section.read_bool("InheritArmorFromTechno", entry.inherit_armor_from_techno);

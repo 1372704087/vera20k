@@ -156,6 +156,10 @@ pub struct ShieldState {
     /// `SelfHealing_Warhead`/`SelfHealing_Rate_Warhead`/... while
     /// `Timers.SelfHealing_WHModifier` runs.
     self_healing_modifier: Option<ShieldRecoveryModifier>,
+    /// Phobos `ShieldClass::IdleAnim`: the live idle animation's stable id.
+    #[cfg(feature = "phobos")]
+    #[serde(default)]
+    idle_anim: Option<u64>,
 }
 
 impl ShieldState {
@@ -173,6 +177,8 @@ impl ShieldState {
             timers: ShieldTimers::default(),
             respawn_modifier: None,
             self_healing_modifier: None,
+            #[cfg(feature = "phobos")]
+            idle_anim: None,
         }
     }
 
@@ -598,8 +604,15 @@ pub(crate) fn pre_receive_damage(
 ) -> Option<ShieldReceipt> {
     let result = shield_stage(sim, rules, event, receiver_input, divisors)?;
     let mut emissions = result.emissions;
+    let mut state = result.state;
+    // `BreakShield`'s `KillAnim` (`ShieldClass.cpp:849`) runs with the state
+    // commit, before the break animation is constructed.
+    #[cfg(feature = "phobos")]
+    if state.hp() <= 0 {
+        kill_idle_anim(sim, rules, &mut state);
+    }
     if let Some(target) = sim.substrate.entities.get_mut(event.target_id) {
-        target.shield = Some(result.state);
+        target.shield = Some(state);
     }
     emissions.spawn_anims(sim, rules);
     Some(ShieldReceipt {
@@ -1199,12 +1212,35 @@ pub(crate) fn tick(sim: &mut Simulation, id: u64, rules: &RuleSet) {
         return;
     }
 
+    // Capture this visit's entity facts before any state write; the online
+    // query is native `OnlineCheck`'s `IsPowerOnline`/deactivation read.
+    let temporal_now = entity.temporal.is_warped();
+    // Chronosphere skips ShieldClass::AI through IsImmobilized (+0x27C),
+    // but never calls AI_Temporal: its global-frame countdown keeps running.
+    // The latch also gates the launch frame before BeingWarpedOut is set.
+    // Teleport Process state 2 clears it at 0x7198E4 as warp-in begins.
+    let immobilized = entity.chrono_warp_latch() || entity.ai_frozen();
+    let powered_active = ty.powered().then(|| {
+        !entity.deactivated.is_offline()
+            && crate::sim::power_system::is_building_powered(
+                sim.power_states.as_map(),
+                rules,
+                entity,
+                &sim.interner,
+            )
+    });
+
     // Phobos `ShieldClass::AI_Temporal` (src/New/Entity/ShieldClass.cpp,
     // b90ab4b) pauses recovery during the leaf's TemporalClass::Update;
     // frozen leaves skip `TechnoClass::AI @ 0x6F9E50` entirely. Persist
     // the pause without entering the normal AI's resume/recovery block.
-    state.temporal = entity.temporal.is_warped();
+    let was_temporal = state.temporal;
+    state.temporal = temporal_now;
     if state.temporal {
+        #[cfg(feature = "phobos")]
+        if !was_temporal {
+            apply_idle_anim_action(sim, rules, &mut state, ty.idle_anim_temporal_action());
+        }
         if state.hp <= 0 {
             state.timers.respawn.pause(frame);
         } else {
@@ -1215,24 +1251,18 @@ pub(crate) fn tick(sim: &mut Simulation, id: u64, rules: &RuleSet) {
         }
         return;
     }
+    #[cfg(feature = "phobos")]
+    if was_temporal {
+        // `ShieldClass::TemporalCheck`: clear the temporal look and resume.
+        resume_idle_anim(sim, &mut state);
+    }
 
-    // Chronosphere skips ShieldClass::AI through IsImmobilized (+0x27C),
-    // but never calls AI_Temporal: its global-frame countdown keeps running.
-    // The latch also gates the launch frame before BeingWarpedOut is set.
-    // Teleport Process state 2 clears it at 0x7198E4 as warp-in begins.
-    if entity.chrono_warp_latch() || entity.ai_frozen() {
+    if immobilized {
         return;
     }
 
     // `OnlineCheck` for a Powered shield type.
-    if ty.powered() {
-        let active = !entity.deactivated.is_offline()
-            && crate::sim::power_system::is_building_powered(
-                sim.power_states.as_map(),
-                rules,
-                entity,
-                &sim.interner,
-            );
+    if let Some(active) = powered_active {
         if !active {
             if state.online {
                 state.online = false;
@@ -1244,6 +1274,17 @@ pub(crate) fn tick(sim: &mut Simulation, id: u64, rules: &RuleSet) {
             }
         } else if !state.online {
             state.online = true;
+        }
+    }
+    // `OnlineCheck` (`ShieldClass.cpp:529..591`) runs every visit: an active
+    // shield resumes the look, an inactive one re-applies its action, which is
+    // how an offline shield overrides a just-ended temporal freeze.
+    #[cfg(feature = "phobos")]
+    if ty.powered() {
+        if state.online {
+            resume_idle_anim(sim, &mut state);
+        } else {
+            apply_idle_anim_action(sim, rules, &mut state, ty.idle_anim_offline_action());
         }
     }
 
@@ -1287,6 +1328,8 @@ pub(crate) fn tick(sim: &mut Simulation, id: u64, rules: &RuleSet) {
         }
     }
 
+    #[cfg(feature = "phobos")]
+    update_idle_anim(sim, rules, id, ty, &mut state);
     if let Some(entity) = sim.substrate.entities.get_mut(id) {
         entity.shield = Some(state);
     }
@@ -1384,6 +1427,242 @@ fn self_healing(
                 state.timers.self_healing.start(frame, rate);
             }
         }
+    }
+}
+
+/// `ShieldClass::KillAnim` (`ShieldClass.h:30..38`): `UnInit()` the owned idle
+/// animation and clear the pointer. An anim destroyed by anything else already
+/// dropped the pointer through `ShieldClass::PointerGotInvalid`
+/// (`ShieldClass.cpp:52..76`).
+#[cfg(feature = "phobos")]
+fn kill_idle_anim(sim: &mut Simulation, rules: &RuleSet, state: &mut ShieldState) {
+    let Some(id) = state.idle_anim.take() else {
+        return;
+    };
+    sim.destroy_anim_with_context(id, rules);
+}
+
+/// `TemporalCheck`/`OnlineCheck`'s resume tail (`ShieldClass.cpp:598..604`,
+/// `:585..589`): `IdleAnim->UnderTemporal = false; IdleAnim->Unpause()`.
+#[cfg(feature = "phobos")]
+fn resume_idle_anim(sim: &mut Simulation, state: &mut ShieldState) {
+    let Some(id) = state.idle_anim else {
+        return;
+    };
+    if let Some(anim) = sim.substrate.anims.get_mut(id) {
+        anim.set_under_temporal(false);
+        anim.resume();
+    }
+}
+
+/// One `AttachedAnimFlag` action on the live idle animation
+/// (`ShieldClass.cpp:410..427` and `:556..573`).
+#[cfg(feature = "phobos")]
+fn apply_idle_anim_action(
+    sim: &mut Simulation,
+    rules: &RuleSet,
+    state: &mut ShieldState,
+    action: crate::rules::attach_effect::AttachedAnimFlag,
+) {
+    use crate::rules::attach_effect::AttachedAnimFlag;
+    let Some(id) = state.idle_anim else {
+        return;
+    };
+    match action {
+        AttachedAnimFlag::None => {}
+        AttachedAnimFlag::Hides => kill_idle_anim(sim, rules, state),
+        AttachedAnimFlag::Temporal => {
+            if let Some(anim) = sim.substrate.anims.get_mut(id) {
+                anim.set_under_temporal(true);
+            }
+        }
+        AttachedAnimFlag::Paused => {
+            if let Some(anim) = sim.substrate.anims.get_mut(id) {
+                anim.pause();
+            }
+        }
+        AttachedAnimFlag::PausedTemporal => {
+            if let Some(anim) = sim.substrate.anims.get_mut(id) {
+                anim.pause();
+                anim.set_under_temporal(true);
+            }
+        }
+    }
+}
+
+/// Phobos `AnimTypeExt::DetachOnCloak` (`Ext/AnimType/Body.cpp:112`,
+/// constructor default `true`): a type with no art entry keeps the default.
+#[cfg(feature = "phobos")]
+fn anim_detach_on_cloak(rules: &RuleSet, type_name: &str) -> bool {
+    rules
+        .art()
+        .anim_runtime_config(type_name)
+        .is_none_or(|config| config.phobos_detach_on_cloak)
+}
+
+/// `ShieldClass::GetIdleAnimType` (`ShieldClass.cpp:1109..1125`) and
+/// `ShieldTypeClass::GetIdleAnimType` (`New/Type/ShieldTypeClass.h:132..147`).
+/// `isDamaged` compares the techno ratio against the global `ConditionYellow`;
+/// the per-band picks compare the shield's own ratio against the shield
+/// type's thresholds and fall through to the base animation.
+#[cfg(feature = "phobos")]
+fn idle_anim_selection<'r>(
+    ty: &'r ShieldType,
+    rules: &RuleSet,
+    techno_ratio: f64,
+    shield_ratio: f64,
+) -> Option<&'r str> {
+    let idle_set = ty.idle_anim().is_damaged_value_set();
+    let damaged_set = ty.idle_anim_damaged().isset();
+    let is_damaged = damaged_set && techno_ratio <= rules.general.condition_yellow;
+    if !idle_set && !ty.idle_anim_damaged().is_damaged_value_set() {
+        return if is_damaged {
+            ty.idle_anim_damaged().base()
+        } else {
+            ty.idle_anim().base()
+        };
+    }
+    let yellow = ty.condition_yellow(rules.shield_globals().condition_yellow());
+    let red = ty.condition_red(rules.shield_globals().condition_red());
+    if is_damaged && let Some(name) = ty.idle_anim_damaged().get(shield_ratio, yellow, red) {
+        return Some(name);
+    }
+    ty.idle_anim().get(shield_ratio, yellow, red)
+}
+
+/// `TechnoClass::GetHealthPercentage()`: `Health` over the type's `Strength`
+/// as binary64. A `0/0` divides to NaN, which every threshold comparison
+/// answers false, as it does natively.
+#[cfg(feature = "phobos")]
+fn techno_health_ratio(sim: &Simulation, rules: &RuleSet, id: u64) -> f64 {
+    let Some(entity) = sim.substrate.entities.get(id) else {
+        return 0.0;
+    };
+    let strength = sim
+        .interner
+        .object_type(entity.type_ref(), rules)
+        .map_or(0, |ty| ty.strength);
+    f64::from(entity.health.current()) / f64::from(strength)
+}
+
+/// `ShieldClass::CreateAnim` (`ShieldClass.cpp:1041..1074`): construct the
+/// idle anim at the techno's location, attach it as the owner object, give it
+/// the techno owner and invoker, and hold its loops (`RemainingIterations =
+/// 0xFF`). A cloaking object skips creation when the type's `DetachOnCloak`
+/// is set.
+#[cfg(feature = "phobos")]
+fn create_idle_anim(
+    sim: &mut Simulation,
+    rules: &RuleSet,
+    id: u64,
+    type_name: &str,
+    location: crate::sim::anim_class::AnimWorldCoord,
+    owner_house: crate::sim::intern::InternedId,
+) -> Option<u64> {
+    if !rules.has_anim_type(type_name) {
+        return None;
+    }
+    let type_id = sim.interner.intern(type_name);
+    let (rx, ry, sub_x, sub_y, z) = location.to_cell_sub_z();
+    let descriptor = crate::sim::components::AnimClassSpawnDescriptor {
+        draw_flags: 0x600,
+        owner: Some(id),
+        ..crate::sim::components::AnimClassSpawnDescriptor::new(type_id, rx, ry, sub_x, sub_y, z)
+    };
+    let anim = sim.spawn_anim_at_world(rules, descriptor, location).ok()?;
+    if let Some(live) = sim.substrate.anims.get_mut(anim) {
+        live.hold_loops();
+    }
+    sim.substrate.set_anim_owner_house(anim, owner_house);
+    sim.substrate
+        .set_anim_invoker(anim, Some(id), Some(owner_house));
+    Some(anim)
+}
+
+/// Phobos `ShieldClass`'s idle-animation maintenance: `CloakCheck`
+/// (`ShieldClass.cpp:491..500`), `BreakShield`'s `KillAnim` (`:849`) and the
+/// `AI` create/retype tail (`:466..482`).
+///
+/// The damaged/temporal selection is re-evaluated on every visit instead of
+/// native's `HasHealthRatioThresholdChanged` latch: the selection is a pure
+/// function of the techno and shield ratios, so an animation change can only
+/// happen on the same HP transitions native reacts to.
+#[cfg(feature = "phobos")]
+fn update_idle_anim(
+    sim: &mut Simulation,
+    rules: &RuleSet,
+    id: u64,
+    ty: &ShieldType,
+    state: &mut ShieldState,
+) {
+    // `ShieldClass::PointerGotInvalid` (`ShieldClass.cpp:52..76`): the anim
+    // was destroyed, so the shield's pointer is already dangling.
+    if let Some(anim) = state.idle_anim
+        && !sim.substrate.anims.contains_key(anim)
+    {
+        state.idle_anim = None;
+    }
+    // `BreakShield`'s `KillAnim` (`ShieldClass.cpp:849`).
+    if state.hp <= 0 {
+        kill_idle_anim(sim, rules, state);
+        return;
+    }
+    let Some(entity) = sim.substrate.entities.get(id) else {
+        return;
+    };
+    let cloaked = entity
+        .cloak
+        .as_ref()
+        .is_some_and(|cloak| matches!(cloak.state(), 1 | 2));
+    let owner_house = entity.owner();
+    let location =
+        crate::sim::movement::ground_pose::object_location(entity, sim.resolved_terrain.as_ref());
+    let location = crate::sim::anim_class::AnimWorldCoord {
+        x: location.x,
+        y: location.y,
+        z: location.z,
+    };
+
+    // `CloakCheck`: a cloaking object destroys an idle anim whose type asks
+    // to detach (`DetachOnCloak`, default true).
+    if cloaked
+        && let Some(anim) = state.idle_anim
+        && let Some(live) = sim.substrate.anims.get(anim)
+        && anim_detach_on_cloak(rules, sim.interner.resolve(live.type_id()))
+    {
+        kill_idle_anim(sim, rules, state);
+    }
+
+    // `UpdateIdleAnim` only runs for a type with damaged value sets; the
+    // plain `CreateAnim` tail applies the selection either way.
+    let idle_set = ty.idle_anim().is_damaged_value_set();
+    let damaged_set = ty.idle_anim_damaged().isset();
+    let techno_ratio = techno_health_ratio(sim, rules, id);
+    let desired =
+        idle_anim_selection(ty, rules, techno_ratio, state.health_ratio(ty)).map(str::to_owned);
+    if (idle_set || damaged_set)
+        && let Some(anim) = state.idle_anim
+    {
+        let live_differs = sim.substrate.anims.get(anim).is_some_and(|live| {
+            desired.as_deref().is_none_or(|name| {
+                !sim.interner
+                    .resolve(live.type_id())
+                    .eq_ignore_ascii_case(name)
+            })
+        });
+        if live_differs {
+            kill_idle_anim(sim, rules, state);
+        }
+    }
+
+    if state.idle_anim.is_none() && state.online {
+        let Some(name) = desired else {
+            return;
+        };
+        if cloaked && anim_detach_on_cloak(rules, &name) {
+            return;
+        }
+        state.idle_anim = create_idle_anim(sim, rules, id, &name, location, owner_house);
     }
 }
 
@@ -1675,6 +1954,9 @@ pub(crate) fn apply_shield_modifiers(
             }
             if let Some(current) = state.as_mut() {
                 break_shield_state(current, ty, frame);
+                // `BreakShield`'s `KillAnim` (`ShieldClass.cpp:849`).
+                #[cfg(feature = "phobos")]
+                kill_idle_anim(sim, rules, current);
             }
         }
 

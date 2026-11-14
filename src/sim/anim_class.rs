@@ -659,6 +659,16 @@ impl AnimObject {
         self.runtime.paused = false;
     }
 
+    /// Anim+11A `UnderTemporal` ("temporal'd building's active anims"): freeze
+    /// the frame advance without the erase's translucent draw (+119). Phobos
+    /// `ShieldClass::AI_Temporal`/`OnlineCheck` write it and `TemporalCheck`
+    /// clears it (`src/New/Entity/ShieldClass.cpp:398..437,585..604`); the AI
+    /// stops on it exactly as on +19E (`0x004244A9`).
+    #[cfg(feature = "phobos")]
+    pub(crate) fn set_under_temporal(&mut self, under: bool) {
+        self.runtime.temporal_paused = under;
+    }
+
     /// A building's Temporal erase on one slot anim: `0x004521C0` freezes it
     /// (+11A) and draws it translucent (+119); `0x00452210` clears both.
     ///

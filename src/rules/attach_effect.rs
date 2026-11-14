@@ -115,8 +115,7 @@ pub enum AttachedAnimFlag {
 }
 
 impl AttachedAnimFlag {
-    #[cfg(feature = "phobos")]
-    fn parse(raw: &str) -> Option<Self> {
+    pub(crate) fn parse(raw: &str) -> Option<Self> {
         match raw.trim().to_ascii_lowercase().as_str() {
             "none" => Some(Self::None),
             "hides" => Some(Self::Hides),

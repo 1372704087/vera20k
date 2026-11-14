@@ -295,3 +295,54 @@ fn invalid_shield_nullable_values_preserve_unset_defaults() {
     assert_eq!((warhead.absorb_percent, warhead.pass_percent), (None, None));
     assert_eq!(warhead.received_minimum, None);
 }
+
+/// `IdleAnim`/`IdleAnimDamaged` read as `Damageable<AnimTypeClass*>`
+/// (`ShieldTypeClass.cpp:94..97`, `Utilities/Template.h:409..474`,
+/// `TemplateDef.h:2227..2245`) and the action keys as
+/// `Valueable<AttachedAnimFlag>` under the constructor `Hides`
+/// (`ShieldTypeClass.cpp:56..57,92..93`).
+#[cfg(feature = "phobos")]
+#[test]
+fn shield_idle_anim_keys_read_damageable_and_actions() {
+    let mut catalog = ShieldTypeCatalog::default();
+    catalog.apply_pass(&IniFile::from_str(
+        "[ShieldTypes]\n0=ROOT\n\
+         [ROOT]\nIdleAnim=IDLE\nIdleAnim.ConditionYellow=YELLOW\nIdleAnim.ConditionRed=<none>\n\
+         IdleAnimDamaged=DAMAGED\nIdleAnim.OfflineAction=Paused\n\
+         IdleAnim.TemporalAction=PausedTemporal\n",
+    ));
+    let ty = catalog.entry("ROOT").expect("entry");
+    assert!(ty.idle_anim().is_damaged_value_set());
+    assert!(ty.idle_anim_damaged().isset());
+    assert_eq!(ty.idle_anim().get(0.9, 0.5, 0.25), Some("IDLE"));
+    assert_eq!(ty.idle_anim().get(0.4, 0.5, 0.25), Some("YELLOW"));
+    assert_eq!(
+        ty.idle_anim().get(0.2, 0.5, 0.25),
+        None,
+        "<none> is a present null band"
+    );
+    assert_eq!(ty.idle_anim_offline_action(), AttachedAnimFlag::Paused);
+    assert_eq!(
+        ty.idle_anim_temporal_action(),
+        AttachedAnimFlag::PausedTemporal
+    );
+
+    // `<default>` clears the nullable; an unknown action keeps the current one.
+    catalog.apply_pass(&IniFile::from_str(
+        "[ROOT]\nIdleAnim.ConditionYellow=<default>\nIdleAnim.OfflineAction=Bogus\n",
+    ));
+    let ty = catalog.entry("ROOT").expect("entry");
+    assert_eq!(ty.idle_anim().get(0.4, 0.5, 0.25), Some("IDLE"));
+    assert_eq!(ty.idle_anim_offline_action(), AttachedAnimFlag::Paused);
+
+    // Absent keys keep the constructor values.
+    let mut defaults = ShieldTypeCatalog::default();
+    defaults.apply_pass(&IniFile::from_str(
+        "[ShieldTypes]\n0=PLAIN\n[PLAIN]\nStrength=1\n",
+    ));
+    let plain = defaults.entry("PLAIN").expect("entry");
+    assert!(!plain.idle_anim().isset());
+    assert!(!plain.idle_anim_damaged().isset());
+    assert_eq!(plain.idle_anim_offline_action(), AttachedAnimFlag::Hides);
+    assert_eq!(plain.idle_anim_temporal_action(), AttachedAnimFlag::Hides);
+}

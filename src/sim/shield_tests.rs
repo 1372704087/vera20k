@@ -1137,3 +1137,239 @@ fn the_hit_anim_emits_unless_skip_hit_anim() {
         "Shield.SkipHitAnim suppressed the animation"
     );
 }
+
+/// A shield type carrying idle-animation keys, with resolvable art.
+///
+/// `IdleAnim`/`IdleAnimDamaged` are `Damageable<AnimTypeClass*>` reads
+/// (`ShieldTypeClass.cpp:96..97`); the two actions are
+/// `Valueable<AttachedAnimFlag>` with the constructor's `Hides`
+/// (`:56..57,92..93`).
+#[cfg(feature = "phobos")]
+fn idle_rules(shield: &str, art_extra: &str) -> RuleSet {
+    let ini = IniFile::from_str(&format!(
+        "[VehicleTypes]\n0=TEST\n\
+         [TEST]\nStrength=200\nArmor=heavy\nShieldType=TestShield\n\
+         [ShieldTypes]\n0=TestShield\n\
+         [TestShield]\nStrength=100\nInitialStrength=100\nArmor=none\n{shield}\n\
+         [Animations]\n0=IDLE\n1=IDLE2\n"
+    ));
+    let mut rules = RuleSet::from_ini(&ini).expect("idle fixture rules");
+    let mut art = crate::rules::art_data::ArtRegistry::from_ini(&IniFile::from_str(&format!(
+        "[IDLE]\nRate=1\n{art_extra}[IDLE2]\nRate=1\n"
+    )));
+    art.bind_anim_frame_count_for_test("IDLE", 20);
+    art.bind_anim_frame_count_for_test("IDLE2", 20);
+    rules.replace_art_registry_for_test(art);
+    rules
+}
+
+#[cfg(feature = "phobos")]
+fn idle_anims<'s>(sim: &'s Simulation, name: &str) -> Vec<&'s crate::sim::anim_class::AnimObject> {
+    sim.anims()
+        .filter(|(_, anim)| sim.interner.resolve(anim.type_id()) == name)
+        .map(|(_, anim)| anim)
+        .collect()
+}
+
+/// `ShieldClass::CreateAnim` (`ShieldClass.cpp:1041..1074`): the `AI` tail
+/// constructs one idle anim at the owner's location, with `SetOwnerObject`,
+/// the techno owner and invoker, and `RemainingIterations = 0xFF`.
+#[cfg(feature = "phobos")]
+#[test]
+fn an_online_shield_creates_one_owned_idle_anim() {
+    let rules = idle_rules("IdleAnim=IDLE", "");
+    let (mut sim, _) = scene(&rules);
+    sim.intern_rule_type_ids(&rules);
+    let owner = sim.substrate.entities.get(1).unwrap().owner();
+    super::tick(&mut sim, 1, &rules);
+    super::tick(&mut sim, 1, &rules);
+
+    let anims = idle_anims(&sim, "IDLE");
+    assert_eq!(anims.len(), 1, "the shield holds exactly one idle anim");
+    let anim = anims[0];
+    assert_eq!(anim.owner_entity(), Some(1), "SetOwnerObject");
+    assert_eq!(anim.owner_house(), Some(owner));
+    assert_eq!(anim.invoker(), Some(1), "AnimExt::SetInvoker");
+    assert_eq!(anim.invoker_house(), Some(owner));
+    assert_eq!(
+        anim.runtime().loop_remaining,
+        u8::MAX,
+        "RemainingIterations = 0xFF holds the loops"
+    );
+}
+
+/// `ShieldClass::UpdateIdleAnim`/`GetIdleAnimType` (`ShieldClass.cpp:1076..1125`):
+/// `IdleAnimDamaged` replaces the animation while the techno is at or below
+/// `[AudioVisual] ConditionYellow`, and the replaced anim is killed.
+#[cfg(feature = "phobos")]
+#[test]
+fn a_damaged_techno_retypes_the_idle_anim() {
+    let rules = idle_rules("IdleAnim=IDLE\nIdleAnimDamaged=IDLE2", "");
+    let (mut sim, _) = scene(&rules);
+    sim.intern_rule_type_ids(&rules);
+    super::tick(&mut sim, 1, &rules);
+    assert_eq!(idle_anims(&sim, "IDLE").len(), 1);
+    assert_eq!(idle_anims(&sim, "IDLE2").len(), 0);
+
+    // ConditionYellow defaults to 0.5; 80/200 crosses the band.
+    sim.substrate
+        .entities
+        .get_mut(1)
+        .unwrap()
+        .health
+        .set_for_test(80);
+    super::tick(&mut sim, 1, &rules);
+    sim.flush_pending_delete();
+    assert_eq!(
+        idle_anims(&sim, "IDLE").len(),
+        0,
+        "the healthy anim was killed"
+    );
+    assert_eq!(idle_anims(&sim, "IDLE2").len(), 1);
+}
+
+/// `OnlineCheck` (`ShieldClass.cpp:529..591`): an offline powered shield
+/// applies `IdleAnim.OfflineAction` every visit, and its return online
+/// resumes and later recreates the animation.
+#[cfg(feature = "phobos")]
+#[test]
+fn a_powered_shield_hides_and_restores_its_idle_anim() {
+    let rules = idle_rules(
+        "Powered=yes\nIdleAnim=IDLE\nIdleAnim.OfflineAction=Hides",
+        "",
+    );
+    let (mut sim, _) = scene(&rules);
+    sim.intern_rule_type_ids(&rules);
+    super::tick(&mut sim, 1, &rules);
+    assert_eq!(idle_anims(&sim, "IDLE").len(), 1);
+
+    sim.substrate
+        .entities
+        .get_mut(1)
+        .unwrap()
+        .deactivated
+        .set_for_test(true);
+    super::tick(&mut sim, 1, &rules);
+    sim.flush_pending_delete();
+    assert_eq!(
+        idle_anims(&sim, "IDLE").len(),
+        0,
+        "Hides kills the anim while offline"
+    );
+
+    sim.substrate
+        .entities
+        .get_mut(1)
+        .unwrap()
+        .deactivated
+        .set_for_test(false);
+    super::tick(&mut sim, 1, &rules);
+    assert_eq!(
+        idle_anims(&sim, "IDLE").len(),
+        1,
+        "the online visit recreates the anim"
+    );
+}
+
+/// `AttachedAnimFlag::Paused` pauses the frame advance, and the online
+/// branch's `Unpause` resumes it (`ShieldClass.cpp:566..568,585..589`).
+#[cfg(feature = "phobos")]
+#[test]
+fn an_offline_paused_shield_anim_resumes_online() {
+    let rules = idle_rules(
+        "Powered=yes\nIdleAnim=IDLE\nIdleAnim.OfflineAction=Paused",
+        "",
+    );
+    let (mut sim, _) = scene(&rules);
+    sim.intern_rule_type_ids(&rules);
+    super::tick(&mut sim, 1, &rules);
+
+    sim.substrate
+        .entities
+        .get_mut(1)
+        .unwrap()
+        .deactivated
+        .set_for_test(true);
+    super::tick(&mut sim, 1, &rules);
+    assert!(idle_anims(&sim, "IDLE")[0].runtime().paused);
+
+    sim.substrate
+        .entities
+        .get_mut(1)
+        .unwrap()
+        .deactivated
+        .set_for_test(false);
+    super::tick(&mut sim, 1, &rules);
+    assert!(!idle_anims(&sim, "IDLE")[0].runtime().paused);
+}
+
+/// `AI_Temporal` (`ShieldClass.cpp:398..437`) applies
+/// `IdleAnim.TemporalAction` when the freeze starts; `TemporalCheck` clears
+/// the freeze flags and the AI recreates the anim afterwards.
+#[cfg(feature = "phobos")]
+#[test]
+fn a_temporal_freeze_hides_the_idle_anim() {
+    let rules = idle_rules("IdleAnim=IDLE\nIdleAnim.TemporalAction=Hides", "");
+    let (mut sim, _) = scene(&rules);
+    sim.intern_rule_type_ids(&rules);
+    super::tick(&mut sim, 1, &rules);
+    assert_eq!(idle_anims(&sim, "IDLE").len(), 1);
+
+    let warped = crate::sim::temporal::TemporalState::warped_by_for_test(9);
+    sim.substrate
+        .entities
+        .get_mut(1)
+        .unwrap()
+        .set_temporal_for_test(warped);
+    super::tick(&mut sim, 1, &rules);
+    sim.flush_pending_delete();
+    assert_eq!(
+        idle_anims(&sim, "IDLE").len(),
+        0,
+        "TemporalAction=Hides kills the anim under a temporal freeze"
+    );
+
+    sim.substrate
+        .entities
+        .get_mut(1)
+        .unwrap()
+        .set_temporal_for_test(crate::sim::temporal::TemporalState::default());
+    super::tick(&mut sim, 1, &rules);
+    assert_eq!(
+        idle_anims(&sim, "IDLE").len(),
+        1,
+        "TemporalCheck lets the AI recreate the anim"
+    );
+}
+
+/// `CloakCheck` (`ShieldClass.cpp:493..500`): a cloaking object kills the
+/// idle anim when the anim type's `DetachOnCloak` is set (the default).
+#[cfg(feature = "phobos")]
+#[test]
+fn a_cloaking_shield_detaches_its_idle_anim_per_type_flag() {
+    let cloak = |sim: &mut Simulation| {
+        let mut runtime = crate::sim::cloak_disguise::CloakRuntime::new(0);
+        runtime.establish_unlimbo_fully_cloaked();
+        sim.substrate.entities.get_mut(1).unwrap().cloak = Some(runtime);
+    };
+    let rules = idle_rules("IdleAnim=IDLE", "");
+    let (mut sim, _) = scene(&rules);
+    sim.intern_rule_type_ids(&rules);
+    super::tick(&mut sim, 1, &rules);
+    cloak(&mut sim);
+    super::tick(&mut sim, 1, &rules);
+    sim.flush_pending_delete();
+    assert_eq!(idle_anims(&sim, "IDLE").len(), 0, "the default detaches");
+
+    let rules = idle_rules("IdleAnim=IDLE", "DetachOnCloak=no\n");
+    let (mut sim, _) = scene(&rules);
+    sim.intern_rule_type_ids(&rules);
+    super::tick(&mut sim, 1, &rules);
+    cloak(&mut sim);
+    super::tick(&mut sim, 1, &rules);
+    assert_eq!(
+        idle_anims(&sim, "IDLE").len(),
+        1,
+        "DetachOnCloak=no keeps the anim attached"
+    );
+}

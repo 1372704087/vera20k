@@ -302,6 +302,7 @@ fn live_tag_rgb_overrides_reach_packets_and_survive_ambient_writes_during_storm(
             false,
             None,
             brightness,
+            0,
         ),
         PaletteLight::new([1000; 3], 1, brightness, true)
     );
@@ -318,12 +319,64 @@ fn live_tag_rgb_overrides_reach_packets_and_survive_ambient_writes_during_storm(
                 crate::sim::intern::InternedId::default()
             )),
             brightness,
+            0,
         ),
         expected
     );
     assert_eq!(
-        anim_palette_light(&lights.grid, (0, 0), None, false, None, brightness),
+        anim_palette_light(&lights.grid, (0, 0), None, false, None, brightness, 0),
         PaletteLight::plain(53, brightness)
+    );
+    // `AltPalette.ApplyLighting=yes` steps `0x4232E2`'s scheme index by one
+    // (`Ext/Anim/Hooks.cpp:632-645`): `0x68C710` registers each `[Colors]`
+    // entry as a one-shade scheme (`0x6277D7`) and a 53-shade one (`0x627849`),
+    // so the step switches the anim to the fully shaded rows.
+    let lit = ArtRegistry::from_ini(&IniFile::from_str(
+        "[ALT]\nAltPalette=yes\nAltPalette.ApplyLighting=yes\n",
+    ));
+    assert_eq!(
+        anim_palette_light(
+            &lights.grid,
+            (0, 0),
+            lit.anim_runtime_config("ALT"),
+            false,
+            None,
+            brightness,
+            0,
+        )
+        .rows(),
+        53,
+        "ApplyLighting selects the scheme one index later: 53 rows"
+    );
+    // The global default index is a `ColorScheme::Array` index, not a `[Colors]`
+    // entry, so its own parity decides the rows the key-off anim draws with.
+    assert_eq!(
+        anim_palette_light(
+            &lights.grid,
+            (0, 0),
+            art.anim_runtime_config("ALT"),
+            false,
+            None,
+            brightness,
+            1,
+        )
+        .rows(),
+        53,
+        "AnimRemapDefaultColorScheme=1 already lands on the 53-row half"
+    );
+    assert_eq!(
+        anim_palette_light(
+            &lights.grid,
+            (0, 0),
+            lit.anim_runtime_config("ALT"),
+            false,
+            None,
+            brightness,
+            1,
+        )
+        .rows(),
+        1,
+        "ApplyLighting steps an odd default index back onto the one-shade half"
     );
     //555E50 constructs a new Convert with Storm RGB even though the
     // preceding normal operation switched existing Converts out of Ion.

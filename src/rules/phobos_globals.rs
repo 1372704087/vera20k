@@ -165,6 +165,12 @@ pub struct PhobosGlobals {
     /// also be on.
     #[serde(default = "true_bool")]
     pub show_designator_range: bool,
+    /// `[AudioVisual] AnimRemapDefaultColorScheme=`, default **0**
+    /// (`ValueableIdx<ColorScheme>`, `Ext/Rules/Body.h:750`, read at
+    /// `Ext/Rules/Body.cpp:174`): the `ColorScheme::Array` index an ownerless
+    /// `AltPalette` anim draws with (`0x4232E2`, `Ext/Anim/Hooks.cpp:635`).
+    /// `AltPalette.ApplyLighting` steps that index by one.
+    pub anim_remap_default_color_scheme: i32,
     /// `[AudioVisual] HeightShadowScaling=`, default `no` (`Ext/Rules/Body.cpp:186`,
     /// constructor `Ext/Rules/Body.h:630`): a drawing unit scales its voxel
     /// shadow by its live height (`Ext/TechnoType/Hooks.MatrixOp.cpp:677`).
@@ -1284,6 +1290,7 @@ impl Default for PhobosGlobals {
             overload_particle_sys_count: 5,
             affects_invoker_only_ignore_invoker_state: true,
             show_designator_range: true,
+            anim_remap_default_color_scheme: 0,
             height_shadow_scaling: false,
             height_shadow_scaling_min_scale: NativeF64Bits::from_bits(0.0f64.to_bits()),
             air_shadow_base_scale_log: NativeF64Bits::from_bits(0.693_376_137f64.to_bits()),
@@ -1492,6 +1499,11 @@ impl PhobosGlobals {
         // switch, read in the same `[AudioVisual]` pass as the income labels.
         globals.show_designator_range =
             audio_visual.read_bool("ShowDesignatorRange", globals.show_designator_range);
+        // `Ext/Rules/Body.cpp:174`, same `[AudioVisual]` pass.
+        globals.anim_remap_default_color_scheme = audio_visual.read_int(
+            "AnimRemapDefaultColorScheme",
+            globals.anim_remap_default_color_scheme,
+        );
         // `Ext/Rules/Body.cpp:291-297`: the income-label switch and cadence. A
         // read `DisplayIncome.Delay=0` would crash the native label, so the
         // reader forces it to 1.

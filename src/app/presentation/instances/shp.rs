@@ -1974,6 +1974,7 @@ fn emit_building_anims(
                     false,
                     instance.remap().as_ref(),
                     1000,
+                    crate::app::presentation::lighting::alt_palette_default_scheme(rules),
                 ),
             )
         };

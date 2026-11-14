@@ -8883,6 +8883,11 @@ impl RulesPassProcessor {
                 // Phobos reads the plural key right after the singular one
                 // (`Ext/TechnoType/Body.cpp:1325`), keyed by section so a
                 // repeat collapses and later entries win.
+                // RESIDUAL (follow-up): the native map persists across INI
+                // passes (`Body.cpp:1335-1336` never clears), so an earlier
+                // layer's entries survive a later `Image=` section that omits
+                // the key; VERA replaces the list per pass. No retail layer
+                // authors a second Image with its own list.
                 #[cfg(feature = "phobos")]
                 {
                     let mut indices = Vec::new();

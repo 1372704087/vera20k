@@ -630,6 +630,10 @@ fn render_unit_key(
         sprite,
         native_draw_bounds,
     });
+    // RESIDUAL: when `ShadowIndex.Frame` is non-zero the single-section
+    // sprite keeps its frame-0 crop/anchor while this center follows the
+    // frame-N body pose and the body mask stays the frame-0 face; retail ART
+    // authors no `ShadowIndex.Frame`.
     if key.layer == VxlLayer::Shadow
         && native_draw_bounds.is_some()
         && let Some(shadow) = model.shadow.as_ref()

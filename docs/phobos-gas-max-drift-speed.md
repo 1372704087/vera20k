@@ -22,20 +22,27 @@ Reader: `Ext/ParticleType/Body.cpp:22`, `Valueable<int>` constructed 2 at
 
 ## VERA
 
-`ParticleType::phobos_gas_max_drift_speed` reads the key. `gas::tick_particle`
-applies the clamp after its drift mutation on every even frame (the Gas AI
-body), with the native if/else order and `wrapping_neg` for the lower bound;
-a stock build keeps the ±2 clamp.
+`ParticleType::phobos_gas_max_drift_speed` reads the key with the Phobos
+`Parser<int>` grammar (`$`, trailing `h`). `gas::tick_particle` applies the
+clamp inside the frame-gated 1/8 drift-draw branch, after the mutation, with
+the native if/else order and `wrapping_neg` for the lower bound; a stock build
+keeps the ±2 clamp there.
 
 ## Tests
 
 - `src/sim/particles/gas_native_tests.rs` —
-  `the_gas_drift_clamp_uses_the_particle_types_max_speed`: drift (7, -4)
-  clamps to 2 with the default and to 5 with `Gas.MaxDriftSpeed=5`.
+  `the_gas_drift_clamp_uses_the_particle_types_max_speed`: with a seed whose
+  first draw is 0 (so the 1/8 drift branch runs) and the X axis chosen, drift
+  (7, -4) clamps to (2, -2) with the default and (5, -4) with
+  `Gas.MaxDriftSpeed=5`.
+- `src/rules/particle_type.rs` —
+  `gas_max_drift_speed_reads_with_the_phobos_int_parser`: `5`, `$10` (10),
+  `10h` (16) and rejected text keeps the constructor's 2.
 
 The keyed clamp was mutated red and restored.
 
 ## Residuals
 
-- The clamp is applied on even frames with the rest of the VERA Gas AI body;
-  the native hook sits at the same frame-gated `0x62BE30` block.
+- None for the key: the clamp sits in the same frame/draw-gated block as the
+  native `0x62BE30` hook and reads the type through the particle's own
+  `type_id`.

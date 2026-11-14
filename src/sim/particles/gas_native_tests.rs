@@ -273,6 +273,16 @@ fn the_gas_drift_clamp_uses_the_particle_types_max_speed() {
         );
         p.drift_x = 7;
         p.drift_y = -4;
+        // The clamp is native-gated on the 1/8 drift draw (`0x62BD9D`), so
+        // pick a state whose first draw is zero and whose axis draw picks X,
+        // leaving Y untouched for an exact assertion.
+        let seed = (0..100_000u64)
+            .find(|seed| {
+                let mut rng = SimRng::new(*seed);
+                rng.next_raw_abs_modulo(8) == 0 && rng.next_raw_abs_modulo(2) == 0
+            })
+            .expect("a seed with a zero drift draw");
+        sim.scenario_rng = SimRng::new(seed);
         crate::sim::particles::gas::tick_particle(
             &mut p,
             &mut sim,
@@ -283,10 +293,10 @@ fn the_gas_drift_clamp_uses_the_particle_types_max_speed() {
         );
         [p.drift_x, p.drift_y]
     };
-    let [x, y] = drift_after("");
-    assert_eq!(x, 2, "the constructor's ±2 bound");
-    assert!((-2..=2).contains(&y));
-    let [x, y] = drift_after("Gas.MaxDriftSpeed=5\n");
-    assert_eq!(x, 5, "the keyed bound");
-    assert!((-5..=5).contains(&y), "{y}");
+    assert_eq!(drift_after(""), [2, -2], "the constructor's ±2 bound");
+    assert_eq!(
+        drift_after("Gas.MaxDriftSpeed=5\n"),
+        [5, -4],
+        "the keyed bound; the untouched Y stays inside it"
+    );
 }

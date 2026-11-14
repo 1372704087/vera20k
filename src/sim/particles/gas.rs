@@ -158,30 +158,33 @@ pub(super) fn tick_particle(
             } else {
                 p.drift_y = p.drift_y.wrapping_add(delta);
             }
-        }
-        // Phobos `ParticleClass_Gas_AI_DriftSpeed` (hook `0x62BE30`,
-        // `Ext/ParticleType/Hooks.cpp:4-30`) replaces the stock ±2 clamp at
-        // `0x62BE30..0x62BE5F` with the type's `Gas.MaxDriftSpeed`; the
-        // explicit if/else keeps the native order for a negative bound.
-        #[cfg(feature = "phobos")]
-        {
-            let max = rules.particle_type(p.type_id).phobos_gas_max_drift_speed;
-            let min = max.wrapping_neg();
-            if p.drift_x > max {
-                p.drift_x = max;
-            } else if p.drift_x < min {
-                p.drift_x = min;
+            // `0x62BD9D` (`test al,7; jne 0x62BE60`) skips the whole block
+            // unless this draw is zero, so the stock clamp at
+            // `0x62BE30..0x62BE5F` - replaced by Phobos
+            // `ParticleClass_Gas_AI_DriftSpeed` (`0x62BE30`,
+            // `Ext/ParticleType/Hooks.cpp:4-30`) with the type's
+            // `Gas.MaxDriftSpeed` - runs only at mutation events. The explicit
+            // if/else keeps the native order for a negative bound.
+            #[cfg(feature = "phobos")]
+            {
+                let max = rules.particle_type(p.type_id).phobos_gas_max_drift_speed;
+                let min = max.wrapping_neg();
+                if p.drift_x > max {
+                    p.drift_x = max;
+                } else if p.drift_x < min {
+                    p.drift_x = min;
+                }
+                if p.drift_y > max {
+                    p.drift_y = max;
+                } else if p.drift_y < min {
+                    p.drift_y = min;
+                }
             }
-            if p.drift_y > max {
-                p.drift_y = max;
-            } else if p.drift_y < min {
-                p.drift_y = min;
+            #[cfg(not(feature = "phobos"))]
+            {
+                p.drift_x = p.drift_x.clamp(-2, 2);
+                p.drift_y = p.drift_y.clamp(-2, 2);
             }
-        }
-        #[cfg(not(feature = "phobos"))]
-        {
-            p.drift_x = p.drift_x.clamp(-2, 2);
-            p.drift_y = p.drift_y.clamp(-2, 2);
         }
         p.motion = [
             NativeF32Bits::POSITIVE_ZERO,

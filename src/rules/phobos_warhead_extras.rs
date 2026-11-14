@@ -76,6 +76,10 @@ pub struct PhobosWarheadExtras {
     /// warhead's detonation writes carries `SpotlightFlags::NoColor`
     /// (`Misc/Hooks.LightEffects.cpp:79-80`).
     pub cl_is_black: bool,
+    /// `CombatLightDetailLevel.CheckColored=` (`Body.cpp:342`), `Nullable`:
+    /// overrides the `[AudioVisual]` global for this warhead's flashes
+    /// (`Misc/Hooks.LightEffects.cpp:77`).
+    pub combat_light_detail_level_check_colored: Option<bool>,
 }
 
 impl PhobosWarheadExtras {
@@ -93,6 +97,10 @@ impl PhobosWarheadExtras {
                 .read_bool("BuildingSell.IgnoreUnsellable", false),
             building_undeploy: section.read_bool("BuildingUndeploy", false),
             building_undeploy_leave: section.read_bool("BuildingUndeploy.Leave", false),
+            // `Body.cpp:342-344`: the check-coloured override precedes
+            // `CLIsBlack` in `LoadFromINI`.
+            combat_light_detail_level_check_colored: section
+                .read_phobos_nullable_bool("CombatLightDetailLevel.CheckColored", None),
             cl_is_black: section.read_bool("CLIsBlack", false),
         }
     }
@@ -119,6 +127,13 @@ impl PhobosWarheadExtras {
     /// (`Ext/Bullet/Hooks.DetonateLogics.cpp:38`).
     pub fn shake_is_local(&self, global: bool) -> bool {
         self.shake_is_local.unwrap_or(global)
+    }
+
+    /// `CombatLightDetailLevel_CheckColored.Get(Global->…)`
+    /// (`Misc/Hooks.LightEffects.cpp:77`, `Ext/WarheadType/Body.cpp:342`).
+    pub fn combat_light_check_colored(&self, global: bool) -> bool {
+        self.combat_light_detail_level_check_colored
+            .unwrap_or(global)
     }
 }
 

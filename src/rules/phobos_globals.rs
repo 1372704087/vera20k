@@ -1128,6 +1128,14 @@ pub struct PhobosGlobals {
     /// (`Ext/Render/Hooks.cpp`).
     #[serde(default)]
     pub combat_light_detail_level: i32,
+    /// `[AudioVisual] CombatLightDetailLevel.CheckColored=`, default **false**
+    /// (`Ext/Rules/Body.cpp:405`, constructor `Ext/Rules/Body.h:821`): a light
+    /// whose colour channels are partly disabled (`bitmask & 0xF != 0`) still
+    /// flashes while this is off, and is refused while it is on
+    /// (`DoFlash_CombatLightOptions @ 0x48A62E`,
+    /// `Misc/Hooks.LightEffects.cpp:66-96`).
+    #[serde(default)]
+    pub combat_light_detail_level_check_colored: bool,
     /// `[General] SubterraneanSpeed=` (`Ext/Rules/Body.cpp:125`), read through
     /// `INI_EX::ReadSpeed` into internal 256ths, constructor **19**
     /// (`Ext/Rules/Body.h:583`): the fallback for a TechnoType's own key.
@@ -1463,6 +1471,7 @@ impl Default for PhobosGlobals {
             harvester_dump_amount: NativeF32Bits::POSITIVE_ZERO,
             harvester_scan_after_unload: false,
             combat_light_detail_level: 0,
+            combat_light_detail_level_check_colored: false,
             subterranean_speed: subterranean_speed_default(),
             subterranean_height: subterranean_height_default(),
             veteran_range: NativeF64Bits::ONE,
@@ -1505,6 +1514,12 @@ impl PhobosGlobals {
         // draws (`CombatLightDetailLevel.CheckColored=` is the sibling key).
         globals.combat_light_detail_level =
             audio_visual.read_int("CombatLightDetailLevel", globals.combat_light_detail_level);
+        // `Ext/Rules/Body.cpp:405`: whether a partly-disabled colour still
+        // flashes; the warhead's own key overrides it.
+        globals.combat_light_detail_level_check_colored = audio_visual.read_bool(
+            "CombatLightDetailLevel.CheckColored",
+            globals.combat_light_detail_level_check_colored,
+        );
         // `Ext/Rules/Body.cpp:645`: the `[AudioVisual]` fallback a BuildingType's
         // `NoAlphaImageOnBuildup=` overrides.
         globals.no_alpha_image_on_buildup =

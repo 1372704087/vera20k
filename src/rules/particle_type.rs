@@ -63,6 +63,14 @@ pub struct ParticleType {
     pub name: String,
     /// Per-particle behavior dispatch — selects the AI branch each tick.
     pub behaves_like: ParticleBehavesLike,
+    /// Phobos `Gas.MaxDriftSpeed=` (`Ext/ParticleType/Body.cpp:22`,
+    /// `Valueable<int>` constructed 2 at `Body.h:26,29`): the ± bound the Gas
+    /// AI clamps Velocity.X/Y to on each pass
+    /// (`ParticleClass_Gas_AI_DriftSpeed`, hook `0x62BE30`,
+    /// `Ext/ParticleType/Hooks.cpp:4-30`, replacing the stock ±2 clamp at
+    /// `0x62BE30..0x62BE5F`).
+    #[cfg(feature = "phobos")]
+    pub phobos_gas_max_drift_speed: i32,
 
     // ── Object-base (from ObjectTypeClass) ───────────────────────────
     /// ObjectType+0x1F8 Image buffer. `ObjectTypeClass::Constructor @
@@ -222,6 +230,8 @@ impl ParticleType {
             alpha_image: section.read_object_alpha_image(""),
             start_frame: section.read_int("StartFrame", 0),
 
+            #[cfg(feature = "phobos")]
+            phobos_gas_max_drift_speed: section.read_int("Gas.MaxDriftSpeed", 2),
             // ParticleType644BE0/644F50 retain full signed words; the
             // instance constructor62B890 alone narrows RemainingEC to16bits.
             max_dc: section.read_int("MaxDC", 0),

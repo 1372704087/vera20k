@@ -1,8 +1,8 @@
 //! The indicator keys' native reads: `uimd.ini [Sidebar]`/`[ToolTips]` and the
 //! per-side `rulesmd.ini [<Side>]` pass, each with its constructor default.
 use super::{
-    PowerDeltaSideSettings, PowerDeltaUi, SidebarIndicatorsUi, SidebarTextAlign,
-    load_string_or_default,
+    PowerDeltaSideSettings, PowerDeltaUi, ProducingProgressUi, SidebarIndicatorsUi,
+    SidebarTextAlign, load_string_or_default,
 };
 use crate::rules::ini_parser::IniFile;
 use crate::rules::ruleset::RuleSet;
@@ -229,4 +229,49 @@ CreditsIndicator.MaxStep=200
     );
     assert_eq!(half.credits_max_step, 200);
     assert!(half.credits_smooth, "an unset Smooth keeps yes");
+}
+
+/// `uimd.ini [Sidebar] ProducingProgress.Show=` (`Phobos.INI.cpp:189-190`,
+/// `ReadBool(SIDEBAR_SECTION, ..., false)`): the `0x6A6EB1`
+/// `SidebarClass_DrawIt_ProducingProgress` gate defaults off.
+#[test]
+fn the_producing_progress_switch_defaults_off_and_reads_only_its_own_key() {
+    assert!(!uimd("").producing_progress.show);
+    assert!(!ProducingProgressUi::default().show);
+    assert!(
+        uimd("[Sidebar]\nProducingProgress.Show=yes\n")
+            .producing_progress
+            .show
+    );
+    assert!(
+        !uimd("[Sidebar]\nWeedsCounter.Show=yes\n")
+            .producing_progress
+            .show,
+        "a sibling counter's Show must not arm the progress strips"
+    );
+}
+
+/// `rulesmd.ini [<Side>] Sidebar.ProducingProgress.Offset=`
+/// (`Ext/Side/Body.cpp:41`, ctor `{0,0}`): a complete integer pair replaces
+/// the offset; a half pair or an absent key keeps the constructor value.
+#[test]
+fn the_producing_progress_side_offset_reads_a_complete_pair_only() {
+    let rules = RuleSet::from_ini(&IniFile::from_str(
+        "[Countries]\n0=Alpha\n[Sides]\nNorth=Alpha\n\
+         [North]\nSidebar.ProducingProgress.Offset=26,-7\n",
+    ))
+    .expect("rules read");
+    assert_eq!(rules.side_producing_progress(0).offset, [26, -7]);
+    assert_eq!(
+        rules.side_producing_progress(99).offset,
+        [0, 0],
+        "an out-of-range side keeps the constructor default"
+    );
+
+    let half = RuleSet::from_ini(&IniFile::from_str(
+        "[Countries]\n0=Alpha\n[Sides]\nNorth=Alpha\n\
+         [North]\nSidebar.ProducingProgress.Offset=26\n",
+    ))
+    .expect("rules read");
+    assert_eq!(half.side_producing_progress(0).offset, [0, 0]);
 }

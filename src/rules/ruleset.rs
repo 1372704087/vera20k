@@ -4865,6 +4865,11 @@ pub struct RuleSet {
     /// and the single nullable colour of the weeds counter.
     #[cfg(feature = "phobos")]
     side_weeds_counter: Vec<crate::rules::phobos_sidebar_indicators::WeedsCounterSideSettings>,
+    /// Phobos `[SIDE] Sidebar.ProducingProgress.Offset`, in `[Sides]` order:
+    /// the per-side draw offset of the producing-progress strips.
+    #[cfg(feature = "phobos")]
+    side_producing_progress:
+        Vec<crate::rules::phobos_sidebar_indicators::ProducingProgressSideSettings>,
     /// Phobos `[SIDE] ToolTip.Background.*`, in `[Sides]` order: the per-side
     /// tooltip-backing colour, opacity and blur overrides.
     #[cfg(feature = "phobos")]
@@ -7218,6 +7223,20 @@ impl RuleSet {
             })
             .collect();
         #[cfg(feature = "phobos")]
+        let side_producing_progress: Vec<
+            crate::rules::phobos_sidebar_indicators::ProducingProgressSideSettings,
+        > = country_side_registry
+            .side_ids
+            .iter()
+            .map(|name| {
+                ini.section(name)
+                    .map(
+                        crate::rules::phobos_sidebar_indicators::ProducingProgressSideSettings::from_section,
+                    )
+                    .unwrap_or_default()
+            })
+            .collect();
+        #[cfg(feature = "phobos")]
         let side_tooltip_background: Vec<
             crate::rules::phobos_tooltip_background::TooltipBackgroundSideSettings,
         > = country_side_registry
@@ -7589,6 +7608,8 @@ impl RuleSet {
             side_harvester_counter,
             #[cfg(feature = "phobos")]
             side_weeds_counter,
+            #[cfg(feature = "phobos")]
+            side_producing_progress,
             #[cfg(feature = "phobos")]
             side_tooltip_background,
             #[cfg(feature = "ares")]
@@ -9000,6 +9021,8 @@ impl RuleSet {
             self.side_harvester_counter.hash(&mut hasher);
             b"phobos-sidebar-weeds-counter-v1".hash(&mut hasher);
             self.side_weeds_counter.hash(&mut hasher);
+            b"phobos-sidebar-producing-progress-v1".hash(&mut hasher);
+            self.side_producing_progress.hash(&mut hasher);
             b"phobos-tooltip-background-v1".hash(&mut hasher);
             self.side_tooltip_background.hash(&mut hasher);
         }
@@ -11457,6 +11480,20 @@ impl RuleSet {
         usize::try_from(index)
             .ok()
             .and_then(|index| self.side_weeds_counter.get(index))
+            .copied()
+            .unwrap_or_default()
+    }
+
+    /// Phobos `[SIDE] Sidebar.ProducingProgress.Offset` for a native side
+    /// index. A side outside `[Sides]` keeps the `{0,0}` constructor value.
+    #[cfg(feature = "phobos")]
+    pub fn side_producing_progress(
+        &self,
+        index: i32,
+    ) -> crate::rules::phobos_sidebar_indicators::ProducingProgressSideSettings {
+        usize::try_from(index)
+            .ok()
+            .and_then(|index| self.side_producing_progress.get(index))
             .copied()
             .unwrap_or_default()
     }

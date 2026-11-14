@@ -152,10 +152,35 @@ impl WeedsCounterUi {
 /// Everything `uimd.ini` contributes to the indicator hook, with the two
 /// `[ToolTips]` labels already resolved to text.
 #[derive(Debug, Clone, PartialEq)]
+/// `uimd.ini [Sidebar] ProducingProgress.Show` (`Phobos.INI.cpp:189-190`,
+/// `SIDEBAR_SECTION`): the `0x6A6EB1 SidebarClass_DrawIt_ProducingProgress`
+/// hook's admission gate. `ReadBool(..., false)` makes the four
+/// `TabProducingProgress[i]` progress strips opt-in.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
+pub struct ProducingProgressUi {
+    pub show: bool,
+}
+
+impl Default for ProducingProgressUi {
+    fn default() -> Self {
+        Self { show: false }
+    }
+}
+
+impl ProducingProgressUi {
+    fn from_section(section: &IniSection) -> Self {
+        Self {
+            show: section.read_bool("ProducingProgress.Show", false),
+        }
+    }
+}
+
 pub struct SidebarIndicatorsUi {
     pub power_delta: PowerDeltaUi,
     pub harvester: HarvesterCounterUi,
     pub weeds: WeedsCounterUi,
+    /// `[Sidebar] ProducingProgress.Show=`, default `no`.
+    pub producing_progress: ProducingProgressUi,
     /// `[ToolTips] PowerLabel=`, default the `⚡` glyph (U+26A1).
     pub power_label: String,
     /// `[ToolTips] PowerBlackoutLabel=`, default `⚡❌` (U+26A1 U+274C).
@@ -177,6 +202,7 @@ impl Default for SidebarIndicatorsUi {
             power_delta: PowerDeltaUi::default(),
             harvester: HarvesterCounterUi::default(),
             weeds: WeedsCounterUi::default(),
+            producing_progress: ProducingProgressUi::default(),
             power_label: POWER_LABEL_DEFAULT.to_string(),
             power_blackout_label: POWER_BLACKOUT_LABEL_DEFAULT.to_string(),
             credits_max_step: 143,
@@ -219,6 +245,10 @@ impl SidebarIndicatorsUi {
             weeds: ini
                 .section("Sidebar")
                 .map(WeedsCounterUi::from_section)
+                .unwrap_or_default(),
+            producing_progress: ini
+                .section("Sidebar")
+                .map(ProducingProgressUi::from_section)
                 .unwrap_or_default(),
             power_label: label("PowerLabel", POWER_LABEL_DEFAULT),
             power_blackout_label: label("PowerBlackoutLabel", POWER_BLACKOUT_LABEL_DEFAULT),
@@ -420,6 +450,33 @@ impl WeedsCounterSideSettings {
                 .read_int_fields_complete::<2>("Sidebar.WeedsCounter.Offset", 2048)
                 .unwrap_or(defaults.offset),
             color: section.read_phobos_nullable_color("Sidebar.WeedsCounter.Color", None),
+        }
+    }
+}
+
+/// `rulesmd.ini [<Side ID>] Sidebar.ProducingProgress.Offset=`
+/// (`src/Ext/Side/Body.cpp:41`, `Valueable<Point2D>` declared at
+/// `Side/Body.h:37`, constructor default `{0,0}`). The `0x6A6EB1
+/// SidebarClass_DrawIt_ProducingProgress` hook adds it to
+/// `XBase = (Sidebar_GDIPositions ? 26 : 20) + offset.X` and
+/// `YBase = 197 + offset.Y` (`Ext/Sidebar/Hooks.cpp:39-42`).
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
+pub struct ProducingProgressSideSettings {
+    pub offset: [i32; 2],
+}
+
+impl Default for ProducingProgressSideSettings {
+    fn default() -> Self {
+        Self { offset: [0, 0] }
+    }
+}
+
+impl ProducingProgressSideSettings {
+    pub(crate) fn from_section(section: &IniSection) -> Self {
+        Self {
+            offset: section
+                .read_int_fields_complete::<2>("Sidebar.ProducingProgress.Offset", 2048)
+                .unwrap_or([0, 0]),
         }
     }
 }

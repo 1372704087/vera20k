@@ -61,6 +61,18 @@ pub(crate) struct PhobosClientSettings {
     /// `[Phobos] MessageDisplayInCenter=`, default `no`
     /// (`Phobos.INI.cpp:98`): the center-message layout switch.
     pub(crate) message_display_in_center: bool,
+    /// `[Phobos] MessageDisplayInCenter.BoardOpacity=`, int default 40
+    /// (`Phobos.INI.cpp:99`, static `:57`): `FillRectTrans`'s 0..100 percent
+    /// for the message row boards (`Misc/MessageColumn.cpp:299, :1112`).
+    pub(crate) message_display_in_center_board_opacity: i32,
+    /// `[Phobos] MessageDisplayInCenter.LabelsCount=`, int default 6
+    /// (`Phobos.INI.cpp:100`, static `:58`): the column's visible label cap
+    /// (`Math::clamp(..., 1, maxLines)` at `MessageColumn.cpp:463`).
+    pub(crate) message_display_in_center_labels_count: i32,
+    /// `[Phobos] MessageDisplayInCenter.RecordsCount=`, int default 12
+    /// (`Phobos.INI.cpp:101`, static `:59`): the column's record cap
+    /// (`Math::clamp(..., 4, maxLines)` at `MessageColumn.cpp:462`).
+    pub(crate) message_display_in_center_records_count: i32,
     /// `[Phobos] SaveGameOnScenarioStart=`, default `yes`
     /// (`Phobos.INI.cpp:106`): a campaign/mission start writes a save before
     /// play begins.
@@ -86,6 +98,10 @@ pub(crate) struct PhobosClientSettings {
     /// `[Phobos] ShowGameTime=`, default `no` (`Phobos.INI.cpp:116`): draws the
     /// elapsed-game-time clock.
     pub(crate) show_game_time: bool,
+    /// `[Phobos] ShowGameTime.BoardOpacity=`, int default 40
+    /// (`Phobos.INI.cpp:117`): `FillRectTrans(&rectB, &color, opacity)` in
+    /// `GScreenClass_DrawText @ 0x4F4583` (`src/Phobos.cpp:392`).
+    pub(crate) show_game_time_board_opacity: i32,
     /// `[Phobos] EnableSelectBox=`, default `no` (`Phobos.INI.cpp:104`): the
     /// client switch for the `[SelectBoxTypes]` custom selection box.
     pub(crate) enable_select_box: bool,
@@ -142,12 +158,16 @@ impl Default for PhobosClientSettings {
             priority_selection_filtering: true,
             type_select_use_ifv_mode: true,
             message_display_in_center: false,
+            message_display_in_center_board_opacity: 40,
+            message_display_in_center_labels_count: 6,
+            message_display_in_center_records_count: 12,
             save_game_on_scenario_start: true,
             show_briefing: true,
             hide_laser_trail_effects: false,
             hide_light_flash_effects: false,
             hide_shake_effects: false,
             show_game_time: false,
+            show_game_time_board_opacity: 40,
             enable_select_box: false,
             real_time_timers: false,
             real_time_timers_adaptive: false,
@@ -207,6 +227,20 @@ pub(crate) fn read(settings_dir: &Path) -> PhobosClientSettings {
             .read_bool("TypeSelectUseIFVMode", defaults.type_select_use_ifv_mode),
         message_display_in_center: section
             .read_bool("MessageDisplayInCenter", defaults.message_display_in_center),
+        // `Phobos.INI.cpp:99-101`: three independent ReadInteger calls on the
+        // same `[Phobos]` section; an absent key keeps its static default.
+        message_display_in_center_board_opacity: section.read_int(
+            "MessageDisplayInCenter.BoardOpacity",
+            defaults.message_display_in_center_board_opacity,
+        ),
+        message_display_in_center_labels_count: section.read_int(
+            "MessageDisplayInCenter.LabelsCount",
+            defaults.message_display_in_center_labels_count,
+        ),
+        message_display_in_center_records_count: section.read_int(
+            "MessageDisplayInCenter.RecordsCount",
+            defaults.message_display_in_center_records_count,
+        ),
         save_game_on_scenario_start: section.read_bool(
             "SaveGameOnScenarioStart",
             defaults.save_game_on_scenario_start,
@@ -218,6 +252,10 @@ pub(crate) fn read(settings_dir: &Path) -> PhobosClientSettings {
             .read_bool("HideLightFlashEffects", defaults.hide_light_flash_effects),
         hide_shake_effects: section.read_bool("HideShakeEffects", defaults.hide_shake_effects),
         show_game_time: section.read_bool("ShowGameTime", defaults.show_game_time),
+        show_game_time_board_opacity: section.read_int(
+            "ShowGameTime.BoardOpacity",
+            defaults.show_game_time_board_opacity,
+        ),
         enable_select_box: section.read_bool("EnableSelectBox", defaults.enable_select_box),
         // `Phobos.INI.cpp:102-103`: both default to `false`.
         real_time_timers: section.read_bool("RealTimeTimers", defaults.real_time_timers),
@@ -273,8 +311,11 @@ mod tests {
              SuperWeaponSidebar.RequiredSignificance=2\nShowFlashOnSelecting=yes\n\
              ShowPowerPlantEnhancerRange=yes\nShowDesignatorRange=yes\nShowPowerDelta=no\nShowHarvesterCounter=no\n\
              ShowWeedsCounter=no\nPriorityDeployFiltering=no\nPrioritySelectionFiltering=no\nTypeSelectUseIFVMode=no\n\
-             MessageDisplayInCenter=yes\nSaveGameOnScenarioStart=no\nShowBriefing=no\n\
-             HideLaserTrailEffects=yes\nShowGameTime=yes\nEnableSelectBox=yes\n\
+             MessageDisplayInCenter=yes\nMessageDisplayInCenter.BoardOpacity=72\n\
+             MessageDisplayInCenter.LabelsCount=3\nMessageDisplayInCenter.RecordsCount=9\n\
+             SaveGameOnScenarioStart=no\nShowBriefing=no\n\
+             HideLaserTrailEffects=yes\nShowGameTime=yes\nShowGameTime.BoardOpacity=55\n\
+             EnableSelectBox=yes\n\
              CampaignDefaultGameSpeed=4\n\
              HideLightFlashEffects=yes\nHideShakeEffects=yes\n\
              ToolTipBlur=yes\nMessageApplyHoverState=yes\n\
@@ -296,12 +337,16 @@ mod tests {
                 priority_selection_filtering: false,
                 type_select_use_ifv_mode: false,
                 message_display_in_center: true,
+                message_display_in_center_board_opacity: 72,
+                message_display_in_center_labels_count: 3,
+                message_display_in_center_records_count: 9,
                 save_game_on_scenario_start: false,
                 show_briefing: false,
                 hide_laser_trail_effects: true,
                 hide_light_flash_effects: true,
                 hide_shake_effects: true,
                 show_game_time: true,
+                show_game_time_board_opacity: 55,
                 enable_select_box: true,
                 real_time_timers: false,
                 real_time_timers_adaptive: false,
@@ -316,6 +361,30 @@ mod tests {
 
     /// `Phobos.INI.cpp:120-124`: the stored value is `6 - key`; a key that
     /// leaves the 0..=6 range (here 7 gives -1) falls back to speed 2.
+    /// `Phobos.INI.cpp:99-101,117`: the four board/count keys keep their
+    /// static defaults when absent and read authored integers verbatim.
+    #[test]
+    fn the_message_column_and_game_time_boards_read_their_source_defaults() {
+        let absent = read(&profile_with("[Phobos]\nMessageDisplayInCenter=yes\n"));
+        assert_eq!(absent.message_display_in_center_board_opacity, 40);
+        assert_eq!(absent.message_display_in_center_labels_count, 6);
+        assert_eq!(absent.message_display_in_center_records_count, 12);
+        assert_eq!(absent.show_game_time_board_opacity, 40);
+
+        let dir = profile_with(
+            "[Phobos]\nMessageDisplayInCenter.BoardOpacity=0\n\
+             MessageDisplayInCenter.LabelsCount=1\n\
+             MessageDisplayInCenter.RecordsCount=4\n\
+             ShowGameTime.BoardOpacity=200\n",
+        );
+        let authored = read(&dir);
+        assert_eq!(authored.message_display_in_center_board_opacity, 0);
+        assert_eq!(authored.message_display_in_center_labels_count, 1);
+        assert_eq!(authored.message_display_in_center_records_count, 4);
+        assert_eq!(authored.show_game_time_board_opacity, 200);
+        std::fs::remove_dir_all(dir).unwrap();
+    }
+
     #[test]
     fn campaign_default_game_speed_inverts_the_key_and_clamps() {
         let dir = profile_with("[Phobos]\nCampaignDefaultGameSpeed=0\n");

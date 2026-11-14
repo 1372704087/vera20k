@@ -44,6 +44,11 @@ negative value disables them, an absent key keeps the current state.
   attached to it when `AnimMove`;
 - any eaten cell starts the `TransDelay` timer.
 
+## Native anchors
+
+`FootClass_AI` (`0x4DA54E`, `Ext/Techno/Hooks.cpp:40`) is the visit whose body runs the eater; the
+cell offsets come from the type's `TiberiumEater.Cell0..N`, not from a second site.
+
 ## Where VERA20K owns it
 
 `rules::phobos_tiberium_eater` reads the keys onto `ObjectType`

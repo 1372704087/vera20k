@@ -33,6 +33,11 @@ the shared `FireSuperWeaponExt` tail (`:13-40`).
   directly. `Detonate.Damage` defaults to 0.
 - An impact off the map is dropped with a log, as native.
 
+## Native anchors
+
+`Detonate.Warhead`/`Detonate.Weapon` are `[SuperWeaponTypes]` keys read in `Ext/SWType/Body.cpp`, and
+the detonation they describe runs from `SuperClass::Launch` (`0x6CC390`) at its tail `0x6CDE40`.
+
 ## Where VERA20K owns it
 
 `rules::phobos_sw_detonate::PhobosSuperWeaponDetonate` (per-superweapon,

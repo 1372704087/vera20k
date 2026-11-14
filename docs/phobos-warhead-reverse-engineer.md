@@ -42,6 +42,11 @@ non-null only with Ares installed.
   before ReturnWarhead when the firing house is not `MultiplayPassive`; the
   arm compiles only with both `phobos` and `ares`.
 
+## Native anchors
+
+`ReverseEngineer` runs inside the warhead body Phobos hooks at `BulletClass_Detonate` (`0x46920B`, `Ext/WarheadType/Hooks.cpp:8`) (`Ext/WarheadType/Detonate.cpp`), on the one-time effects of
+`DetonateOnOneUnit`.
+
 ## Residuals
 
 - The arm needs the Ares feature; a Phobos-only build reads the key but has no

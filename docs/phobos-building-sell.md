@@ -77,6 +77,13 @@ arm records here is where the resulting unit walks to.
 `ObjectType::is_1x1_with_undeploy`, the same predicate the kill-weapon and
 trajectory owners use.
 
+## Native anchors
+
+`BulletClass_Detonate` (`0x46920B`, `Ext/WarheadType/Hooks.cpp:8`) is the hook whose body reaches
+`WarheadTypeExt::ApplyBuildingUndeploy` (`Ext/WarheadType/Detonate.cpp:217,266`). The sell and
+undeploy calls that body makes are gamemd's own `BuildingClass` methods, already owned elsewhere in
+VERA, so no separate address is cited for them here.
+
 ## Residuals
 
 - **`CanBeSold()` is VERA's `production::can_sell_building`.** That function

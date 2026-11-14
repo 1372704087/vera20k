@@ -49,6 +49,11 @@ global level. `sim::combat::penetrates_transport` runs inside
 `crit::detonate` now carries the bullet damage. Passenger damage goes through
 the shared receiver (`commit_entities`), so armor, verses and shields apply.
 
+## Native anchors
+
+The penetration test runs inside the warhead body Phobos hooks at `BulletClass_Detonate` (`0x46920B`, `Ext/WarheadType/Hooks.cpp:8`) (`Ext/WarheadType/Detonate.cpp`); the passengers it walks are
+`FootClass`'s own cargo, already owned by the stock transport code.
+
 ## Residuals
 
 - `SetLocation(transporterCoords)` before each passenger's damage is not

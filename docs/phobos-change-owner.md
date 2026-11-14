@@ -29,6 +29,11 @@ Reader `Ext/WarheadType/Body.cpp:431-433`, declarations
   owner-object. VERA reuses the capture manager's `CreateMindControlRingAnim`
   owner for this.
 
+## Native anchors
+
+The warhead arm runs inside the warhead body Phobos hooks at `BulletClass_Detonate` (`0x46920B`, `Ext/WarheadType/Hooks.cpp:8`) (`Ext/WarheadType/Detonate.cpp`); the ownership write itself is the
+stock `BuildingClass::ChangeOwner` (`0x004483C6..0x0044848F`), already owned elsewhere in VERA.
+
 ## Where VERA20K owns it
 
 `WarheadType::phobos_change_owner*` feed

@@ -49,6 +49,11 @@ restored owner so every later arm inherits it. The sound is the only thing
 `silent` changes, expressed as `Simulation::free_unit_with_sound`; the
 pre-existing [`Simulation::free_unit`] keeps playing it.
 
+## Native anchors
+
+`ApplyRemoveMindControl` runs inside the warhead body Phobos hooks at `BulletClass_Detonate` (`0x46920B`, `Ext/WarheadType/Hooks.cpp:8`) (`Ext/WarheadType/Detonate.cpp`), so that hook is the
+address for the key; the mind-control release it performs is the stock `CaptureManager` path.
+
 ## Residuals
 
 - **`SetOwningHouse(pOriginOwner, !silent)`.** Native passes `!silent` as the

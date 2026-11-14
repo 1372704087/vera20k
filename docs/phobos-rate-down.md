@@ -39,6 +39,12 @@ them.
 `assign_target_represented` and the attack-move target writes) are the hook
 sites.
 
+## Native anchors
+
+The Gattling rate-down applies in `InfantryClass_FiringAI` (`0x520AD2`, `Ext/Infantry/Hooks.Firing.cpp:13`;
+its context setter `0x5206D2`, is-Gattling test `0x520AD9`) and in
+`BuildingClass_Mission_Attack` (`0x44B214`, `Ext/Techno/Hooks.Firing.cpp:1277`).
+
 ## Residuals
 
 - Native compares the target's `UniqueID` for any target, including cells and

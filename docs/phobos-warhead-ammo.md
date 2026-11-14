@@ -33,6 +33,11 @@ A type with `Ammo=0` (no ammo capacity) is therefore clamped back to 0.
 - `sim::combat::crit::detonate`'s per-target loop applies it before the
   disguise/return-warhead arms (`sim/combat/crit.rs:265`).
 
+## Native anchors
+
+`ApplyAmmoModifier` runs inside `DetonateOnOneUnit`'s one-time effects (`Ext/WarheadType/Detonate.cpp:221..222`,
+body `:923..932`), so the warhead body Phobos hooks at `BulletClass_Detonate` (`0x46920B`, `Ext/WarheadType/Hooks.cpp:8`) is the address for the key.
+
 ## Residuals
 
 - The clamp uses the target type's current `Ammo=` from the rules, matching

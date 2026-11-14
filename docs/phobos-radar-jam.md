@@ -58,6 +58,12 @@ the scan interval, the House filter (`sim::combat::can_target_house`) and the
 two lists all come from the jammer's own type, read before the mutable borrow;
 `in_range && admitted` jams, anything else unjams.
 
+## Native anchors
+
+This chain has no gamemd address: it replaces Ares' `RadarJammerClass::Update`, which Phobos patches
+at `AresBase + 0x68500` and `+0x69470` (`Misc/Hooks.Ares.cpp:345..346,469..470`). The scan body the
+keys feed is `New/Entity/Ares/RadarJammerClass.cpp:5..47`.
+
 ## Residuals
 
 - **Interior House iteration order.** Native walks `HouseClass::Array` and each

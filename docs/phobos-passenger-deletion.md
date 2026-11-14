@@ -66,6 +66,13 @@ Rules live in `rules::phobos_passenger_deletion`. The clock is
 visits, deletion, refunds and the gunner/parasite calls. `DigitalDisplay`'s
 `PassengerKill` reads the clock (`Body.Visuals.cpp:687-698`).
 
+## Native anchors
+
+The timer this feature drives lives in `TechnoExt::EatPassengers`
+(`Ext/Techno/Body.Update.cpp:261..435`), reached from the techno's own `TechnoClass::AI` visit
+(`0x6F9E50`) through `TechnoExt::OnEarlyUpdate` — there is no dedicated hook for the keys, and the
+destruction it registers is the stock one.
+
 ## Residuals
 
 - A type change through `Simulation::convert_techno_type` stops a running

@@ -36,6 +36,11 @@ if (pTarget->IsDisguised())
 - The disguise runtime is only created when it already existed; a
   non-disguised target is untouched.
 
+## Native anchors
+
+`RemoveDisguise` runs inside the warhead body Phobos hooks at `BulletClass_Detonate` (`0x46920B`, `Ext/WarheadType/Hooks.cpp:8`) (`Ext/WarheadType/Detonate.cpp`); the disguise it clears is the
+stock `UnitClass` disguise state.
+
 ## Residuals
 
 - The damage receiver's own `receive_damage_reveal` also clears a disguise on

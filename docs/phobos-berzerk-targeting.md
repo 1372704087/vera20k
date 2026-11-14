@@ -41,6 +41,12 @@ arm; cells and terrain objects skip it.
   a berzerk firer against a techno target outside the admitted houses returns
   `Illegal`, matching the hook's `CannotFire`.
 
+## Native anchors
+
+`TechnoClass_ReceiveDamage_AllowBerzerkOnAllies` (`0x701D2E`, `Ext/Techno/Hooks.ReceiveDamage.cpp:528`)
+admits the arm, and the retarget it causes runs in `TechnoClass_SelectAutoTarget_Scan`
+(`0x6F93BB`, `Ext/Techno/Hooks.cpp:1574`).
+
 ## Residuals
 
 - The hook's `AllowBerzerkOnAllies` companion key is a separate feature.

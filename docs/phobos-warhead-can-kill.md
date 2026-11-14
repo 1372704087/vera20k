@@ -40,6 +40,12 @@ ORed in.
   (`sim/attach_effect.rs:2672`). Its caller is the ReceiveDamage wrapper
   (`sim/combat/world_receiver.rs:1571`).
 
+## Native anchors
+
+The arm sits in the ReceiveDamage wrapper Phobos hooks at `TechnoClass_ReceiveDamage_Shield`
+(`0x701900`), after the shield block and before the original body
+(`Ext/Techno/Hooks.ReceiveDamage.cpp:178..188`).
+
 ## Residuals
 
 - `SkipLowDamageCheck` is implicit: the caller treats an applied clamp as the

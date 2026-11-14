@@ -71,6 +71,12 @@ loop runs regardless of the flag.
   passenger, even where the placement would succeed, so the placement and
   scatter draws of `EjectRandomly` do not happen.
 
+## Native anchors
+
+Ares reimplements the native driver-change body (`100458F3..10045953`), and Phobos replaces that
+reimplementation — `Patch::Apply_LJMP(AresBase + 0x456D0)` and `(+0x46240)` (`Misc/Hooks.Ares.cpp:296,420`).
+The two keys are Ares-side, so no gamemd instruction reads them.
+
 ## Residuals
 
 - **RNG/timer/detach ledger.** The chain passes the one Scenario draw of

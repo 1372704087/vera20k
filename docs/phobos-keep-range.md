@@ -34,6 +34,12 @@ by `TechnoClass::InRange`'s maximum and minimum range getters
   beyond `-value - 128` leptons makes it `max(-value - 128, 443)` so the
   firer closes in instead of stopping.
 
+## Native anchors
+
+`TechnoClass::InRange` (`0x006F7220`) is the predicate the keys modify; Phobos hooks its weapon-range
+arm at `0x6F7248` (`Ext/Techno/Hooks.WeaponRange.cpp:131`) and its minimum-range arm at `0x6F737F`
+(`Ext/Bullet/Hooks.Obstacles.cpp:206`).
+
 ## Where VERA20K owns it
 
 `WeaponType::phobos_keep_range*` and the three `phobos_globals` values feed

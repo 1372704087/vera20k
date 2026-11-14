@@ -37,6 +37,11 @@ Then:
 - `maxCapture == 0` and a manager exists: `FreeAll` and delete it;
 - otherwise nothing changes.
 
+## Native anchors
+
+The convert pair is `InfantryClass_DoingAI_DeployConvert` — deploy `0x520B3E`, undeploy `0x520B99` — and
+the flag reset this key adds is at `0x520E75` (`Ext/Infantry/Hooks.cpp:19,36,53`).
+
 ## Where VERA20K owns it
 
 `rules::phobos_convert.reset_mind_control` reads the type key; the global

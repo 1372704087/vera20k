@@ -18,6 +18,13 @@ introduced by Ares where building types that have `UndeploysInto` cannot
 display `AltCameo` or `AltCameoPCX`..."). Ares-only builds keep the Ares
 answer, and a building without `UndeploysInto` is untouched.
 
+## Native anchors
+
+The cameo itself is drawn by `TechnoTypeClass::GetCameo @ 0x00712040`, which is where the
+`AltCameo=`/`AltCameoPCX=` choice is made; the sidebar reaches it through its own draw path
+(`StripClass::Draw @ 0x006A9540`). The veteran arm that mis-reads a building is Ares-side
+(`TechnoTypeExt::CameoIsVeteran`), so no gamemd address is cited for the fix.
+
 ## Where VERA20K owns it
 
 - `app/presentation/sidebar_render.rs` — `shows_alt_cameo` and

@@ -70,6 +70,12 @@ One Scenario `RandomDouble` per weighted delivery roll. No timer writes of
 its own; the kill's lifecycle calls write theirs (stun, limbo, destruction
 bookkeeping).
 
+## Native anchors
+
+`SuperClass::Launch` (`0x6CC390`), with its tail at `0x6CDE40`, is where the delivery runs
+(`Ext/SWType/Hooks.cpp:1..2`). `HouseClass_RecalcCenter_LimboDelivery` (`0x4FD1CD` and `0x4FD463`,
+`Ext/House/Hooks.cpp:94..95`) is the second site that has to see the delivered buildings.
+
 ## Residuals
 
 - `LimboCreate` places at the constructor's cell `(0, 0)`; native keeps a

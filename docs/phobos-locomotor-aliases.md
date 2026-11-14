@@ -29,6 +29,16 @@ no VERA movement kind, so their aliases resolve exactly like their CLSIDs —
 to nothing — rather than selecting a different system. `Chrono` is not an
 alias; it keeps the Teleport constructor seed.
 
+## Native anchors
+
+The `Locomotor=` value itself is retail: gamemd resolves it as a CLSID, and the alias spellings
+exist only in Phobos' `Utilities/TemplateDef.h` `read<CLSID>`. There is no gamemd instruction that
+reads an alias, so none is cited.
+
+The dormant classes are anchored where their absence comes from: `DropPod`'s only installer
+(`0x004DB8A0`) has no references, which is why its alias resolves to nothing rather than to a
+movement kind. Movement variant order follows the enum table at `0x81DA58`.
+
 ## Where VERA20K owns it
 
 - `rules/locomotor_type.rs`: `kind_from_clsid` tries the CLSID table first,

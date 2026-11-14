@@ -35,6 +35,11 @@ multi-target warhead taunts each one at that owner.
   (`sim/mission/authority.rs:663`) with the same mission/target archive.
 - `source_id == 0` (no firing techno) skips the arm.
 
+## Native anchors
+
+`Taunt` runs inside the warhead body Phobos hooks at `BulletClass_Detonate` (`0x46920B`, `Ext/WarheadType/Hooks.cpp:8`) (`Ext/WarheadType/Detonate.cpp`), on the same one-time effects that
+`DetonateOnOneUnit` applies.
+
 ## Residuals
 
 - The override is the same transaction the retaliation path uses; its class

@@ -24,6 +24,11 @@ warning at `:1157`); constructor defaults `Ext/TechnoType/Body.h:794-796`.
   pair is an empty band, which Phobos warns about but does not swap);
 - the object converts through the shared type-conversion owner.
 
+## Native anchors
+
+`FootExt::AmmoAutoConvertActions` (`Ext/Foot/Body.cpp:888..909`) is the tail step of the `FootClass_AI`
+visit Phobos hooks at `0x4DA54E`, between the tiberium eater and the health-band arm.
+
 ## Where VERA20K owns it
 
 Fields live on `rules::phobos_convert::PhobosConvert`, next to the other

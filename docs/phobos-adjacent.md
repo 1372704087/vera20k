@@ -34,6 +34,11 @@ proximity owner `production::production_placement::is_within_build_area`
 allow filter, the same-house disallow skip/fatal and the prohibit pre-pass
 through `build_area_scan`; stock builds run the unchanged scan.
 
+## Native anchors
+
+`CellClass_DamageWall_AdjacentWallDamage` (`0x480EA8`, `Ext/Cell/Hooks.cpp:5`) is the wall-damage visit
+the adjacency keys restrict; no second site reads them.
+
 ## Residuals
 
 - Phobos' `NoBuildAreaOnBuildup` from the same hook is a separate key and is

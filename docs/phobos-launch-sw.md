@@ -41,6 +41,12 @@ The inhibitor/designator lists are the Ares-owned
 the lists unread (no Ares) the inhibitor gate is open and designators are not
 required.
 
+## Native anchors
+
+`LaunchSW` runs inside the warhead body Phobos hooks at `BulletClass_Detonate` (`0x46920B`, `Ext/WarheadType/Hooks.cpp:8`) (`Ext/WarheadType/Detonate.cpp`), and the launches it starts go through
+`SuperClass::Launch` (`0x6CC390`), whose tail at `0x6CDE40` is the same site the LimboDelivery chain
+uses.
+
 ## Where VERA20K owns it
 
 `rules::phobos_launch_sw` reads the keys onto `WarheadType`.

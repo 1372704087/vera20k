@@ -36,6 +36,11 @@ before `PenetratesTransport`:
 The return needs the bullet's firer: a `source_id == 0` detonation has none
 and does nothing.
 
+## Native anchors
+
+`ReturnWarhead` runs inside the warhead body Phobos hooks at `BulletClass_Detonate` (`0x46920B`, `Ext/WarheadType/Hooks.cpp:8`) (`Ext/WarheadType/Detonate.cpp`); the returned detonation re-enters
+that same body through the stock bullet path.
+
 ## Where VERA20K owns it
 
 `rules::phobos_return_warhead` reads the keys onto `WarheadType`;

@@ -644,6 +644,7 @@ fn render_unit_key(
                 ..Default::default()
             },
             shadow.index,
+            shadow.frame,
             shadow.considered_aircraft,
         );
     }
@@ -1340,6 +1341,9 @@ struct ShadowModel {
     /// Phobos `ShadowIndices=` (`Ext/TechnoType/Body.cpp:1325`): one stencil
     /// per listed HVA section; empty keeps the type's single `ShadowIndex`.
     indices: Vec<i32>,
+    /// Phobos `ShadowIndex.Frame=` (`Body.cpp:1338`): the HVA frame the
+    /// single-section shadow draws at (`0x7072A1`); 0 in default builds.
+    frame: i32,
 }
 
 impl ShadowModel {
@@ -1376,6 +1380,10 @@ impl ShadowModel {
                 indices: object.phobos_shadow_indices().to_vec(),
                 #[cfg(not(feature = "phobos"))]
                 indices: Vec::new(),
+                #[cfg(feature = "phobos")]
+                frame: object.phobos_shadow_index_frame(),
+                #[cfg(not(feature = "phobos"))]
+                frame: 0,
             })
     }
 }
@@ -1538,6 +1546,7 @@ impl UnitModel {
                     body.hva(),
                     &params,
                     shadow.index,
+                    shadow.frame,
                     shadow.considered_aircraft,
                 )
             } else {
@@ -1546,6 +1555,7 @@ impl UnitModel {
                     body.hva(),
                     &params,
                     shadow.index,
+                    shadow.frame,
                     &shadow.indices,
                     shadow.considered_aircraft,
                 )
@@ -1595,7 +1605,7 @@ impl UnitModel {
                 // own facing (`canonical_turret_facing`), so the stencil is the
                 // turret voxel's shadow at that facing.
                 let turret = turret?;
-                vxl_raster::shadow::render(turret.vxl(), turret.hva(), &params, 0, false)?
+                vxl_raster::shadow::render(turret.vxl(), turret.hva(), &params, 0, 0, false)?
             }
             VxlLayer::Body | VxlLayer::Turret | VxlLayer::Barrel => {
                 let key_pose = (params.frame, params.facing, params.slope_type, slope_blend);

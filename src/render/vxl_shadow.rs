@@ -22,16 +22,27 @@ pub(crate) fn supported(vxl: &VxlFile, params: &VxlRenderParams) -> bool {
 #[path = "vxl_shadow_tests.rs"]
 mod tests;
 
+/// `0x7072A1`'s `ChooseFrame` (`Ext/TechnoType/Hooks.MatrixOp.cpp:1074-1104`):
+/// a non-negative `ShadowIndex.Frame` picks the shadow section's HVA frame,
+/// modulo the file's frame count. A cleared `-1` falls through to
+/// `WalkedFramesSoFar`, which this shadow pass keeps at frame 0; the
+/// `ShadowIndices.Frame` map is a separate residual.
+fn shadow_hva_frame(frame: i32, hva: &HvaFile) -> u32 {
+    u32::try_from(frame.max(0)).unwrap_or(0) % hva.frame_count.max(1)
+}
+
 /// Native clear visibility buffer and crop. ShadowIndex selects one section
-/// at HVA frame zero; ConsideredAircraft selects the original half-size viewer.
+/// at `frame` of its HVA (`ShadowIndex.Frame`); ConsideredAircraft selects
+/// the original half-size viewer.
 pub(crate) fn render(
     vxl: &VxlFile,
     hva: Option<&HvaFile>,
     params: &VxlRenderParams,
     shadow_index: i32,
+    frame: i32,
     considered_aircraft: bool,
 ) -> Option<VxlSprite> {
-    let matrix = draw_matrix(vxl, hva, params, shadow_index)?;
+    let matrix = draw_matrix(vxl, hva, params, shadow_index, frame)?;
     render_matrix(vxl, matrix, shadow_index, considered_aircraft)
 }
 
@@ -40,6 +51,7 @@ fn draw_matrix(
     hva: Option<&HvaFile>,
     params: &VxlRenderParams,
     shadow_index: i32,
+    frame: i32,
 ) -> Option<super::Mat4> {
     if !supported(vxl, params) {
         return None;
@@ -52,7 +64,7 @@ fn draw_matrix(
         super::voxel_facing_step(params.facing),
     );
     if let Some(hva) = hva {
-        let mut raw = *hva.get_transform(0, limb_index as u32)?;
+        let mut raw = *hva.get_transform(shadow_hva_frame(frame, hva), limb_index as u32)?;
         // The native HVA loader scales every section's translation by the
         // first VXL tailer's scale (5BD730), even for a different ShadowIndex.
         let scale = vxl.limbs.first()?.scale;
@@ -71,9 +83,10 @@ pub(crate) fn center(
     hva: Option<&HvaFile>,
     params: &VxlRenderParams,
     index: i32,
+    frame: i32,
     aircraft: bool,
 ) -> Option<[f32; 2]> {
-    let matrix = draw_matrix(vxl, hva, params, index)?;
+    let matrix = draw_matrix(vxl, hva, params, index, frame)?;
     let limb = vxl.limbs.get(usize::try_from(index).ok()?)?;
     let (_, lo, hi) = projected_quad(matrix, limb.bounds, aircraft)?;
     center_of_bounds(lo, hi)
@@ -281,11 +294,23 @@ pub(crate) fn render_indices(
     hva: Option<&HvaFile>,
     params: &VxlRenderParams,
     primary_index: i32,
+    primary_frame: i32,
     indices: &[i32],
     considered_aircraft: bool,
 ) -> Option<VxlSprite> {
-    let matrix = draw_matrix(vxl, hva, params, primary_index)?;
-    let center = center(vxl, hva, params, primary_index, considered_aircraft)?;
+    // Native recomputes each section's matrix through `0x7072A1`, so a
+    // `ShadowIndices.Frame` entry would pick that section's own frame. The
+    // map is still unmodelled: every section shares the primary's matrix,
+    // which is the `ShadowIndex.Frame` selection.
+    let matrix = draw_matrix(vxl, hva, params, primary_index, primary_frame)?;
+    let center = center(
+        vxl,
+        hva,
+        params,
+        primary_index,
+        primary_frame,
+        considered_aircraft,
+    )?;
     let mut visibility = vec![0u8; 65536];
     let mut any = false;
     for &index in indices {

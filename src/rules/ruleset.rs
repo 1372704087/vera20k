@@ -6041,6 +6041,16 @@ impl RuleSet {
             }
         }
         #[cfg(feature = "phobos")]
+        for (category, name, frame) in processed.phobos_shadow_index_frame_states() {
+            if let Some(object) = rules
+                .object_list
+                .iter_mut()
+                .find(|object| object.category == category && object.id == name)
+            {
+                object.set_phobos_shadow_index_frame(frame);
+            }
+        }
+        #[cfg(feature = "phobos")]
         for (category, name, turret_shadow) in processed.phobos_turret_shadow_states() {
             if let Some(object) = rules
                 .object_list

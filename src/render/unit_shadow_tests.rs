@@ -146,8 +146,8 @@ fn jumpjet_native_masks_keep_ground_flight_and_frame_payloads_separate() {
             slope_type: key.slope_type,
             ..Default::default()
         };
-        let sprite = vxl_raster::shadow::render(&vxl, Some(&hva), &params, 0, true).unwrap();
-        let center = vxl_raster::shadow::center(&vxl, Some(&hva), &params, 0, true);
+        let sprite = vxl_raster::shadow::render(&vxl, Some(&hva), &params, 0, 0, true).unwrap();
+        let center = vxl_raster::shadow::center(&vxl, Some(&hva), &params, 0, 0, true);
         for frame in [0, GROUNDED_SHADOW_FRAME_FLAG] {
             let mut key = key.clone();
             key.frame = frame;

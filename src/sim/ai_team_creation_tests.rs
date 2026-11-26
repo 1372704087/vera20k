@@ -427,23 +427,37 @@ fn the_team_block_matches_the_original() {
 
 #[test]
 fn ares_trigger_side_tokens_admit_any_registered_side() {
-    assert!(super::side_admits(0, 3, true), "token 0 is unrestricted");
     assert!(
-        super::side_admits(4, 3, true),
+        super::side_admits(0, 3, true, false),
+        "token 0 is unrestricted"
+    );
+    assert!(
+        super::side_admits(4, 3, true, false),
         "token 4 selects side index 3"
     );
-    assert!(!super::side_admits(4, 2, true));
-    assert!(!super::side_admits(1, 3, true));
-    assert!(super::side_admits(3, 2, true));
+    assert!(!super::side_admits(4, 2, true, false));
+    assert!(!super::side_admits(1, 3, true, false));
+    assert!(super::side_admits(3, 2, true, false));
+}
+
+#[test]
+fn npatch_fourth_side_trigger_token_admits_only_side_three() {
+    assert!(super::side_admits(4, 3, false, true));
+    assert!(!super::side_admits(4, 0, false, true));
+    assert!(!super::side_admits(4, 2, false, true));
+    assert!(super::side_admits(1, 0, false, true));
+    assert!(
+        super::side_admits(4, 0, false, false),
+        "stock leaves the fourth token unrestricted"
+    );
 }
 
 #[test]
 fn a_command_driven_house_stands_down_from_team_creation() {
     let rules = RuleSet::from_ini(&IniFile::from_str("")).unwrap();
     let mut sim = Simulation::new();
-    sim.session.set_game_mode(
-        crate::sim::scenario_session::ScenarioGameMode::from_legacy_nonzero(true),
-    );
+    sim.session
+        .set_game_mode(crate::sim::scenario_session::ScenarioGameMode::from_legacy_nonzero(true));
     sim.session.set_binary_frame_for_test(100);
     let owner = sim.interner.intern("H0");
     let mut house = HouseState::new(owner, 0, None, false, 0, 10);

@@ -24,6 +24,35 @@ impl Simulation {
         }
     }
 
+    /// NPatch's fourth Side is a dynamically sized registry, so a save made
+    /// with it must not be admitted into a smaller one: the native load would
+    /// index a House's saved Side past the rebuilt array. Stock three-Side
+    /// games keep their old admission path; a save or rules set that reaches
+    /// side index 3 checks every saved non-negative Side index before Houses
+    /// restore.
+    pub(crate) fn validate_side_registry_for_load(
+        &self,
+        rules: &crate::rules::ruleset::RuleSet,
+    ) -> Result<(), SnapshotRestoreError> {
+        let side_count = rules.allocated_sides().count();
+        let reaches_fourth =
+            side_count > 3 || self.houses.iter().any(|(_, house)| house.side_index() >= 3);
+        if !reaches_fourth {
+            return Ok(());
+        }
+        for (&owner, house) in &*self.houses {
+            let side = house.side_index();
+            if side >= 0 && usize::try_from(side).unwrap_or(usize::MAX) >= side_count {
+                return Err(SnapshotRestoreError::InvalidHouseSide {
+                    owner,
+                    side,
+                    side_count,
+                });
+            }
+        }
+        Ok(())
+    }
+
     /// Saved Ares state (a delivery base override, an attached superweapon,
     /// a pending unit delivery, a paid superweapon selection) loads only into
     /// a game Ares plays in; the player load checks it with the loading

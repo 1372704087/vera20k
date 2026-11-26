@@ -553,6 +553,14 @@ pub enum SnapshotRestoreError {
         owner: crate::sim::intern::InternedId,
         reason: &'static str,
     },
+    #[error(
+        "house {owner} saved Side index {side} is outside the loaded rules' {side_count} allocated Sides"
+    )]
+    InvalidHouseSide {
+        owner: crate::sim::intern::InternedId,
+        side: i32,
+        side_count: usize,
+    },
     #[error("{registry} contains reserved object id 0")]
     ReservedObjectId { registry: &'static str },
     #[error(
@@ -942,6 +950,7 @@ impl GameSnapshot {
             simulation.reconstruct_building_repair_progress_after_player_load();
         }
         simulation.validate_ares_state_for_load(rules.ares())?;
+        simulation.validate_side_registry_for_load(rules)?;
         simulation.restore_after_snapshot_load()?;
         crate::sim::production::validate_restored_factory_state(&simulation, rules)?;
         simulation.rebuild_caches_after_load(terrain_template, terrain_speed_config, rules);

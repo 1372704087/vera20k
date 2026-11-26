@@ -4,6 +4,83 @@
 
 use super::*;
 
+fn rules_with_four_sides() -> crate::rules::ruleset::RuleSet {
+    let ini = "\
+[Sides]\n\
+GDI=x\nNod=x\nThirdSide=x\nFourth=x\n";
+    let processed = crate::rules::native_processing::RulesLayerStack::new(
+        crate::rules::ini_parser::IniFile::from_str(ini),
+    )
+    .process()
+    .expect("four-Side rules parse");
+    crate::rules::ruleset::RuleSet::from_processed_rules(&processed)
+        .expect("four-Side rules projection")
+}
+
+fn rules_with_three_sides() -> crate::rules::ruleset::RuleSet {
+    let ini = "\
+[Sides]\n\
+GDI=x\nNod=x\nThirdSide=x\n";
+    let processed = crate::rules::native_processing::RulesLayerStack::new(
+        crate::rules::ini_parser::IniFile::from_str(ini),
+    )
+    .process()
+    .expect("three-Side rules parse");
+    crate::rules::ruleset::RuleSet::from_processed_rules(&processed)
+        .expect("three-Side rules projection")
+}
+
+#[test]
+fn fourth_side_save_refuses_a_house_outside_the_loaded_side_registry() {
+    use crate::sim::house_state::HouseState;
+
+    let rules = rules_with_four_sides();
+    assert_eq!(rules.allocated_sides().count(), 4);
+
+    let mut fourth = Simulation::new();
+    let owner = fourth.intern("FourthHouse");
+    fourth
+        .houses
+        .register(HouseState::new(owner, 3, None, true, 0, 1));
+    assert!(fourth.validate_side_registry_for_load(&rules).is_ok());
+
+    let stock = rules_with_three_sides();
+    assert_eq!(stock.allocated_sides().count(), 3);
+    assert!(matches!(
+        fourth.validate_side_registry_for_load(&stock),
+        Err(SnapshotRestoreError::InvalidHouseSide {
+            owner: bad_owner,
+            side: 3,
+            side_count: 3,
+        }) if bad_owner == owner
+    ));
+
+    let bytes = GameSnapshot::save(&fourth, 0, 0, "fourth-side", 0);
+    let loaded = GameSnapshot::load(&bytes).expect("fourth-side save loads");
+    let loaded_house = loaded
+        .sim
+        .houses
+        .iter()
+        .next()
+        .expect("the fourth-side house round-trips")
+        .1;
+    assert_eq!(loaded_house.side_index(), 3);
+
+    let mut broken = Simulation::new();
+    let owner = broken.intern("BrokenHouse");
+    broken
+        .houses
+        .register(HouseState::new(owner, 4, None, true, 0, 1));
+    assert!(matches!(
+        broken.validate_side_registry_for_load(&rules),
+        Err(SnapshotRestoreError::InvalidHouseSide {
+            owner: bad_owner,
+            side: 4,
+            side_count: 4,
+        }) if bad_owner == owner
+    ));
+}
+
 #[test]
 fn custom_snapshot_refuses_a_malformed_retained_rng_cursor() {
     use crate::sim::scenario_session::ScenarioGameMode;

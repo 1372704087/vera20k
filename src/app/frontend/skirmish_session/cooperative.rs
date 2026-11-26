@@ -1565,6 +1565,9 @@ pub struct CooperativeCountryRosterEntry {
     pub random_weight: i32,
     /// Ares `AIRandomSelectionWeight=`.
     pub ai_random_weight: i32,
+    /// Native Country sequence index, used by NPatch `PlayableCountries=`.
+    /// `None` on rosters built without the Country array.
+    pub country_index: Option<u32>,
 }
 
 impl CooperativeCountryRosterEntry {
@@ -1575,6 +1578,7 @@ impl CooperativeCountryRosterEntry {
             multiplay: false,
             random_weight: 1,
             ai_random_weight: 1,
+            country_index: None,
         }
     }
 
@@ -1591,7 +1595,15 @@ impl CooperativeCountryRosterEntry {
             multiplay,
             random_weight,
             ai_random_weight,
+            country_index: None,
         }
+    }
+
+    /// Attach the entry's native Country sequence index.
+    #[must_use]
+    pub fn with_country_index(mut self, country_index: u32) -> Self {
+        self.country_index = Some(country_index);
+        self
     }
 
     fn matches(&self, token: &str) -> bool {

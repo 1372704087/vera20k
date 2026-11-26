@@ -244,6 +244,14 @@ impl<'a> SparkCollisionWorld<'a> {
             bridge_z,
             accepted_building,
             wall_overlay_id,
+            npatch_wall: wall_overlay_id.is_some_and(|overlay_id| {
+                self.rules.npatch()
+                    && self
+                        .rules
+                        .general
+                        .building_types
+                        .is_wall_overlay(overlay_id)
+            }),
         };
         if classify_collision_kind(motion, facts)?.is_some() {
             let candidate_slope = select(

@@ -253,6 +253,9 @@ pub(crate) struct MultiplayerShellRuntime {
     /// shell Random country may draw, from the launch the roster was built
     /// from. Absent data keeps the stock `9`.
     country_roster_playable_countries: u32,
+    /// Whether the roster's launch plays NPatch, so its random-country keys
+    /// also cap the Ares weighted draw.
+    country_roster_npatch: bool,
     /// Process A8EB68, initialized0; independent of COOPMD AIDifficulty.
     cooperative_difficulty: i32,
     /// `[0xA8B254]`, the multiplayer scenario index (catalog order, BSS 0).
@@ -297,19 +300,23 @@ impl MultiplayerShellRuntime {
         let ares = process_assets.reads_ares_way();
         self.country_roster_ares = ares;
         self.country_roster_playable_countries = process_assets.playable_countries();
+        self.country_roster_npatch = process_assets.npatch_plays();
         self.cooperative_country_roster = if ares {
             process_assets
                 .country_random_rows()
                 .into_iter()
-                .map(|(id, name, multiplay, random_weight, ai_random_weight)| {
-                    CooperativeCountryRosterEntry::new_with_random(
-                        id,
-                        name,
-                        multiplay,
-                        random_weight,
-                        ai_random_weight,
-                    )
-                })
+                .map(
+                    |(country_index, id, name, multiplay, random_weight, ai_random_weight)| {
+                        CooperativeCountryRosterEntry::new_with_random(
+                            id,
+                            name,
+                            multiplay,
+                            random_weight,
+                            ai_random_weight,
+                        )
+                        .with_country_index(country_index)
+                    },
+                )
                 .collect()
         } else {
             process_assets
@@ -948,6 +955,7 @@ impl MultiplayerShellRuntime {
         let roster = &self.cooperative_country_roster;
         let ares = self.country_roster_ares;
         let playable_countries = self.country_roster_playable_countries;
+        let npatch = self.country_roster_npatch;
         let mut draw_country = |role, rng: &mut SimRng| {
             draw_shell_country(
                 registry,
@@ -955,6 +963,7 @@ impl MultiplayerShellRuntime {
                 roster,
                 ares,
                 playable_countries,
+                npatch,
                 role,
                 rng,
                 banned,
@@ -1032,6 +1041,7 @@ impl MultiplayerShellRuntime {
             cooperative_country_roster,
             country_roster_ares,
             country_roster_playable_countries: process_assets.playable_countries(),
+            country_roster_npatch: process_assets.npatch_plays(),
             cooperative_difficulty: 0,
             scenario_index: 0,
             scenario_start_header: crate::map::preview::ScenarioStartHeader::default(),
@@ -1311,6 +1321,7 @@ impl MultiplayerShellRuntime {
         let roster = &self.cooperative_country_roster;
         let ares = self.country_roster_ares;
         let playable_countries = self.country_roster_playable_countries;
+        let npatch = self.country_roster_npatch;
         let mut assignments = ShellRandomAssignmentState::new(&staged_session, self.lobby_colors);
         let mut draw_country = |role, rng: &mut SimRng| {
             draw_shell_country(
@@ -1319,6 +1330,7 @@ impl MultiplayerShellRuntime {
                 roster,
                 ares,
                 playable_countries,
+                npatch,
                 role,
                 rng,
                 &[],
@@ -1906,6 +1918,7 @@ fn draw_shell_country(
     roster: &[CooperativeCountryRosterEntry],
     ares: bool,
     playable_countries: u32,
+    npatch: bool,
     role: RandomCountryRole,
     rng: &mut SimRng,
     banned: &[LaunchCountry],
@@ -1917,6 +1930,7 @@ fn draw_shell_country(
             roster,
             ares,
             playable_countries,
+            npatch,
             role,
             rng,
         );
@@ -1930,6 +1944,7 @@ fn draw_shell_country(
             roster,
             ares,
             playable_countries,
+            npatch,
             role,
             rng,
         )?;
@@ -1946,6 +1961,7 @@ fn draw_native_shell_country(
     roster: &[CooperativeCountryRosterEntry],
     ares: bool,
     playable_countries: u32,
+    npatch: bool,
     role: RandomCountryRole,
     rng: &mut SimRng,
 ) -> Result<LaunchCountry, CooperativeError> {
@@ -1968,9 +1984,17 @@ fn draw_native_shell_country(
                 entry.random_weight
             }
         };
+        let eligible = |entry: &CooperativeCountryRosterEntry| {
+            entry.multiplay
+                && weight(entry) > 0
+                && (!npatch
+                    || entry
+                        .country_index
+                        .is_some_and(|country_index| country_index <= playable_countries))
+        };
         let total: u64 = roster
             .iter()
-            .filter(|entry| entry.multiplay && weight(entry) > 0)
+            .filter(|entry| eligible(entry))
             .map(|entry| u64::try_from(weight(entry)).unwrap_or(0))
             .sum();
         if total == 0 {
@@ -1981,12 +2005,15 @@ fn draw_native_shell_country(
         );
         let mut cumulative = 0u64;
         for (index, entry) in roster.iter().enumerate() {
-            if !entry.multiplay || weight(entry) <= 0 {
+            if !eligible(entry) {
                 continue;
             }
             cumulative += u64::try_from(weight(entry)).unwrap_or(0);
             if draw < cumulative {
-                return Ok(LaunchCountry::from_country_index(index as u32));
+                let country_index = entry
+                    .country_index
+                    .unwrap_or(u32::try_from(index).unwrap_or(u32::MAX));
+                return Ok(LaunchCountry::from_country_index(country_index));
             }
         }
         Err(CooperativeError::NoEligibleRandomCountries)
@@ -2262,7 +2289,8 @@ fn cooperative_country_roster_from_rules(
 ) -> Vec<CooperativeCountryRosterEntry> {
     rules
         .cooperative_country_candidates()
-        .map(|(id, name)| {
+        .enumerate()
+        .map(|(index, (id, name))| {
             CooperativeCountryRosterEntry::new_with_random(
                 id,
                 name,
@@ -2270,6 +2298,7 @@ fn cooperative_country_roster_from_rules(
                 rules.country_random_weight(id),
                 rules.country_ai_random_weight(id),
             )
+            .with_country_index(u32::try_from(index).unwrap_or(u32::MAX))
         })
         .collect()
 }
@@ -2291,7 +2320,11 @@ fn controlled_ten_country_roster() -> Vec<CooperativeCountryRosterEntry> {
         "YuriCountry",
     ]
     .into_iter()
-    .map(|id| CooperativeCountryRosterEntry::new_with_random(id, None, true, 1, 1))
+    .enumerate()
+    .map(|(index, id)| {
+        CooperativeCountryRosterEntry::new_with_random(id, None, true, 1, 1)
+            .with_country_index(u32::try_from(index).unwrap_or(u32::MAX))
+    })
     .collect()
 }
 
@@ -2428,6 +2461,7 @@ mod tests {
             cooperative_country_roster: controlled_ten_country_roster(),
             country_roster_ares: false,
             country_roster_playable_countries: 9,
+            country_roster_npatch: false,
             cooperative_difficulty: 0,
             scenario_index: 0,
             scenario_start_header: crate::map::preview::ScenarioStartHeader::default(),
@@ -2464,6 +2498,7 @@ mod tests {
             cooperative_country_roster: controlled_ten_country_roster(),
             country_roster_ares: false,
             country_roster_playable_countries: 9,
+            country_roster_npatch: false,
             cooperative_difficulty: 0,
             scenario_index: 0,
             scenario_start_header: crate::map::preview::ScenarioStartHeader::default(),
@@ -4263,6 +4298,7 @@ WOLTaunts=junk
                 &[],
                 false,
                 9,
+                false,
                 RandomCountryRole::Human,
                 &mut rng,
                 banned,
@@ -4291,11 +4327,58 @@ WOLTaunts=junk
             &[],
             false,
             3,
+            false,
             RandomCountryRole::Human,
             &mut rng,
         )
         .unwrap();
         assert!(country.raw_index() <= 3);
+    }
+
+    #[test]
+    fn playable_countries_caps_the_ares_weighted_random_draw() {
+        use crate::skirmish_launch::RandomCountryRole;
+        let registry = CooperativeRegistry::default();
+        let roster = controlled_ten_country_roster();
+        let mut rng = SimRng::new(1);
+        let country = draw_native_shell_country(
+            &registry,
+            None,
+            &roster,
+            true,
+            2,
+            true,
+            RandomCountryRole::Human,
+            &mut rng,
+        )
+        .unwrap();
+        assert!(country.raw_index() <= 2);
+    }
+
+    #[test]
+    fn playable_countries_uses_the_country_sequence_not_the_roster_position() {
+        use crate::skirmish_launch::RandomCountryRole;
+        let registry = CooperativeRegistry::default();
+        let roster = vec![
+            CooperativeCountryRosterEntry::new_with_random("Americans", None, true, 1, 1)
+                .with_country_index(8),
+            CooperativeCountryRosterEntry::new_with_random("YuriCountry", None, true, 1, 1)
+                .with_country_index(9),
+        ];
+        let mut rng = SimRng::new(1);
+        assert!(matches!(
+            draw_native_shell_country(
+                &registry,
+                None,
+                &roster,
+                true,
+                7,
+                true,
+                RandomCountryRole::Human,
+                &mut rng,
+            ),
+            Err(CooperativeError::NoEligibleRandomCountries)
+        ));
     }
 
     #[test]
@@ -4316,6 +4399,7 @@ WOLTaunts=junk
                 &roster,
                 true,
                 9,
+                false,
                 RandomCountryRole::Human,
                 &mut rng,
                 &[]
@@ -4332,6 +4416,7 @@ WOLTaunts=junk
                 &roster,
                 true,
                 9,
+                false,
                 RandomCountryRole::Ai { index: 0 },
                 &mut rng,
                 &[]
@@ -4351,6 +4436,7 @@ WOLTaunts=junk
                 &none,
                 true,
                 9,
+                false,
                 RandomCountryRole::Human,
                 &mut rng,
                 &[]

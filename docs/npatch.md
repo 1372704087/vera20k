@@ -66,9 +66,10 @@ PlayableCountries=9
 `OverlayWalls` first four entries are the GDI, Nod, third-side and fourth-side wall overlays;
 later entries are ordinary walls. A gate from `ThirdGateOne/Two` or `FourthGateOne/Two` may
 stand on its own house wall at the matching overlay. `PlayableCountries` is the highest
-Country index a Random draw may reach; absent keeps the stock `9`. These keys are
-NPatch-only, so their presence turns NPatch on; the side defaults above do not need NPatch
-or Ares.
+Country index a Random draw may reach; absent keeps the stock `9`. It caps the stock draw
+and, while NPatch plays, the Ares weighted draw too. The same wall list decides a spark's
+wall collision, not just walls in the building/attack paths. These keys are NPatch-only,
+so their presence turns NPatch on; the side defaults above do not need NPatch or Ares.
 
 The older automatic example remains valid:
 

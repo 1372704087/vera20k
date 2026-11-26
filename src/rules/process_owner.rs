@@ -546,10 +546,11 @@ impl NativeRulesProcessOwner {
         files
     }
 
-    /// Rows consumed by the Ares weighted country picker: registry ID, Name,
-    /// Multiplay gate and both weights. Values come from the same retained
-    /// Country extension as the shell flag/status projection.
-    pub fn country_random_rows(&self) -> Vec<(&str, Option<&str>, bool, i32, i32)> {
+    /// Rows consumed by the Ares weighted country picker: native Country
+    /// sequence index, registry ID, Name, Multiplay gate and both weights.
+    /// Values come from the same retained Country extension as the shell
+    /// flag/status projection.
+    pub fn country_random_rows(&self) -> Vec<(u32, &str, Option<&str>, bool, i32, i32)> {
         let state = self
             .registry
             .as_ref()
@@ -557,9 +558,11 @@ impl NativeRulesProcessOwner {
             .registry_state();
         state
             .country_projection()
-            .map(|(id, body, _, _, _, country)| {
+            .enumerate()
+            .map(|(index, (id, body, _, _, _, country))| {
                 let presentation = country.presentation();
                 (
+                    u32::try_from(index).unwrap_or(u32::MAX),
                     id,
                     body.read_name("Name", 0x31),
                     body.read_bool("Multiplay", false),

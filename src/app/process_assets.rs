@@ -1376,7 +1376,7 @@ impl ProcessAssets {
             .flat_map(|rules| rules.multiplayer_countries())
     }
 
-    pub(crate) fn country_random_rows(&self) -> Vec<(&str, Option<&str>, bool, i32, i32)> {
+    pub(crate) fn country_random_rows(&self) -> Vec<(u32, &str, Option<&str>, bool, i32, i32)> {
         self.native_rules
             .as_ref()
             .map(|rules| rules.country_random_rows())
@@ -1391,6 +1391,13 @@ impl ProcessAssets {
             return 9;
         }
         self.startup_playable_countries.unwrap_or(9)
+    }
+
+    /// Whether the resolved startup Rules play NPatch. The shell uses it to
+    /// decide whether its Ares weighted country draw also honors
+    /// `PlayableCountries=`.
+    pub(crate) fn npatch_plays(&self) -> bool {
+        self.startup_npatch
     }
 
     /// The side's `DialogBackground.Image/.Palette` pair for the shell dialog

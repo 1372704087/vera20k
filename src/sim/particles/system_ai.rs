@@ -829,6 +829,7 @@ mod tests {
             bridge_z: None,
             accepted_building: false,
             wall_overlay_id: None,
+            npatch_wall: false,
         }
     }
 

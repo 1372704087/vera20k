@@ -26,6 +26,10 @@ pub struct SparkCollisionFacts {
     pub bridge_z: Option<i32>,
     pub accepted_building: bool,
     pub wall_overlay_id: Option<u8>,
+    /// NPatch `OverlayWalls=` classifies the overlay as a wall even when it is
+    /// not one of the stock wall ids. The world resolves the registry list
+    /// once and carries the answer here; the spark kernel stays rules-free.
+    pub npatch_wall: bool,
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -267,23 +271,24 @@ pub(super) fn classify_collision_kind(
     }
     if facts.accepted_building {
         Ok(Some(SparkCollisionKind::Building))
-    } else if matches!(
-        // The stock literals even under Ares, whose hook 0x480534 answers
-        // `Wall=` here too. RESIDUAL: Ares simulates the common sparks itself
-        // (`ares_system`, which asks with the registry); a ParticleClass spark
-        // it leaves to this path (AlphaImage art, or held by another
-        // behaviour's system) keeps the stock wall list. The NPatch
-        // `OverlayWalls=` list is not carried by these spark facts, so this
-        // path also keeps that list out.
-        crate::sim::cell_kernel::wall_connection_step(
-            facts.wall_overlay_id.map_or(-1, i32::from),
-            -1,
-            None,
-            false,
-            None,
-        ),
-        crate::sim::cell_kernel::WallConnectionStep::Return(true)
-    ) {
+    } else if facts.npatch_wall
+        || matches!(
+            // The stock literals even under Ares, whose hook 0x480534 answers
+            // `Wall=` here too. RESIDUAL: Ares simulates the common sparks itself
+            // (`ares_system`, which asks with the registry); a ParticleClass spark
+            // it leaves to this path (AlphaImage art, or held by another
+            // behaviour's system) keeps the stock wall list. The world carries
+            // NPatch's `OverlayWalls=` answer through `npatch_wall`.
+            crate::sim::cell_kernel::wall_connection_step(
+                facts.wall_overlay_id.map_or(-1, i32::from),
+                -1,
+                None,
+                false,
+                None,
+            ),
+            crate::sim::cell_kernel::WallConnectionStep::Return(true)
+        )
+    {
         Ok(Some(SparkCollisionKind::Wall))
     } else {
         Ok(None)
@@ -588,6 +593,7 @@ mod tests {
             bridge_z: None,
             accepted_building: false,
             wall_overlay_id: None,
+            npatch_wall: false,
         }
     }
 
@@ -857,6 +863,19 @@ mod tests {
             let mut wall = facts(0);
             wall.wall_overlay_id = Some(overlay);
             assert_eq!(resolve_collision(motion(0, 100), wall).unwrap().kind, None);
+        }
+    }
+
+    #[test]
+    fn npatch_wall_classification_accepts_an_extra_overlay() {
+        for overlay in [0xfa, 0xfb, 0xff] {
+            let mut wall = facts(0);
+            wall.wall_overlay_id = Some(overlay);
+            wall.npatch_wall = true;
+            assert_eq!(
+                resolve_collision(motion(0, 100), wall).unwrap().kind,
+                Some(SparkCollisionKind::Wall),
+            );
         }
     }
 

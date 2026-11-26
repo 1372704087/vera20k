@@ -221,9 +221,16 @@ pub struct GeneralBuildingTypes {
     /// stand on the fourth side's wall overlay.
     pub fourth_gate_one: Option<String>,
     pub fourth_gate_two: Option<String>,
-    /// NPatch `[General] OverlayWalls=`: the first four entries are the GDI,
-    /// Nod, third and fourth side wall overlays; later entries are ordinary
-    /// walls. Empty keeps the stock overlay choices.
+    /// NPatch's side-indexed gate lists for sides 2 and later. Each entry is
+    /// indexed by the native Side index; an empty token means that side has no
+    /// gate in this slot. A present entry overrides the legacy third/fourth
+    /// keys for its side.
+    pub side_gate_one: Vec<Option<String>>,
+    pub side_gate_two: Vec<Option<String>>,
+    /// NPatch `[General] OverlayWalls=`: entries are indexed by Side; the
+    /// first four are the GDI, Nod, third and fourth side wall overlays and
+    /// later entries extend the same mapping to later sides. All entries also
+    /// answer ordinary wall queries. Empty keeps the stock overlay choices.
     pub overlay_walls: Vec<u8>,
     /// NPatch `[General] PlayableCountries=`: the highest Country index a
     /// Random draw may reach. `None` keeps the stock `9`.
@@ -253,26 +260,48 @@ impl GeneralBuildingTypes {
 
     /// NPatch `ThirdGateOne=`/`ThirdGateTwo=`.
     pub fn stands_on_third_wall(&self, type_id: &str) -> bool {
-        [&self.third_gate_one, &self.third_gate_two]
-            .into_iter()
-            .any(|name| {
-                name.as_deref()
-                    .is_some_and(|name| name.eq_ignore_ascii_case(type_id))
-            })
+        self.stands_on_side_wall(2, type_id)
     }
 
     /// NPatch `FourthGateOne=`/`FourthGateTwo=`.
     pub fn stands_on_fourth_wall(&self, type_id: &str) -> bool {
-        [&self.fourth_gate_one, &self.fourth_gate_two]
-            .into_iter()
-            .any(|name| {
-                name.as_deref()
-                    .is_some_and(|name| name.eq_ignore_ascii_case(type_id))
-            })
+        self.stands_on_side_wall(3, type_id)
     }
 
-    /// NPatch `OverlayWalls=` first-four mapping, falling back to the stock
-    /// GAWALL, NAWALL, Yuri wall and fourth wall for missing entries.
+    /// NPatch `SideGateOne=`/`SideGateTwo=`: the side-indexed gate lists,
+    /// falling back to the legacy third/fourth keys when the list has no entry
+    /// for that side.
+    pub fn stands_on_side_wall(&self, side: usize, type_id: &str) -> bool {
+        [
+            self.gate_for_side(side, false),
+            self.gate_for_side(side, true),
+        ]
+        .into_iter()
+        .flatten()
+        .any(|name| name.eq_ignore_ascii_case(type_id))
+    }
+
+    fn gate_for_side(&self, side: usize, second: bool) -> Option<&str> {
+        let listed = if second {
+            &self.side_gate_two
+        } else {
+            &self.side_gate_one
+        };
+        if let Some(value) = listed.get(side) {
+            return value.as_deref();
+        }
+        match (side, second) {
+            (2, false) => self.third_gate_one.as_deref(),
+            (2, true) => self.third_gate_two.as_deref(),
+            (3, false) => self.fourth_gate_one.as_deref(),
+            (3, true) => self.fourth_gate_two.as_deref(),
+            _ => None,
+        }
+    }
+
+    /// NPatch `OverlayWalls=` side mapping: entries are indexed by Side;
+    /// missing entries fall back to the stock GAWALL, NAWALL, Yuri wall and
+    /// fourth wall choices.
     pub fn wall_overlay_for_side(&self, side: usize) -> u8 {
         const DEFAULTS: [u8; 4] = [2, 26, 243, 250];
         self.overlay_walls

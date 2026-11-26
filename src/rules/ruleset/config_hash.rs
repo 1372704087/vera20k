@@ -48,6 +48,15 @@ impl RuleSet {
             )
                 .hash(&mut hasher);
         }
+        // NPatch's side-indexed gate lists extend the fourth-side keys to any
+        // Side. A separate domain keeps the legacy key hash stable.
+        if self.npatch()
+            && (!building_types.side_gate_one.is_empty()
+                || !building_types.side_gate_two.is_empty())
+        {
+            b"npatch-side-gates-v1".hash(&mut hasher);
+            (&building_types.side_gate_one, &building_types.side_gate_two).hash(&mut hasher);
+        }
         // A previous scenario's list survives RulesClass's Type reset even
         // when the incoming source text omits AIHateDelays.
         if !self.general.ai_hate_delays.is_empty() {

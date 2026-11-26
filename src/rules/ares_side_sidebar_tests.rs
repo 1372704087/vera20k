@@ -258,7 +258,14 @@ fn ares_side_sidebar_keys_are_inert_read_the_stock_way() {
     let rules = RuleSet::from_processed_rules(&advance(configured, IniFile::empty())).unwrap();
     assert_eq!(rules.allocated_sides().count(), 4);
     for (index, _) in rules.allocated_sides() {
-        assert_eq!(rules.side_sidebar_mix_file_index(index), None);
-        assert_eq!(rules.side_sidebar_yuri_file_names(index), None);
+        if index.0 < 3 {
+            assert_eq!(rules.side_sidebar_mix_file_index(index), None);
+            assert_eq!(rules.side_sidebar_yuri_file_names(index), None);
+        } else {
+            // The fourth Side has the initialized defaults without Ares; the
+            // authored Ares keys above stay inert.
+            assert_eq!(rules.side_sidebar_mix_file_index(index), Some(1));
+            assert_eq!(rules.side_sidebar_yuri_file_names(index), Some(false));
+        }
     }
 }

@@ -5,14 +5,15 @@
 use super::*;
 use crate::rules::art_data::ArtRegistry;
 use crate::rules::ini_parser::IniFile;
+use crate::sim::house_state::HouseState;
 use crate::sim::overlay_grid::OverlayGrid;
 
 const RULES: &str = "[InfantryTypes]\n0=E1\n\
      [VehicleTypes]\n0=MTNK\n\
      [AircraftTypes]\n\
      [BuildingTypes]\n0=GAPOWR\n1=GAGATE\n2=GAWALL\n3=GAFENCE\n4=NAYARD\n5=GAPAVE\n6=GAPLUG\n\
-     7=NAGATE\n8=YAGATE\n9=FGATE\n\
-     [OverlayTypes]\n0=GASAND\n1=CYCL\n2=GAWALL\n3=TIB01\n4=YAWALL\n5=FWALL\n\
+     7=NAGATE\n8=YAGATE\n9=FGATE\n10=XGATE\n\
+     [OverlayTypes]\n0=GASAND\n1=CYCL\n2=GAWALL\n3=TIB01\n4=YAWALL\n5=FWALL\n6=XWALL\n\
      [General]\nGDIGateOne=GAGATE\nThirdGateOne=YAGATE\nFourthGateOne=FGATE\n\
      OverlayWalls=2,26,4,5\n\
      [E1]\nStrength=125\nSpeed=4\n\
@@ -22,13 +23,14 @@ const RULES: &str = "[InfantryTypes]\n0=E1\n\
      [NAGATE]\nStrength=1000\nGate=yes\n\
      [YAGATE]\nStrength=1000\nGate=yes\n\
      [FGATE]\nStrength=1000\nGate=yes\n\
+     [XGATE]\nStrength=1000\nGate=yes\n\
      [GAWALL]\nStrength=300\nWall=yes\n\
      [GAFENCE]\nStrength=300\nLaserFence=yes\n\
      [NAYARD]\nStrength=1500\nWaterBound=yes\nNaval=yes\n\
      [GAPAVE]\nStrength=100\nPlaceAnywhere=yes\n\
      [GAPLUG]\nStrength=100\n\
      [GASAND]\nWall=yes\n[CYCL]\n[GAWALL]\nWall=yes\n[TIB01]\nTiberium=yes\n\
-     [YAWALL]\nWall=yes\n[FWALL]\nWall=yes\n";
+     [YAWALL]\nWall=yes\n[FWALL]\nWall=yes\n[XWALL]\nWall=yes\n";
 
 const ART: &str = "[GAPOWR]\nFoundation=2x2\n[GAGATE]\nFoundation=1x1\n\
     [GAWALL]\nFoundation=1x1\nToOverlay=GAWALL\n[GAFENCE]\nFoundation=1x1\n\
@@ -71,6 +73,18 @@ impl Arena {
 
     fn house(&mut self, name: &str) -> InternedId {
         self.sim.interner.intern(name)
+    }
+
+    /// Register a House at a specific Side so the NPatch side-indexed wall
+    /// arms can see which side owns the wall.
+    fn house_on(&mut self, name: &str, side: i32) -> InternedId {
+        let id = self.house(name);
+        if self.sim.houses.get(&id).is_none() {
+            self.sim
+                .houses
+                .register(HouseState::new(id, side, None, false, 0, 1));
+        }
+        id
     }
 
     fn cell_clear(&self, cell: (i16, i16), ty: &str, house: Option<InternedId>) -> bool {
@@ -203,16 +217,37 @@ fn a_gate_outside_the_general_list_stands_on_a_wall_only_under_ares() {
 fn npatch_fourth_gate_stands_on_its_own_wall_without_ares() {
     let mut a = arena(CLEAR_BUILDABLE);
     a.rules.set_npatch_for_test(true);
-    let americans = a.house("Americans");
-    let soviets = a.house("Soviets");
+    let americans = a.house_on("Americans", 0);
+    let yuri = a.house_on("Yuri", 2);
+    let fourth = a.house_on("Fourth", 3);
     assert!(!a.rules.ares_form());
-    a.overlay((10, 10), "FWALL", 0, Some(americans));
-    a.overlay((11, 10), "YAWALL", 0, Some(americans));
-    assert!(a.cell_clear((10, 10), "FGATE", Some(americans)));
-    assert!(!a.cell_clear((10, 10), "YAGATE", Some(americans)));
-    assert!(!a.cell_clear((10, 10), "FGATE", Some(soviets)));
-    assert!(a.cell_clear((11, 10), "YAGATE", Some(americans)));
-    assert!(!a.cell_clear((11, 10), "FGATE", Some(americans)));
+    a.overlay((10, 10), "FWALL", 0, Some(fourth));
+    a.overlay((11, 10), "YAWALL", 0, Some(yuri));
+    assert!(a.cell_clear((10, 10), "FGATE", Some(fourth)));
+    assert!(!a.cell_clear((10, 10), "YAGATE", Some(fourth)));
+    assert!(!a.cell_clear((10, 10), "FGATE", Some(americans)));
+    assert!(a.cell_clear((11, 10), "YAGATE", Some(yuri)));
+    assert!(!a.cell_clear((11, 10), "FGATE", Some(yuri)));
+}
+
+#[test]
+fn npatch_side_gate_reaches_a_fifth_side_wall() {
+    let mut a = arena(CLEAR_BUILDABLE);
+    a.rules.set_npatch_for_test(true);
+    a.rules.general.building_types.overlay_walls = vec![2, 26, 4, 5, 6];
+    a.rules.general.building_types.side_gate_one = vec![
+        None,
+        None,
+        Some("YAGATE".to_owned()),
+        Some("FGATE".to_owned()),
+        Some("XGATE".to_owned()),
+    ];
+    let fifth = a.house_on("Fifth", 4);
+    let americans = a.house_on("Americans", 0);
+    a.overlay((12, 10), "XWALL", 0, Some(fifth));
+    assert!(a.cell_clear((12, 10), "XGATE", Some(fifth)));
+    assert!(!a.cell_clear((12, 10), "XGATE", Some(americans)));
+    assert!(!a.cell_clear((12, 10), "FGATE", Some(fifth)));
 }
 
 #[test]

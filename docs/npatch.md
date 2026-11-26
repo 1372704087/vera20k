@@ -38,8 +38,8 @@ map or mode can change.
 Without the global key, `rules::npatch_switch` decides per game from any key only an NPatch
 reader found (`VehicleParachute`, `DisableParallelAIQueues` or its ext173 name
 `DisableAIParallelProduction`, `EnableAIBuildLimitation`, a TechnoType's `AIBuildLimit=`,
-a BuildingType's `AIPlanningCount=`, `OverlayWalls`, `PlayableCountries`, `ThirdGateOne/Two`
-and `FourthGateOne/Two`). Retail data holds none of them, so a retail game plays
+a BuildingType's `AIPlanningCount=`, `OverlayWalls`, `PlayableCountries`, `SideGateOne/Two`,
+`ThirdGateOne/Two` and `FourthGateOne/Two`). Retail data holds none of them, so a retail game plays
 as gamemd. There is no build feature: a plain `cargo run` carries the code, and a mod that
 ships `NPatch=yes` or NPatch keys plays NPatch.
 
@@ -55,21 +55,31 @@ NPatch supplies the options Ares does not:
 
 ```ini
 [General]
+; legacy aliases: side 2 and side 3
 ThirdGateOne=YAGATE
 ThirdGateTwo=YAGATE
 FourthGateOne=FGATE
 FourthGateTwo=FGATE
-OverlayWalls=2,26,243,250
+; side-indexed lists for the third and later Sides (sides 0/1 keep stock gates)
+SideGateOne=,,YAGATE,FGATE,XGATE
+SideGateTwo=,,YAGATE,FGATE,XGATE
+OverlayWalls=2,26,243,250,6
 PlayableCountries=9
 ```
 
-`OverlayWalls` first four entries are the GDI, Nod, third-side and fourth-side wall overlays;
-later entries are ordinary walls. A gate from `ThirdGateOne/Two` or `FourthGateOne/Two` may
-stand on its own house wall at the matching overlay. `PlayableCountries` is the highest
-Country index a Random draw may reach; absent keeps the stock `9`. It caps the stock draw
-and, while NPatch plays, the Ares weighted draw too. The same wall list decides a spark's
-wall collision, not just walls in the building/attack paths. These keys are NPatch-only,
-so their presence turns NPatch on; the side defaults above do not need NPatch or Ares.
+`OverlayWalls` entries map the Side at the same index to its wall overlay; missing entries
+keep the stock GAWALL, NAWALL, Yuri-wall and fourth-wall fallbacks. The same list also
+answers ordinary wall queries and spark collision. `SideGateOne/Two` are side-indexed gate
+lists: an empty comma slot keeps the index, so `SideGateOne=,,YAGATE,FGATE,XGATE` puts
+`YAGATE` on side 2, `FGATE` on side 3 and `XGATE` on side 4. A present slot overrides the
+legacy `ThirdGateOne/Two` or `FourthGateOne/Two` for that Side; a missing slot falls back to
+the legacy keys for sides 2 and 3. A gate stands on its own house's wall when the overlay is
+that Side's `OverlayWalls` entry, and a damaged wall of the matching overlay may be rebuilt.
+`ThirdGateOne/Two` and `FourthGateOne/Two` remain valid aliases for sides 2 and 3.
+`PlayableCountries` is the highest Country index a Random draw may reach; absent keeps the
+stock `9`. It caps the stock draw and, while NPatch plays, the Ares weighted draw too. These
+keys are NPatch-only, so their presence turns NPatch on; the side defaults above do not need
+NPatch or Ares.
 
 Without Ares, an AIMD `AITriggerTypes` side token uses the same Ares mapping: token
 `N` admits only side index `N-1`, so the fourth token admits side 3; stock still treats

@@ -100,6 +100,32 @@ fn npatch_fourth_side_keys_are_read_and_turn_npatch_on() {
     );
 }
 
+/// `SideGateOne/Two=` are side-indexed lists: an empty token keeps its slot,
+/// so a fifth Side does not shift the fourth Side's gate.
+#[test]
+fn npatch_side_gate_lists_keep_their_side_index() {
+    let rules = rules_with(
+        "[General]\nSideGateOne=,,YAGATE,FGATE,XGATE\n\
+         SideGateTwo=,,YAGATE2,FGATE2,XGATE2\n\
+         OverlayWalls=2,26,243,250,251\n",
+        NpatchSetting::Auto,
+    );
+    assert!(rules.npatch());
+    let gates_one = &rules.general.building_types.side_gate_one;
+    let gates_two = &rules.general.building_types.side_gate_two;
+    assert_eq!(gates_one.len(), 5);
+    assert_eq!(gates_two.len(), 5);
+    assert_eq!(gates_one[0].as_deref(), None);
+    assert_eq!(gates_one[2].as_deref(), Some("YAGATE"));
+    assert_eq!(gates_one[3].as_deref(), Some("FGATE"));
+    assert_eq!(gates_one[4].as_deref(), Some("XGATE"));
+    let baseline = rules_with("[General]\n", NpatchSetting::Auto);
+    assert_ne!(
+        rules.simulation_config_hash(),
+        baseline.simulation_config_hash()
+    );
+}
+
 /// `[General] NPatch=` turns the NPatch keys on.
 #[test]
 fn npatch_global_yes_turns_npatch_on() {

@@ -196,6 +196,9 @@ pub(crate) fn is_clear_to_build(
         if let Some(overlay) = sim.overlay_grid.as_ref().map(|grid| *grid.cell(rx, ry))
             && let Some(overlay_id) = overlay.overlay_id
         {
+            let house_side = house
+                .and_then(|id| sim.houses.get(&id))
+                .map(|house| house.side_index());
             return overlay_admits(
                 rules,
                 registry,
@@ -204,6 +207,7 @@ pub(crate) fn is_clear_to_build(
                 overlay.wall_owner,
                 ty,
                 house,
+                house_side,
                 flags,
                 slope,
             );
@@ -446,6 +450,7 @@ fn overlay_admits(
     wall_owner: Option<InternedId>,
     ty: Option<&ObjectType>,
     house: Option<InternedId>,
+    house_side: Option<i32>,
     flags: u32,
     slope: u8,
 ) -> bool {
@@ -458,6 +463,7 @@ fn overlay_admits(
         wall_owner,
         ty,
         house,
+        house_side,
     ) {
         return true;
     }
@@ -530,10 +536,11 @@ fn own_damaged_wall(
             == Some(overlay_id)
 }
 
-/// NPatch `OverlayWalls=` third/fourth side arms: the same house's wall
-/// overlay accepts that side's `ThirdGateOne/Two=` or `FourthGateOne/Two=`
-/// types, and a damaged wall of the matching overlay may be rebuilt. Extra
-/// `OverlayWalls` entries stay ordinary walls and do not accept gates.
+/// NPatch `OverlayWalls=` side arms: the same house's wall overlay accepts
+/// that Side's `SideGateOne/Two=` or legacy `ThirdGateOne/Two=`/
+/// `FourthGateOne/Two=` types, and a damaged wall of the matching overlay may
+/// be rebuilt. `OverlayWalls` entries index the Side, so a fifth and later
+/// Side uses its own entry.
 fn npatch_gate_on_wall(
     rules: &RuleSet,
     registry: Option<&OverlayTypeRegistry>,
@@ -542,6 +549,7 @@ fn npatch_gate_on_wall(
     wall_owner: Option<InternedId>,
     ty: Option<&ObjectType>,
     house: Option<InternedId>,
+    house_side: Option<i32>,
 ) -> bool {
     if !rules.npatch() || house != wall_owner {
         return false;
@@ -549,11 +557,18 @@ fn npatch_gate_on_wall(
     let Some(ty) = ty else {
         return false;
     };
+    let Some(side) = house_side
+        .filter(|side| *side >= 2)
+        .and_then(|side| usize::try_from(side).ok())
+    else {
+        return false;
+    };
     let gates = &rules.general.building_types;
-    let damaged = own_damaged_wall(registry, ty, overlay_id, overlay_data);
-    overlay_id == gates.wall_overlay_for_side(2) && (damaged || gates.stands_on_third_wall(&ty.id))
-        || overlay_id == gates.wall_overlay_for_side(3)
-            && (damaged || gates.stands_on_fourth_wall(&ty.id))
+    if overlay_id != gates.wall_overlay_for_side(side) {
+        return false;
+    }
+    own_damaged_wall(registry, ty, overlay_id, overlay_data)
+        || gates.stands_on_side_wall(side, &ty.id)
 }
 
 /// Ares 3.0 CellClass_CanThisExistHere_GateOnWall `10015780` (hook

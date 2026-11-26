@@ -199,9 +199,10 @@ impl RulesPassProcessor {
         if let Some(delays) = section.read_int_list("AIHateDelays") {
             self.rules_ai_hate_delays = delays;
         }
-        // NPatch `[General] OverlayWalls=`: first four entries map the four
-        // side walls, later entries are ordinary walls. Values outside the
-        // overlay index domain are refused instead of wrapping an u8.
+        // NPatch `[General] OverlayWalls=`: entries map the Side wall
+        // overlays; later entries extend that mapping to later Sides and all
+        // entries answer ordinary wall queries. Values outside the overlay
+        // index domain are refused instead of wrapping an u8.
         if let Some(walls) =
             crate::rules::npatch_switch::npatch_read(|| section.read_int_list("OverlayWalls"))
         {
@@ -209,6 +210,20 @@ impl RulesPassProcessor {
                 .into_iter()
                 .filter_map(|wall| u8::try_from(wall).ok())
                 .collect();
+        }
+        // NPatch `SideGateOne=`/`SideGateTwo=`: side-indexed gate lists.
+        // Empty comma slots keep the index, so a later side does not shift.
+        if section.raw_value("SideGateOne").is_some() {
+            let value = crate::rules::npatch_switch::npatch_read(|| {
+                section.read_string("SideGateOne", "", 0x800)
+            });
+            self.rules_building_types.side_gate_one = comma_side_gates(&value);
+        }
+        if section.raw_value("SideGateTwo").is_some() {
+            let value = crate::rules::npatch_switch::npatch_read(|| {
+                section.read_string("SideGateTwo", "", 0x800)
+            });
+            self.rules_building_types.side_gate_two = comma_side_gates(&value);
         }
         // NPatch `[General] PlayableCountries=`: the highest Country index a
         // Random draw may reach. A negative value keeps the stock answer.
@@ -894,4 +909,20 @@ impl RulesPassProcessor {
         }
         self.process_warhead_family(pass);
     }
+}
+
+/// Split a side-indexed gate list. Empty tokens keep their slot; at most
+/// `u8::MAX + 1` sides fit the native Side index.
+fn comma_side_gates(value: &str) -> Vec<Option<String>> {
+    if value.trim().is_empty() {
+        return Vec::new();
+    }
+    value
+        .split(',')
+        .take(usize::from(u8::MAX) + 1)
+        .map(|name| {
+            let name = name.trim();
+            (!name.is_empty()).then(|| name.to_owned())
+        })
+        .collect()
 }

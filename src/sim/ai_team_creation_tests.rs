@@ -441,11 +441,16 @@ fn ares_trigger_side_tokens_admit_any_registered_side() {
 }
 
 #[test]
-fn npatch_fourth_side_trigger_token_admits_only_side_three() {
+fn npatch_uses_the_ares_side_mapping_without_ares() {
     assert!(super::side_admits(4, 3, false, true));
     assert!(!super::side_admits(4, 0, false, true));
     assert!(!super::side_admits(4, 2, false, true));
     assert!(super::side_admits(1, 0, false, true));
+    assert!(
+        super::side_admits(5, 4, false, true),
+        "NPatch uses the same token-to-side mapping for later sides"
+    );
+    assert!(!super::side_admits(5, 0, false, true));
     assert!(
         super::side_admits(4, 0, false, false),
         "stock leaves the fourth token unrestricted"

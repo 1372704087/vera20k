@@ -71,10 +71,11 @@ and, while NPatch plays, the Ares weighted draw too. The same wall list decides 
 wall collision, not just walls in the building/attack paths. These keys are NPatch-only,
 so their presence turns NPatch on; the side defaults above do not need NPatch or Ares.
 
-Without Ares, an AIMD `AITriggerTypes` side token `4` admits only houses on side index 3;
-stock still treats tokens outside 1-3 as unrestricted. A save keeps each House's Side index,
-and loading a fourth-or-later Side save into rules with fewer allocated Sides is refused
-before Houses restore, instead of indexing past the rebuilt registry.
+Without Ares, an AIMD `AITriggerTypes` side token uses the same Ares mapping: token
+`N` admits only side index `N-1`, so the fourth token admits side 3; stock still treats
+tokens outside 1-3 as unrestricted. A save keeps each House's Side index, and loading a
+fourth-or-later Side save into rules with fewer allocated Sides is refused before Houses
+restore, instead of indexing past the rebuilt registry.
 
 The older automatic example remains valid:
 

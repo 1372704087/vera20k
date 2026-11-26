@@ -401,14 +401,12 @@ fn draw_ai_trigger(
 ///   `0x005095D0`).
 /// Ares `AITriggerTypeClass_ConditionMet_SideIndex @ 0x1002F2D0` accepts
 /// every registered side: 0 is unrestricted, otherwise token-1 must equal the
-/// house's side index. NPatch's fourth-side fix applies the same fourth token
-/// without Ares: `4` selects side index 3 instead of falling into the stock
-/// unrestricted tail. Any other game keeps the stock three-token domain.
+/// house's side index. NPatch's fourth side uses that same mapping without
+/// Ares; NPatch only supplies the fourth Side. A game with neither extension
+/// keeps the stock three-token domain.
 fn side_admits(trigger_side: i32, house_side: i32, ares: bool, npatch: bool) -> bool {
-    if ares {
+    if ares || npatch {
         trigger_side == 0 || house_side == trigger_side - 1
-    } else if npatch && trigger_side == 4 {
-        house_side == 3
     } else {
         match trigger_side {
             1 => house_side == 0,

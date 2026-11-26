@@ -123,6 +123,10 @@ impl RulesPassProcessor {
             ("GDIGateTwo", RulesTypeFamily::Building, false),
             ("NodGateOne", RulesTypeFamily::Building, false),
             ("NodGateTwo", RulesTypeFamily::Building, false),
+            ("ThirdGateOne", RulesTypeFamily::Building, false),
+            ("ThirdGateTwo", RulesTypeFamily::Building, false),
+            ("FourthGateOne", RulesTypeFamily::Building, false),
+            ("FourthGateTwo", RulesTypeFamily::Building, false),
             ("WallTower", RulesTypeFamily::Building, false),
             ("Shipyard", RulesTypeFamily::Building, true),
             ("GDIPowerPlant", RulesTypeFamily::Building, false),
@@ -194,6 +198,29 @@ impl RulesPassProcessor {
         // absent/empty read keeps the prior vector. Counts are raw frames.
         if let Some(delays) = section.read_int_list("AIHateDelays") {
             self.rules_ai_hate_delays = delays;
+        }
+        // NPatch `[General] OverlayWalls=`: first four entries map the four
+        // side walls, later entries are ordinary walls. Values outside the
+        // overlay index domain are refused instead of wrapping an u8.
+        if let Some(walls) =
+            crate::rules::npatch_switch::npatch_read(|| section.read_int_list("OverlayWalls"))
+        {
+            self.rules_building_types.overlay_walls = walls
+                .into_iter()
+                .filter_map(|wall| u8::try_from(wall).ok())
+                .collect();
+        }
+        // NPatch `[General] PlayableCountries=`: the highest Country index a
+        // Random draw may reach. A negative value keeps the stock answer.
+        let current_playable = self
+            .rules_building_types
+            .playable_countries
+            .map_or(9, |value| i32::try_from(value).unwrap_or(9));
+        if section.raw_value("PlayableCountries").is_some() {
+            let value = crate::rules::npatch_switch::npatch_read(|| {
+                section.read_int("PlayableCountries", current_playable)
+            });
+            self.rules_building_types.playable_countries = u32::try_from(value).ok();
         }
         // ReadGeneral66EBD4..66EBEE: exact-case signed ReadInt5276D0,
         // current Rules+580 as default, no clamp. Ctor665D92 stores1.
@@ -350,7 +377,15 @@ impl RulesPassProcessor {
             // FindOrAllocate lands after every vanilla General pointer. Every
             // build reads it now, marked as an NPatch read, so the key turns
             // the per-game switch on (`npatch_switch`).
-            let _npatch = (key == "VehicleParachute").then(crate::rules::ares_switch::npatch_reads);
+            let _npatch = matches!(
+                key,
+                "VehicleParachute"
+                    | "ThirdGateOne"
+                    | "ThirdGateTwo"
+                    | "FourthGateOne"
+                    | "FourthGateTwo"
+            )
+            .then(crate::rules::ares_switch::npatch_reads);
             if ares_way
                 && key != "DefaultMirageDisguises"
                 && ARES_GENERAL_LISTS.iter().any(|&(name, _)| name == key)
@@ -387,6 +422,10 @@ impl RulesPassProcessor {
                     | "GDIGateTwo"
                     | "NodGateOne"
                     | "NodGateTwo"
+                    | "ThirdGateOne"
+                    | "ThirdGateTwo"
+                    | "FourthGateOne"
+                    | "FourthGateTwo"
                     | "WallTower"
                     | "GDIPowerPlant"
                     | "NodRegularPower"
@@ -433,6 +472,10 @@ impl RulesPassProcessor {
                                 "GDIGateTwo" => &mut types.gdi_gate_two,
                                 "NodGateOne" => &mut types.nod_gate_one,
                                 "NodGateTwo" => &mut types.nod_gate_two,
+                                "ThirdGateOne" => &mut types.third_gate_one,
+                                "ThirdGateTwo" => &mut types.third_gate_two,
+                                "FourthGateOne" => &mut types.fourth_gate_one,
+                                "FourthGateTwo" => &mut types.fourth_gate_two,
                                 "WallTower" => &mut types.wall_tower,
                                 "GDIPowerPlant" => &mut types.gdi_power_plant,
                                 "NodRegularPower" => &mut types.nod_regular_power,

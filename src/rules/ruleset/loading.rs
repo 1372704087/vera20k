@@ -2161,12 +2161,30 @@ fn project_country_side_registry<'a>(
     let sides = sides.collect::<Vec<_>>();
     let side_ids: Vec<String> = sides.iter().map(|(id, _)| (*id).to_owned()).collect();
     // Every allocated Side owns its Ares extension when the Rules were read
-    // the Ares way, and none does when they were read the stock way.
-    let side_extensions = sides
-        .iter()
-        .map(|(_, extension)| extension.cloned())
-        .collect::<Option<Vec<_>>>()
-        .unwrap_or_default();
+    // the Ares way. A game read the stock way still needs a fourth Side's
+    // initialized defaults, so sides 3 and later get one here; the first
+    // three stay empty so their stock getters are unchanged. A stock
+    // three-side game keeps the vector empty, as before.
+    let side_extensions =
+        if sides.iter().any(|(_, extension)| extension.is_some()) || sides.len() > 3 {
+            sides
+                .iter()
+                .enumerate()
+                .map(|(index, (_, extension))| {
+                    extension.cloned().unwrap_or_else(|| {
+                    if index >= 3 {
+                        crate::rules::ares_side_extension::AresSideExtension::fourth_side_defaults(
+                            index,
+                        )
+                    } else {
+                        crate::rules::ares_side_extension::AresSideExtension::default()
+                    }
+                })
+                })
+                .collect()
+        } else {
+            Vec::new()
+        };
     let mut side_indices = HashMap::with_capacity(side_ids.len());
     for (index, id) in side_ids.iter().enumerate() {
         side_indices

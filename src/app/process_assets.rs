@@ -59,6 +59,9 @@ pub(crate) struct ProcessAssets {
     /// Whether the resolved startup Rules play the NPExt fix chains, retained
     /// while assets are leased and compared as the `npatch_fixes` setting part.
     startup_npatch_fixes: bool,
+    /// NPatch `[General] PlayableCountries=` from the resolved startup
+    /// projection. Only `Some` when that game plays NPatch.
+    startup_playable_countries: Option<u32>,
     rules_keep_ares_off: bool,
     /// That folder's files, read once: the pre-match check compares their
     /// digest.
@@ -222,6 +225,7 @@ impl ProcessAssets {
             startup_kratos: false,
             startup_npatch: false,
             startup_npatch_fixes: false,
+            startup_playable_countries: None,
             rules_keep_ares_off: false,
             mod_files: Default::default(),
             mod_files_ahead: false,
@@ -547,6 +551,11 @@ impl ProcessAssets {
         self.startup_kratos = rules.as_ref().is_some_and(|rules| rules.kratos());
         self.startup_npatch = rules.as_ref().is_some_and(|rules| rules.npatch());
         self.startup_npatch_fixes = rules.as_ref().is_some_and(|rules| rules.npatch_fixes());
+        self.startup_playable_countries = rules.as_ref().and_then(|rules| {
+            rules
+                .npatch()
+                .then(|| rules.general.building_types.playable_countries.unwrap_or(9))
+        });
         self.rules_keep_ares_off = rules.as_ref().is_some_and(|rules| rules.ares_kept_off());
         Ok((rules, projection))
     }
@@ -1374,6 +1383,16 @@ impl ProcessAssets {
             .unwrap_or_default()
     }
 
+    /// NPatch `[General] PlayableCountries=`: the highest Country index a
+    /// Random draw may reach. Absent data, or a launch that keeps NPatch off,
+    /// keeps the stock `9`.
+    pub(crate) fn playable_countries(&self) -> u32 {
+        if !self.startup_npatch {
+            return 9;
+        }
+        self.startup_playable_countries.unwrap_or(9)
+    }
+
     /// The side's `DialogBackground.Image/.Palette` pair for the shell dialog
     /// chrome, or `None` to keep the stock per-side backgrounds.
     pub(crate) fn side_dialog_background(&self, side: i32) -> Option<(String, String)> {
@@ -1633,9 +1652,7 @@ mod tests {
         use crate::util::npatch_launch::NpatchSetting::{Auto, Off, On};
 
         let install = audio_test_install("npatch-agreement");
-        for (file, data) in [
-            ("aimd.ini", "[AI]\nValue=1\n"),
-        ] {
+        for (file, data) in [("aimd.ini", "[AI]\nValue=1\n")] {
             std::fs::write(install.path().join(file), data).unwrap();
         }
         std::fs::write(install.path().join("artmd.ini"), "[GI]\n").unwrap();
@@ -1655,19 +1672,27 @@ mod tests {
             (
                 process.multiplayer_rules_digest("").unwrap(),
                 parts["settings"].clone(),
+                process.playable_countries(),
+                process.startup_npatch,
             )
         };
         let stock = game(Auto, "");
         assert!(stock.1.get("npatch").is_none());
         assert!(stock.1.get("npatch_fixes").is_none());
+        assert_eq!(stock.2, 9);
+        assert!(!stock.3, "stock data does not play NPatch");
         let off_stock = game(Off, "");
         assert_eq!(off_stock, stock, "Off on stock data changes nothing");
-        let off_data = game(Off, "[General]\nNPatch=yes\n");
+        let off_data = game(Off, "[General]\nNPatch=yes\nPlayableCountries=12\n");
         assert_ne!(off_data.0, stock.0);
         assert!(off_data.1.get("npatch").is_none());
-        let auto_data = game(Auto, "[General]\nNPatch=yes\n");
+        assert_eq!(off_data.2, 9, "Off ignores PlayableCountries=");
+        assert!(!off_data.3);
+        let auto_data = game(Auto, "[General]\nNPatch=yes\nPlayableCountries=12\n");
         assert_eq!(auto_data.1["npatch"], serde_json::Value::Bool(true));
         assert_eq!(auto_data.1["npatch_fixes"], serde_json::Value::Bool(true));
+        assert!(auto_data.3, "NPatch=yes plays NPatch");
+        assert_eq!(auto_data.2, 12);
         let enabled = game(On, "");
         assert_ne!(enabled.0, stock.0);
         assert_eq!(enabled.1["npatch"], serde_json::Value::Bool(true));
@@ -1681,7 +1706,10 @@ mod tests {
 
         let install = audio_test_install("kratos-agreement");
         for (file, data) in [
-            ("rulesmd.ini", "[InfantryTypes]\n0=GI\n[GI]\nPrimary=GUN\nFearless=no\n"),
+            (
+                "rulesmd.ini",
+                "[InfantryTypes]\n0=GI\n[GI]\nPrimary=GUN\nFearless=no\n",
+            ),
             ("aimd.ini", "[AI]\nValue=1\n"),
         ] {
             std::fs::write(install.path().join(file), data).unwrap();
@@ -1694,7 +1722,10 @@ mod tests {
             process.return_from_loading(assets);
             let parts = process.multiplayer_rules_parts(&[""]).unwrap().remove(0);
             let parts: serde_json::Value = serde_json::from_str(&parts.json()).unwrap();
-            (process.multiplayer_rules_digest("").unwrap(), parts["settings"].get("kratos").cloned())
+            (
+                process.multiplayer_rules_digest("").unwrap(),
+                parts["settings"].get("kratos").cloned(),
+            )
         };
         let art = install.path().join("artmd.ini");
         std::fs::write(&art, "[GI]\nPrimaryFireFLH=12,0,60\n").unwrap();

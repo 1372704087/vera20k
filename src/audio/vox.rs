@@ -99,7 +99,7 @@ impl VoxQueue {
     /// Scenario.Side clears it. Reading EVA.Tag never calls this binding.
     /// Ares' binding reads the SideExt only Rules read the Ares way hold.
     pub fn set_side(&mut self, side: i32, rules: &crate::rules::ruleset::RuleSet) {
-        if rules.ares_form() {
+        if rules.ares_form() || side >= 3 {
             if side < 0 {
                 self.selected_voice = -1;
             } else if let Some(voice) = rules.side_eva_voice_index(side) {

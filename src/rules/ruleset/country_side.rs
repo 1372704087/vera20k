@@ -650,9 +650,10 @@ impl RuleSet {
 
     /// Signed SideExt+88. Zero and negative values are intentional native
     /// selector inputs, not missing values or an instruction to clamp to one.
-    /// A stock game has no SideExt configuration.
+    /// A stock three-side game has no SideExt configuration; sides 3 and later
+    /// get the initialized fourth-side defaults without Ares.
     pub fn side_sidebar_mix_file_index(&self, index: SideIdx) -> Option<i32> {
-        if self.ares {
+        if self.ares || index.0 >= 3 {
             self.side_extensions
                 .get(usize::from(index.0))
                 .map(|extension| extension.sidebar_mix_file_index)
@@ -664,7 +665,7 @@ impl RuleSet {
     /// SideExt+8C selects Yuri-specific sidebar filenames independently of
     /// the Side array index and Sidebar.MixFileIndex.
     pub fn side_sidebar_yuri_file_names(&self, index: SideIdx) -> Option<bool> {
-        if self.ares {
+        if self.ares || index.0 >= 3 {
             self.side_extensions
                 .get(usize::from(index.0))
                 .map(|extension| extension.sidebar_yuri_file_names)
@@ -705,7 +706,7 @@ impl RuleSet {
     /// index. `Some(None)` is an explicit `none` (no crew), distinct from an
     /// unset key (caller falls back as native `SideExt::GetCrew @ 0x1002DE60`).
     pub(crate) fn side_crew(&self, side: i32) -> Option<Option<&str>> {
-        if self.ares {
+        if self.ares || side >= 3 {
             let extension = self.side_extension(side)?;
             Some(match &extension.crew {
                 Some(value) => value.as_deref(),
@@ -733,7 +734,7 @@ impl RuleSet {
     /// `[Side] Technician=` else global `[General] Technician=`
     /// (`SideExt::GetTechnician @ 0x1002E170`).
     pub(crate) fn side_technician(&self, side: i32) -> Option<Option<&str>> {
-        if self.ares {
+        if self.ares || side >= 3 {
             let extension = self.side_extension(side)?;
             Some(match &extension.technician {
                 Some(value) => value.as_deref(),
@@ -747,7 +748,7 @@ impl RuleSet {
     /// `[Side] DefaultDisguise=` else the stock side disguise by array index
     /// (`SideExt::GetDisguise @ 0x1002DEA0`).
     pub(crate) fn side_disguise(&self, side: i32) -> Option<Option<&str>> {
-        if self.ares {
+        if self.ares || side >= 3 {
             let extension = self.side_extension(side)?;
             Some(match &extension.default_disguise {
                 Some(value) => value.as_deref(),
@@ -763,7 +764,7 @@ impl RuleSet {
     /// `[Side] SurvivorDivisor=` else `Allied/Soviet/ThirdSurvivorDivisor`
     /// (`SideExt::GetSurvivorDivisor @ 0x1002E130`).
     pub(crate) fn side_survivor_divisor(&self, side: i32) -> Option<i32> {
-        if self.ares {
+        if self.ares || side >= 3 {
             let extension = self.side_extension(side)?;
             Some(extension.survivor_divisor.unwrap_or(match side {
                 1 => self.general.soviet_survivor_divisor,
@@ -795,7 +796,7 @@ impl RuleSet {
     /// a fourth or later side takes the Allied vector
     /// (`SideExt::GetBaseDefenseCounts @ 0x1002DD40`).
     pub(crate) fn side_base_defense_counts(&self, side: i32) -> Option<&[i32]> {
-        if self.ares {
+        if self.ares || side >= 3 {
             let extension = self.side_extension(side)?;
             Some(
                 extension
@@ -817,7 +818,7 @@ impl RuleSet {
     /// Allied pair (`SideExt::GetParaDropTypes @ 0x1002E060`,
     /// `GetParaDropNum @ 0x1002DFB0`).
     pub(crate) fn side_paradrop(&self, side: i32) -> Option<(&[String], &[i32])> {
-        if self.ares {
+        if self.ares || side >= 3 {
             let extension = self.side_extension(side)?;
             if let (Some(types), Some(counts)) =
                 (&extension.paradrop_types, &extension.paradrop_num)
@@ -841,7 +842,7 @@ impl RuleSet {
     /// `HouseTypeExt::GetParadropPlane @ 0x1001BCB0` falls back to
     /// `FindIndex("PDPLANE")` rather than cancelling the drop.
     pub(crate) fn side_paradrop_aircraft(&self, side: i32) -> Option<&str> {
-        if self.ares {
+        if self.ares || side >= 3 {
             self.side_extension(side)?
                 .paradrop_aircraft
                 .as_ref()?
@@ -856,7 +857,7 @@ impl RuleSet {
     /// `Some(None)` is an explicit `none`, which the canopy consumer resolves
     /// to `PARACH` (`HouseTypeExt::GetParachuteAnim @ 0x1001BBC0`).
     pub(crate) fn side_parachute_override(&self, side: i32) -> Option<Option<&str>> {
-        if self.ares {
+        if self.ares || side >= 3 {
             let extension = self.side_extension(side)?;
             extension
                 .parachute_anim
@@ -870,7 +871,7 @@ impl RuleSet {
     /// `[Side] ToolTipColor=` as RGB (initialized 255,255,0 for Nod/ThirdSide,
     /// 164,210,255 otherwise; `SideExt+80`).
     pub fn side_tooltip_color(&self, side: i32) -> Option<[u8; 3]> {
-        if self.ares {
+        if self.ares || side >= 3 {
             self.side_extension(side)
                 .map(|extension| extension.tooltip_color)
         } else {
@@ -882,7 +883,7 @@ impl RuleSet {
     /// (initialized 11 for Nod, 25 for ThirdSide, 21 otherwise) or -1 for an
     /// explicit `none` (`SideExt+84`).
     pub fn side_message_text_color_index(&self, side: i32) -> Option<i32> {
-        if self.ares {
+        if self.ares || side >= 3 {
             self.side_extension(side)
                 .map(|extension| extension.message_text_color_index)
         } else {
@@ -922,8 +923,12 @@ impl RuleSet {
     /// tactical-overlay slot, and `TacticalClass_DrawOverlay_GraphicalText`
     /// (`0x1002FAD0`, patch site `0x6D4E79`) reads them through `0x1002DF10` /
     /// `0x1002DF00`, which fall back to InitGame's literal `GRFXTXT` files per
-    /// slot. `None` when the game has no SideExt for this index.
+    /// slot. `None` when the game has no SideExt for this index; a stock
+    /// fourth-or-later side returns the initialized default (both unset).
     pub fn side_graphical_text(&self, side: i32) -> Option<(Option<&str>, Option<&str>)> {
+        if !(self.ares || side >= 3) {
+            return None;
+        }
         let extension = self.side_extension(side)?;
         Some((
             extension.graphical_text_image.as_deref(),

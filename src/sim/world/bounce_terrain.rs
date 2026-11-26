@@ -86,6 +86,9 @@ impl<'a> BounceTerrain for ResolvedBounceTerrain<'a> {
                         -1,
                         Some(self.rules.overlay_registry()),
                         self.rules.ares_form(),
+                        self.rules
+                            .npatch()
+                            .then_some(&self.rules.general.building_types),
                     ),
                     crate::sim::cell_kernel::WallConnectionStep::Return(true)
                 );
@@ -119,6 +122,9 @@ impl<'a> BounceTerrain for ResolvedBounceTerrain<'a> {
                         -1,
                         Some(self.rules.overlay_registry()),
                         self.rules.ares_form(),
+                        self.rules
+                            .npatch()
+                            .then_some(&self.rules.general.building_types),
                     ),
                     crate::sim::cell_kernel::WallConnectionStep::Return(true)
                 )

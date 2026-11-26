@@ -450,6 +450,17 @@ fn overlay_admits(
     slope: u8,
 ) -> bool {
     let ares = rules.ares_form();
+    if npatch_gate_on_wall(
+        rules,
+        registry,
+        overlay_id,
+        overlay_data,
+        wall_owner,
+        ty,
+        house,
+    ) {
+        return true;
+    }
     if ares
         && ares_gate_on_wall(
             rules,
@@ -517,6 +528,32 @@ fn own_damaged_wall(
             .as_deref()
             .and_then(|name| registry?.id_for_name(name))
             == Some(overlay_id)
+}
+
+/// NPatch `OverlayWalls=` third/fourth side arms: the same house's wall
+/// overlay accepts that side's `ThirdGateOne/Two=` or `FourthGateOne/Two=`
+/// types, and a damaged wall of the matching overlay may be rebuilt. Extra
+/// `OverlayWalls` entries stay ordinary walls and do not accept gates.
+fn npatch_gate_on_wall(
+    rules: &RuleSet,
+    registry: Option<&OverlayTypeRegistry>,
+    overlay_id: u8,
+    overlay_data: u8,
+    wall_owner: Option<InternedId>,
+    ty: Option<&ObjectType>,
+    house: Option<InternedId>,
+) -> bool {
+    if !rules.npatch() || house != wall_owner {
+        return false;
+    }
+    let Some(ty) = ty else {
+        return false;
+    };
+    let gates = &rules.general.building_types;
+    let damaged = own_damaged_wall(registry, ty, overlay_id, overlay_data);
+    overlay_id == gates.wall_overlay_for_side(2) && (damaged || gates.stands_on_third_wall(&ty.id))
+        || overlay_id == gates.wall_overlay_for_side(3)
+            && (damaged || gates.stands_on_fourth_wall(&ty.id))
 }
 
 /// Ares 3.0 CellClass_CanThisExistHere_GateOnWall `10015780` (hook

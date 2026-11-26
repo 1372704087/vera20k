@@ -438,6 +438,7 @@ pub(super) fn ares_spark_dies(
             -1,
             Some(rules.overlay_registry()),
             rules.ares_form(),
+            rules.npatch().then_some(&rules.general.building_types),
         ),
         crate::sim::cell_kernel::WallConnectionStep::Return(true)
     ))

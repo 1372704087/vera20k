@@ -50,6 +50,19 @@ fn only_a_side_with_a_retained_configuration_draws_the_ares_sidebar() {
     assert_eq!(super::sidebar_theme_for_side(3, true), SidebarTheme::Soviet);
 }
 
+#[test]
+fn fourth_side_gets_its_sidebar_without_ares() {
+    use crate::rules::ini_parser::IniFile;
+    use crate::rules::native_processing::RulesLayerStack;
+    use crate::rules::ruleset::RuleSet;
+    let ini = IniFile::from_str("[Sides]\nGDI=x\nNod=x\nThirdSide=x\nFourth=x\n");
+    let processed = RulesLayerStack::new(ini).process().unwrap();
+    let rules = RuleSet::from_processed_rules(&processed).unwrap();
+    assert!(!rules.ares());
+    assert_eq!(super::ares_sidebar_config(&rules, 3), Some((1, false)));
+    assert_eq!(super::ares_sidebar_config(&rules, 0), None);
+}
+
 fn retail_ra2_dir() -> PathBuf {
     std::env::var_os("RA2_DIR")
         .map(PathBuf::from)

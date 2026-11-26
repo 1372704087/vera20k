@@ -25,6 +25,29 @@ impl RuleSet {
         self.source_ini_hash.hash(&mut hasher);
         // Eager and authored loads recover the same deck, including wooden rims.
         b"independent-high-bridge-deck-v6".hash(&mut hasher);
+        // NPatch fourth-side wall gates and random-country limit change what a
+        // match plays. Keep stock data out of the hash: their empty values and
+        // absent limit add no tag.
+        let building_types = &self.general.building_types;
+        if self.npatch()
+            && (building_types.third_gate_one.is_some()
+                || building_types.third_gate_two.is_some()
+                || building_types.fourth_gate_one.is_some()
+                || building_types.fourth_gate_two.is_some()
+                || !building_types.overlay_walls.is_empty()
+                || building_types.playable_countries.is_some())
+        {
+            b"npatch-fourth-side-v1".hash(&mut hasher);
+            (
+                &building_types.third_gate_one,
+                &building_types.third_gate_two,
+                &building_types.fourth_gate_one,
+                &building_types.fourth_gate_two,
+                &building_types.overlay_walls,
+                building_types.playable_countries,
+            )
+                .hash(&mut hasher);
+        }
         // A previous scenario's list survives RulesClass's Type reset even
         // when the incoming source text omits AIHateDelays.
         if !self.general.ai_hate_delays.is_empty() {

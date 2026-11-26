@@ -1,7 +1,9 @@
 # Ares fourth-side defaults
 
 A game that ships `ares.mix` reads these keys in every build ([Ares](ares.md)).
-Other games keep their three-side behavior.
+The fourth-side defaults below do not require Ares: a game read the stock way
+gives sides 3 and later the same initialized `SideExt` fallbacks, while sides
+0-2 keep their existing stock paths. Ares-only keys still require Ares.
 
 `[Sides]` already registers any number of Side identities; a Country's
 `Side=` selects one. Ares 3.0 attaches a `SideExt` to every allocated Side.

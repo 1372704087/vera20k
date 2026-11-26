@@ -4502,7 +4502,6 @@ fn ares_country_reads_start_in_multiplayer_with_const() {
 /// them from AudioVisual, while the YR profile ignores an AudioVisual-only key.
 #[test]
 fn ra2_reads_moved_general_references_from_audiovisual() {
-
     let build = |section: &str| {
         let layers = RulesLayerStack::new(IniFile::from_str(&format!(
             "[Animations]\n0=PARACH\n[General]\n\n[{section}]\nParachute=PARACH\nDropZoneAnim=PARACH\n"
@@ -4522,10 +4521,7 @@ fn ra2_reads_moved_general_references_from_audiovisual() {
         "YR ignores an AudioVisual-only Parachute"
     );
     let yr_general = build("General");
-    assert_eq!(
-        yr_general.general.parachute_shp.as_deref(),
-        Some("PARACH")
-    );
+    assert_eq!(yr_general.general.parachute_shp.as_deref(), Some("PARACH"));
 
     crate::util::ra2_launch::clear_override();
 }

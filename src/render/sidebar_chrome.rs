@@ -680,18 +680,18 @@ impl SidebarArtNames {
 }
 
 /// The scenario side's retained Side sidebar configuration (its MIX index and
-/// Yuri filename switch) when Ares plays in the game (`RuleSet::ares`), which
-/// selects the side's MIX group (Ares1002FA00). A side without one draws the
-/// stock sidebar: a game whose Rules were not read the Ares way has no Side
-/// extensions.
+/// Yuri filename switch) when Ares plays in the game (`RuleSet::ares`) or for
+/// a fourth or later Side, whose defaults exist without Ares. The first three
+/// stock sides still keep the stock sidebar. A side without one draws the
+/// stock sidebar.
 pub(crate) fn ares_sidebar_config(
     rules: &crate::rules::ruleset::RuleSet,
     side_index: i32,
 ) -> Option<(i32, bool)> {
-    let side = crate::rules::ruleset::SideIdx(u8::try_from(side_index).ok()?);
-    if !rules.ares() {
+    if !rules.ares() && side_index < 3 {
         return None;
     }
+    let side = crate::rules::ruleset::SideIdx(u8::try_from(side_index).ok()?);
     Some((
         rules.side_sidebar_mix_file_index(side)?,
         rules.side_sidebar_yuri_file_names(side)?,
@@ -1487,7 +1487,10 @@ mod provenance_tests {
             for theme in [SidebarTheme::Soviet, SidebarTheme::Yuri] {
                 let (radar, radar_palette) = names.radar(theme);
                 assert_eq!(radar.to_ascii_uppercase(), expected["radar"]);
-                assert_eq!(radar_palette.to_ascii_uppercase(), expected["radar_palette"]);
+                assert_eq!(
+                    radar_palette.to_ascii_uppercase(),
+                    expected["radar_palette"]
+                );
             }
             assert_eq!(
                 names.background_palette.to_ascii_uppercase(),

@@ -272,12 +272,15 @@ pub(super) fn classify_collision_kind(
         // `Wall=` here too. RESIDUAL: Ares simulates the common sparks itself
         // (`ares_system`, which asks with the registry); a ParticleClass spark
         // it leaves to this path (AlphaImage art, or held by another
-        // behaviour's system) keeps the stock wall list.
+        // behaviour's system) keeps the stock wall list. The NPatch
+        // `OverlayWalls=` list is not carried by these spark facts, so this
+        // path also keeps that list out.
         crate::sim::cell_kernel::wall_connection_step(
             facts.wall_overlay_id.map_or(-1, i32::from),
             -1,
             None,
             false,
+            None,
         ),
         crate::sim::cell_kernel::WallConnectionStep::Return(true)
     ) {

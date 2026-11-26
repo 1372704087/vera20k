@@ -87,6 +87,52 @@ pub struct AresSideExtension {
 }
 
 impl AresSideExtension {
+    /// The same `SideExt::initialize @ 0x1002E190` defaults for a fourth or
+    /// later Side, used when the game has no Ares SideExt to read. The first
+    /// three sides keep their stock paths: their getters already fall back by
+    /// side index, so only `>= 3` needs this extension.
+    pub(crate) fn fourth_side_defaults(_array_index: usize) -> Self {
+        let mut fields = Self::default();
+        fields.sidebar_mix_file_index = 1;
+        fields.sidebar_yuri_file_names = false;
+        fields.eva_voice_index = 0;
+        fields.tooltip_color = [164, 210, 255];
+        fields.message_text_color_index = 21;
+        // `SideExt::initialize` resolves PDPLANE through the AircraftType
+        // factory; the string is the same fallback the consumer applies when
+        // the initialization index was -1.
+        fields.paradrop_aircraft = Some(Some("PDPLANE".to_owned()));
+        let score = [
+            "SYCRBKMD.SHP",
+            "SYCRTMD.SHP",
+            "SYCRAMD.SHP",
+            "YSCORE.PAL",
+            "MPYSCRNL.SHP",
+            "mpyscrnlbar~~.pcx",
+            "MPYSCRN.PAL",
+        ];
+        fields.campaign_score_background = Some(score[0].to_owned());
+        fields.campaign_score_transition = Some(score[1].to_owned());
+        fields.campaign_score_animation = Some(score[2].to_owned());
+        fields.campaign_score_palette = Some(score[3].to_owned());
+        fields.multiplayer_score_background = Some(score[4].to_owned());
+        fields.multiplayer_score_bars = Some(score[5].to_owned());
+        fields.multiplayer_score_palette = Some(score[6].to_owned());
+        fields.campaign_score_under_par_theme = Some("SCORE".to_owned());
+        fields.campaign_score_over_par_theme = Some("SCORE".to_owned());
+        fields.multiplayer_score_win_theme = Some("SCORE".to_owned());
+        fields.multiplayer_score_lose_theme = Some("SCORE".to_owned());
+        fields
+    }
+
+    /// One shared fourth-side default for callers that need a `&self` before
+    /// a `RuleSet` or Ares SideExt exists, such as the shell score-art
+    /// projection. The values are identical for every side index >= 3.
+    pub(crate) fn fourth_side_defaults_shared() -> &'static Self {
+        static DEFAULTS: std::sync::OnceLock<AresSideExtension> = std::sync::OnceLock::new();
+        DEFAULTS.get_or_init(|| Self::fourth_side_defaults(3))
+    }
+
     /// The seven score-screen names, as `Game_LoadCampaignScoreAssets`
     /// (`0x1002F3A0`, patch site `0x72D300`), `Game_LoadMultiplayerScoreAssets`
     /// (`0x1002F430`, `0x72D730`) and `Game_GetMultiplayerScoreScreenBar`

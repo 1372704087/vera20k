@@ -60,8 +60,47 @@ fn a_pass_key_turns_npatch_on() {
     );
 }
 
-/// `[General] NPatch=yes` is the explicit master switch: with no NPatch-only
-/// key anywhere, every NPatch path still turns on.
+/// NPatch's fourth-side gate, overlay-wall and random-country keys are read
+/// as one KeyReads group and turn the per-game switch on.
+#[test]
+fn npatch_fourth_side_keys_are_read_and_turn_npatch_on() {
+    let rules = rules_with(
+        "[General]\n\
+         ThirdGateOne=YAGATE\nThirdGateTwo=YAGATE2\n\
+         FourthGateOne=FGATE\nFourthGateTwo=FGATE2\n\
+         OverlayWalls=2,26,243,250,251\nPlayableCountries=12\n",
+        NpatchSetting::Auto,
+    );
+    assert!(rules.npatch());
+    assert_eq!(
+        rules.general.building_types.third_gate_one.as_deref(),
+        Some("YAGATE")
+    );
+    assert_eq!(
+        rules.general.building_types.third_gate_two.as_deref(),
+        Some("YAGATE2")
+    );
+    assert_eq!(
+        rules.general.building_types.fourth_gate_one.as_deref(),
+        Some("FGATE")
+    );
+    assert_eq!(
+        rules.general.building_types.fourth_gate_two.as_deref(),
+        Some("FGATE2")
+    );
+    assert_eq!(
+        rules.general.building_types.overlay_walls,
+        vec![2, 26, 243, 250, 251]
+    );
+    assert_eq!(rules.general.building_types.playable_countries, Some(12));
+    let baseline = rules_with("[General]\n", NpatchSetting::Auto);
+    assert_ne!(
+        rules.simulation_config_hash(),
+        baseline.simulation_config_hash()
+    );
+}
+
+/// `[General] NPatch=` turns the NPatch keys on.
 #[test]
 fn npatch_global_yes_turns_npatch_on() {
     let rules = RuleSet::from_ini(&IniFile::from_str("[General]\nNPatch=yes\n")).unwrap();

@@ -249,6 +249,10 @@ pub(crate) struct MultiplayerShellRuntime {
     /// launch the roster above was last built from: its rows then carry
     /// Ares' random weights and a Random country takes Ares' weighted draw.
     country_roster_ares: bool,
+    /// NPatch `[General] PlayableCountries=`: the highest Country index a
+    /// shell Random country may draw, from the launch the roster was built
+    /// from. Absent data keeps the stock `9`.
+    country_roster_playable_countries: u32,
     /// Process A8EB68, initialized0; independent of COOPMD AIDifficulty.
     cooperative_difficulty: i32,
     /// `[0xA8B254]`, the multiplayer scenario index (catalog order, BSS 0).
@@ -292,6 +296,7 @@ impl MultiplayerShellRuntime {
         // Ares.dll's rows when it is loaded (the game is read the Ares way).
         let ares = process_assets.reads_ares_way();
         self.country_roster_ares = ares;
+        self.country_roster_playable_countries = process_assets.playable_countries();
         self.cooperative_country_roster = if ares {
             process_assets
                 .country_random_rows()
@@ -942,8 +947,18 @@ impl MultiplayerShellRuntime {
         let registry = &self.cooperative_registry;
         let roster = &self.cooperative_country_roster;
         let ares = self.country_roster_ares;
+        let playable_countries = self.country_roster_playable_countries;
         let mut draw_country = |role, rng: &mut SimRng| {
-            draw_shell_country(registry, progress.as_ref(), roster, ares, role, rng, banned)
+            draw_shell_country(
+                registry,
+                progress.as_ref(),
+                roster,
+                ares,
+                playable_countries,
+                role,
+                rng,
+                banned,
+            )
         };
         let mut assignments = ShellRandomAssignmentState::new(session, self.lobby_colors);
         assignments.resolve_humans(&mut self.scenario_rng, &mut draw_country)?;
@@ -1016,6 +1031,7 @@ impl MultiplayerShellRuntime {
             cooperative_progress,
             cooperative_country_roster,
             country_roster_ares,
+            country_roster_playable_countries: process_assets.playable_countries(),
             cooperative_difficulty: 0,
             scenario_index: 0,
             scenario_start_header: crate::map::preview::ScenarioStartHeader::default(),
@@ -1294,9 +1310,19 @@ impl MultiplayerShellRuntime {
         let registry = &self.cooperative_registry;
         let roster = &self.cooperative_country_roster;
         let ares = self.country_roster_ares;
+        let playable_countries = self.country_roster_playable_countries;
         let mut assignments = ShellRandomAssignmentState::new(&staged_session, self.lobby_colors);
         let mut draw_country = |role, rng: &mut SimRng| {
-            draw_shell_country(registry, None, roster, ares, role, rng, &[])
+            draw_shell_country(
+                registry,
+                None,
+                roster,
+                ares,
+                playable_countries,
+                role,
+                rng,
+                &[],
+            )
         };
 
         assignments.resolve_local_country(&mut self.scenario_rng, &mut draw_country)?;
@@ -1879,17 +1905,34 @@ fn draw_shell_country(
     progress: Option<&CooperativeProgressRecord>,
     roster: &[CooperativeCountryRosterEntry],
     ares: bool,
+    playable_countries: u32,
     role: RandomCountryRole,
     rng: &mut SimRng,
     banned: &[LaunchCountry],
 ) -> Result<LaunchCountry, CooperativeError> {
     if progress.is_some() {
-        return draw_native_shell_country(registry, progress, roster, ares, role, rng);
+        return draw_native_shell_country(
+            registry,
+            progress,
+            roster,
+            ares,
+            playable_countries,
+            role,
+            rng,
+        );
     }
     // Retail bans at most two of the ten countries a draw reaches; a mod
     // that bans every one of them fails here instead of drawing forever.
     for _ in 0..64 {
-        let country = draw_native_shell_country(registry, progress, roster, ares, role, rng)?;
+        let country = draw_native_shell_country(
+            registry,
+            progress,
+            roster,
+            ares,
+            playable_countries,
+            role,
+            rng,
+        )?;
         if !banned.contains(&country) {
             return Ok(country);
         }
@@ -1902,6 +1945,7 @@ fn draw_native_shell_country(
     progress: Option<&CooperativeProgressRecord>,
     roster: &[CooperativeCountryRosterEntry],
     ares: bool,
+    playable_countries: u32,
     role: RandomCountryRole,
     rng: &mut SimRng,
 ) -> Result<LaunchCountry, CooperativeError> {
@@ -1947,8 +1991,14 @@ fn draw_native_shell_country(
         }
         Err(CooperativeError::NoEligibleRandomCountries)
     } else {
+        let limit = if roster.is_empty() {
+            playable_countries
+        } else {
+            playable_countries.min(u32::try_from(roster.len() - 1).unwrap_or(u32::MAX))
+        }
+        .min(u32::from(u16::MAX));
         Ok(LaunchCountry::from_country_index(
-            rng.next_range_u32_inclusive(0, 9),
+            rng.next_range_u32_inclusive(0, limit),
         ))
     }
 }
@@ -2377,6 +2427,7 @@ mod tests {
             cooperative_progress,
             cooperative_country_roster: controlled_ten_country_roster(),
             country_roster_ares: false,
+            country_roster_playable_countries: 9,
             cooperative_difficulty: 0,
             scenario_index: 0,
             scenario_start_header: crate::map::preview::ScenarioStartHeader::default(),
@@ -2412,6 +2463,7 @@ mod tests {
             cooperative_progress: CooperativeProgressState::default(),
             cooperative_country_roster: controlled_ten_country_roster(),
             country_roster_ares: false,
+            country_roster_playable_countries: 9,
             cooperative_difficulty: 0,
             scenario_index: 0,
             scenario_start_header: crate::map::preview::ScenarioStartHeader::default(),
@@ -4210,6 +4262,7 @@ WOLTaunts=junk
                 None,
                 &[],
                 false,
+                9,
                 RandomCountryRole::Human,
                 &mut rng,
                 banned,
@@ -4225,6 +4278,24 @@ WOLTaunts=junk
             LaunchCountry::from_country_index(native_rng.next_range_u32_inclusive(0, 9)),
             "the redraw is the stream's next draw"
         );
+    }
+
+    #[test]
+    fn playable_countries_caps_the_native_random_draw() {
+        use crate::skirmish_launch::RandomCountryRole;
+        let registry = CooperativeRegistry::default();
+        let mut rng = SimRng::new(1);
+        let country = draw_native_shell_country(
+            &registry,
+            None,
+            &[],
+            false,
+            3,
+            RandomCountryRole::Human,
+            &mut rng,
+        )
+        .unwrap();
+        assert!(country.raw_index() <= 3);
     }
 
     #[test]
@@ -4244,6 +4315,7 @@ WOLTaunts=junk
                 None,
                 &roster,
                 true,
+                9,
                 RandomCountryRole::Human,
                 &mut rng,
                 &[]
@@ -4259,6 +4331,7 @@ WOLTaunts=junk
                 None,
                 &roster,
                 true,
+                9,
                 RandomCountryRole::Ai { index: 0 },
                 &mut rng,
                 &[]
@@ -4277,6 +4350,7 @@ WOLTaunts=junk
                 None,
                 &none,
                 true,
+                9,
                 RandomCountryRole::Human,
                 &mut rng,
                 &[]

@@ -843,7 +843,8 @@ pub struct RuleSet {
     end_game_screens: crate::rules::end_game::EndGameCatalog,
     /// Read-only projection of the live SideExt owner, in the same native
     /// array order as side_ids. Rebuilt after every Process/reset/save restore.
-    /// Empty when the Rules were read the stock way, which allocates no SideExt.
+    /// A stock three-side game leaves it empty; a stock four-or-more-side game
+    /// carries the initialized fourth-side defaults for sides 3 and later.
     side_extensions: Vec<crate::rules::ares_side_extension::AresSideExtension>,
     /// Uppercase side identity -> source-order index.
     side_indices: HashMap<String, SideIdx>,

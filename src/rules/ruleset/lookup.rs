@@ -286,7 +286,7 @@ impl RuleSet {
     /// (`HouseTypeClass+0xBC`): Allied for side 0, Soviet for 1, Third for any
     /// other (`0x00507BCA..0x00507BFA`).
     pub(crate) fn base_defense_types(&self, side_index: i32) -> &[String] {
-        if self.ares
+        if (self.ares || side_index >= 3)
             && let Some(types) = self.side_base_defenses(side_index)
         {
             return types;

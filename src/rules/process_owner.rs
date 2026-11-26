@@ -573,23 +573,30 @@ impl NativeRulesProcessOwner {
     /// The live registry's SideExt for a side index: `None` for a negative or
     /// unallocated side, where the native hooks skip (`Scenario+0x34B8` < 0).
     /// The score shells read it before any match Rules projection exists.
-    /// Rules read the stock way have none.
+    /// A stock three-side game has none; sides 3 and later get the initialized
+    /// fourth-side defaults without Ares.
     fn side_extension(
         &self,
         side: i32,
     ) -> Option<&crate::rules::ares_side_extension::AresSideExtension> {
-        self.registry
+        let extension = self
+            .registry
             .as_ref()
             .expect("Rules transition reentered")
             .registry_state()
             .side_projection()
             .nth(usize::try_from(side).ok()?)?
-            .1
+            .1;
+        extension.or_else(|| {
+            (side >= 3).then(
+                crate::rules::ares_side_extension::AresSideExtension::fourth_side_defaults_shared,
+            )
+        })
     }
 
     /// The side's score theme, or `None` where gamemd pushes its literal
-    /// `SCORE` name (`0x0082FEBC`): Rules read the stock way or a side with
-    /// no SideExt.
+    /// `SCORE` name (`0x0082FEBC`): a side with no SideExt, which is only a
+    /// stock three-side game's sides 0-2.
     pub fn side_score_theme(
         &self,
         side: i32,
@@ -601,7 +608,7 @@ impl NativeRulesProcessOwner {
     /// The side's `DialogBackground.Image/.Palette` names for the shell dialog
     /// chrome ([`AresSideExtension::dialog_background`]), or `None` to keep
     /// the stock per-side backgrounds: a side with no SideExt, or one that
-    /// leaves either name unset.
+    /// leaves either name unset (including the fourth-side defaults).
     ///
     /// [`AresSideExtension::dialog_background`]: crate::rules::ares_side_extension::AresSideExtension::dialog_background
     pub fn side_dialog_background(&self, side: i32) -> Option<(&str, &str)> {

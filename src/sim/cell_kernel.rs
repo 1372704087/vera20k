@@ -53,17 +53,19 @@ pub(crate) enum WallConnectionStep {
 /// `overlays` is the OverlayType array a game read the Ares way (`ares`, the
 /// caller's `rules.ares_form()`) tests instead of the three literals; `None`
 /// (a caller or fixture without one) keeps them. Only the `requested == -1`
-/// query reads either.
+/// query reads either. `npatch` is the NPatch `OverlayWalls=` list when NPatch
+/// plays; its entries join the wall set, including the fourth side's wall.
 pub(crate) fn wall_connection_step(
     stored: i32,
     requested: i32,
     overlays: Option<&crate::rules::overlay_types::OverlayTypeRegistry>,
     ares: bool,
+    npatch: Option<&crate::rules::ruleset::GeneralBuildingTypes>,
 ) -> WallConnectionStep {
     if stored != -1 && stored == requested {
         WallConnectionStep::Return(true)
     } else if requested == -1 {
-        WallConnectionStep::Return(any_wall_overlay(stored, overlays, ares))
+        WallConnectionStep::Return(any_wall_overlay(stored, overlays, ares, npatch))
     } else {
         match requested {
             0 | 2 => WallConnectionStep::GdiBuildings,
@@ -79,7 +81,17 @@ fn any_wall_overlay(
     stored: i32,
     overlays: Option<&crate::rules::overlay_types::OverlayTypeRegistry>,
     ares: bool,
+    npatch: Option<&crate::rules::ruleset::GeneralBuildingTypes>,
 ) -> bool {
+    // NPatch `[General] OverlayWalls=`: the four side wall overlays and any
+    // later ordinary wall entries answer true in this query.
+    if let Some(npatch) = npatch
+        && u8::try_from(stored)
+            .ok()
+            .is_some_and(|id| npatch.is_wall_overlay(id))
+    {
+        return true;
+    }
     // Ares 3.0 CellClass_AttachesToNeighbourOverlay 10015740 (hook
     // 0x480534): a nonnegative index whose OverlayType is `Wall=yes`
     // (0x480549), so sandbags, fences and the Kremlin wall count too;
@@ -510,7 +522,7 @@ mod tests {
                 let stored = i32::try_from(row["stored"].as_i64().unwrap()).unwrap();
                 let requested = i32::try_from(row["requested"].as_i64().unwrap()).unwrap();
                 assert_eq!(
-                    wall_connection_step(stored, requested, None, false),
+                    wall_connection_step(stored, requested, None, false, None),
                     WallConnectionStep::Return(row["returned_low_byte"].as_u64().unwrap() != 0),
                     "original480510 query {row}"
                 );
@@ -530,7 +542,7 @@ mod tests {
             ),
             None,
         );
-        let any_wall = |stored| wall_connection_step(stored, -1, Some(&overlays), true);
+        let any_wall = |stored| wall_connection_step(stored, -1, Some(&overlays), true, None);
         assert_eq!(any_wall(0), WallConnectionStep::Return(true));
         assert_eq!(any_wall(1), WallConnectionStep::Return(false));
         // GAWALL's index without `Wall=yes` is no wall here.
@@ -538,8 +550,26 @@ mod tests {
         assert_eq!(any_wall(-1), WallConnectionStep::Return(false));
         // A requested type still takes the stock arms.
         assert_eq!(
-            wall_connection_step(0, 2, Some(&overlays), true),
+            wall_connection_step(0, 2, Some(&overlays), true, None),
             WallConnectionStep::GdiBuildings
+        );
+    }
+
+    #[test]
+    fn npatch_any_wall_query_reads_overlay_walls() {
+        let mut gates = crate::rules::ruleset::GeneralBuildingTypes::default();
+        gates.overlay_walls = vec![2, 26, 243, 250, 251];
+        assert_eq!(
+            wall_connection_step(250, -1, None, false, Some(&gates)),
+            WallConnectionStep::Return(true)
+        );
+        assert_eq!(
+            wall_connection_step(251, -1, None, false, Some(&gates)),
+            WallConnectionStep::Return(true)
+        );
+        assert_eq!(
+            wall_connection_step(252, -1, None, false, Some(&gates)),
+            WallConnectionStep::Return(false)
         );
     }
 

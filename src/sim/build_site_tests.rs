@@ -11,20 +11,24 @@ const RULES: &str = "[InfantryTypes]\n0=E1\n\
      [VehicleTypes]\n0=MTNK\n\
      [AircraftTypes]\n\
      [BuildingTypes]\n0=GAPOWR\n1=GAGATE\n2=GAWALL\n3=GAFENCE\n4=NAYARD\n5=GAPAVE\n6=GAPLUG\n\
-     7=NAGATE\n\
-     [OverlayTypes]\n0=GASAND\n1=CYCL\n2=GAWALL\n3=TIB01\n\
-     [General]\nGDIGateOne=GAGATE\n\
+     7=NAGATE\n8=YAGATE\n9=FGATE\n\
+     [OverlayTypes]\n0=GASAND\n1=CYCL\n2=GAWALL\n3=TIB01\n4=YAWALL\n5=FWALL\n\
+     [General]\nGDIGateOne=GAGATE\nThirdGateOne=YAGATE\nFourthGateOne=FGATE\n\
+     OverlayWalls=2,26,4,5\n\
      [E1]\nStrength=125\nSpeed=4\n\
      [MTNK]\nStrength=400\nSpeed=6\n\
      [GAPOWR]\nStrength=750\n\
      [GAGATE]\nStrength=1000\nGate=yes\n\
      [NAGATE]\nStrength=1000\nGate=yes\n\
+     [YAGATE]\nStrength=1000\nGate=yes\n\
+     [FGATE]\nStrength=1000\nGate=yes\n\
      [GAWALL]\nStrength=300\nWall=yes\n\
      [GAFENCE]\nStrength=300\nLaserFence=yes\n\
      [NAYARD]\nStrength=1500\nWaterBound=yes\nNaval=yes\n\
      [GAPAVE]\nStrength=100\nPlaceAnywhere=yes\n\
      [GAPLUG]\nStrength=100\n\
-     [GASAND]\nWall=yes\n[CYCL]\n[GAWALL]\nWall=yes\n[TIB01]\nTiberium=yes\n";
+     [GASAND]\nWall=yes\n[CYCL]\n[GAWALL]\nWall=yes\n[TIB01]\nTiberium=yes\n\
+     [YAWALL]\nWall=yes\n[FWALL]\nWall=yes\n";
 
 const ART: &str = "[GAPOWR]\nFoundation=2x2\n[GAGATE]\nFoundation=1x1\n\
     [GAWALL]\nFoundation=1x1\nToOverlay=GAWALL\n[GAFENCE]\nFoundation=1x1\n\
@@ -193,6 +197,22 @@ fn a_gate_outside_the_general_list_stands_on_a_wall_only_under_ares() {
     // CYCL is no wall.
     a.overlay((11, 10), "CYCL", 0, Some(americans));
     assert!(!a.cell_clear((11, 10), "NAGATE", Some(americans)));
+}
+
+#[test]
+fn npatch_fourth_gate_stands_on_its_own_wall_without_ares() {
+    let mut a = arena(CLEAR_BUILDABLE);
+    a.rules.set_npatch_for_test(true);
+    let americans = a.house("Americans");
+    let soviets = a.house("Soviets");
+    assert!(!a.rules.ares_form());
+    a.overlay((10, 10), "FWALL", 0, Some(americans));
+    a.overlay((11, 10), "YAWALL", 0, Some(americans));
+    assert!(a.cell_clear((10, 10), "FGATE", Some(americans)));
+    assert!(!a.cell_clear((10, 10), "YAGATE", Some(americans)));
+    assert!(!a.cell_clear((10, 10), "FGATE", Some(soviets)));
+    assert!(a.cell_clear((11, 10), "YAGATE", Some(americans)));
+    assert!(!a.cell_clear((11, 10), "FGATE", Some(americans)));
 }
 
 #[test]

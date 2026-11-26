@@ -213,6 +213,21 @@ pub struct GeneralBuildingTypes {
     pub nod_advanced_power: Option<String>,
     /// `ThirdPowerPlant=` (`Rules+0x8A8`).
     pub third_power_plant: Option<String>,
+    /// NPatch `ThirdGateOne=`/`ThirdGateTwo=`: the two gate types that may
+    /// stand on the third (Yuri) side's wall overlay.
+    pub third_gate_one: Option<String>,
+    pub third_gate_two: Option<String>,
+    /// NPatch `FourthGateOne=`/`FourthGateTwo=`: the two gate types that may
+    /// stand on the fourth side's wall overlay.
+    pub fourth_gate_one: Option<String>,
+    pub fourth_gate_two: Option<String>,
+    /// NPatch `[General] OverlayWalls=`: the first four entries are the GDI,
+    /// Nod, third and fourth side wall overlays; later entries are ordinary
+    /// walls. Empty keeps the stock overlay choices.
+    pub overlay_walls: Vec<u8>,
+    /// NPatch `[General] PlayableCountries=`: the highest Country index a
+    /// Random draw may reach. `None` keeps the stock `9`.
+    pub playable_countries: Option<u32>,
 }
 
 impl GeneralBuildingTypes {
@@ -234,6 +249,47 @@ impl GeneralBuildingTypes {
                 name.as_deref()
                     .is_some_and(|name| name.eq_ignore_ascii_case(type_id))
             })
+    }
+
+    /// NPatch `ThirdGateOne=`/`ThirdGateTwo=`.
+    pub fn stands_on_third_wall(&self, type_id: &str) -> bool {
+        [&self.third_gate_one, &self.third_gate_two]
+            .into_iter()
+            .any(|name| {
+                name.as_deref()
+                    .is_some_and(|name| name.eq_ignore_ascii_case(type_id))
+            })
+    }
+
+    /// NPatch `FourthGateOne=`/`FourthGateTwo=`.
+    pub fn stands_on_fourth_wall(&self, type_id: &str) -> bool {
+        [&self.fourth_gate_one, &self.fourth_gate_two]
+            .into_iter()
+            .any(|name| {
+                name.as_deref()
+                    .is_some_and(|name| name.eq_ignore_ascii_case(type_id))
+            })
+    }
+
+    /// NPatch `OverlayWalls=` first-four mapping, falling back to the stock
+    /// GAWALL, NAWALL, Yuri wall and fourth wall for missing entries.
+    pub fn wall_overlay_for_side(&self, side: usize) -> u8 {
+        const DEFAULTS: [u8; 4] = [2, 26, 243, 250];
+        self.overlay_walls
+            .get(side)
+            .copied()
+            .unwrap_or(DEFAULTS[side.min(3)])
+    }
+
+    /// NPatch's effective wall-overlay set: the configured `OverlayWalls=`
+    /// list, or the stock fourth-side-aware defaults when the key is absent.
+    pub fn is_wall_overlay(&self, overlay_id: u8) -> bool {
+        if self.overlay_walls.is_empty() {
+            const DEFAULTS: [u8; 4] = [2, 26, 243, 250];
+            DEFAULTS.contains(&overlay_id)
+        } else {
+            self.overlay_walls.contains(&overlay_id)
+        }
     }
 }
 

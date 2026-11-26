@@ -38,9 +38,37 @@ map or mode can change.
 Without the global key, `rules::npatch_switch` decides per game from any key only an NPatch
 reader found (`VehicleParachute`, `DisableParallelAIQueues` or its ext173 name
 `DisableAIParallelProduction`, `EnableAIBuildLimitation`, a TechnoType's `AIBuildLimit=`,
-a BuildingType's `AIPlanningCount=`). Retail data holds none of them, so a retail game plays
+a BuildingType's `AIPlanningCount=`, `OverlayWalls`, `PlayableCountries`, `ThirdGateOne/Two`
+and `FourthGateOne/Two`). Retail data holds none of them, so a retail game plays
 as gamemd. There is no build feature: a plain `cargo run` carries the code, and a mod that
 ships `NPatch=yes` or NPatch keys plays NPatch.
+
+## Fourth side without Ares
+
+`[Sides]` already registers a fourth Side; a Country's `Side=` selects it. VERA gives sides
+3 and later the Ares `SideExt` initialized defaults even when the game was read the stock
+way: Crew, Engineer, Technician, disguise, survivor divisor, AI base defences, paradrop,
+sidebar, EVA voice, tooltip colour and score art. Sides 0-2 keep their stock paths, and
+Ares-only keys still require Ares.
+
+NPatch supplies the options Ares does not:
+
+```ini
+[General]
+ThirdGateOne=YAGATE
+ThirdGateTwo=YAGATE
+FourthGateOne=FGATE
+FourthGateTwo=FGATE
+OverlayWalls=2,26,243,250
+PlayableCountries=9
+```
+
+`OverlayWalls` first four entries are the GDI, Nod, third-side and fourth-side wall overlays;
+later entries are ordinary walls. A gate from `ThirdGateOne/Two` or `FourthGateOne/Two` may
+stand on its own house wall at the matching overlay. `PlayableCountries` is the highest
+Country index a Random draw may reach; absent keeps the stock `9`. These keys are
+NPatch-only, so their presence turns NPatch on; the side defaults above do not need NPatch
+or Ares.
 
 The older automatic example remains valid:
 

@@ -39,6 +39,45 @@ const AI: &str = "\
 AlliedBaseDefenses=ABLD\nSovietBaseDefenses=SBLD\nThirdBaseDefenses=TBLD\n";
 
 #[test]
+fn fourth_side_defaults_work_without_ares() {
+    let rules = processed(&format!(
+        "{TYPES}{GENERAL}{AI}\
+         [Sides]\nGDI=x\nNod=x\nThirdSide=x\nFourth=x\n"
+    ));
+
+    assert!(!rules.ares(), "this game was read without Ares");
+    assert_eq!(rules.side_crew(3), Some(Some("ACREW")));
+    assert_eq!(rules.side_engineer(3), Some(Some("ENG")));
+    assert_eq!(rules.side_technician(3), Some(Some("TECH")));
+    assert_eq!(rules.side_disguise(3), Some(Some("ADIS")));
+    assert_eq!(rules.side_survivor_divisor(3), Some(100));
+    assert_eq!(
+        rules.side_base_defenses(3),
+        Some(&[String::from("ABLD")][..])
+    );
+    assert_eq!(rules.base_defense_types(3), &[String::from("ABLD")][..]);
+    assert_eq!(rules.side_base_defense_counts(3), Some(&[1, 2, 3][..]));
+    assert_eq!(
+        rules.side_paradrop(3),
+        Some((&[String::from("APD")][..], &[3][..]))
+    );
+    assert_eq!(rules.side_paradrop_aircraft(3), Some("PDPLANE"));
+    assert_eq!(rules.side_parachute_override(3), None);
+    assert_eq!(rules.side_tooltip_color(3), Some([164, 210, 255]));
+    assert_eq!(rules.side_message_text_color_index(3), Some(21));
+    assert_eq!(
+        rules.side_sidebar_mix_file_index(crate::rules::ruleset::SideIdx(3)),
+        Some(1)
+    );
+    assert!(
+        !rules
+            .side_sidebar_yuri_file_names(crate::rules::ruleset::SideIdx(3))
+            .unwrap()
+    );
+    assert_eq!(rules.side_eva_voice_index(3), Some(0));
+}
+
+#[test]
 fn ares_fourth_side_uses_documented_allied_defaults() {
     let _ares = crate::rules::ares_switch::read_ares_way(true);
     let rules = processed(&format!(
@@ -259,6 +298,23 @@ fn ares_side_dialog_background_needs_both_files() {
     assert_eq!(owner.side_dialog_background(1), None);
     // No SideExt for an unallocated side.
     assert_eq!(owner.side_dialog_background(9), None);
+}
+
+#[test]
+fn fourth_side_shell_defaults_work_without_ares() {
+    let owner = process_owner(&format!(
+        "{TYPES}{GENERAL}\
+         [Sides]\nGDI=x\nNod=x\nThirdSide=x\nFourth=x\n"
+    ));
+    let fourth = owner.side_score_art(3);
+    assert_eq!(fourth.campaign_background, Some("SYCRBKMD.SHP"));
+    assert_eq!(
+        owner.side_score_theme(
+            3,
+            crate::rules::ruleset::ScoreTheme::Campaign { over_par: false }
+        ),
+        Some("SCORE")
+    );
 }
 
 #[test]

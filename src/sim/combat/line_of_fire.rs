@@ -608,6 +608,7 @@ pub(crate) fn line_of_fire_blocking_cell<'a>(
             -1,
             los.overlay_registry,
             rules.ares_form(),
+            rules.npatch().then_some(&rules.general.building_types),
         ),
         crate::sim::cell_kernel::WallConnectionStep::Return(true)
     ) {

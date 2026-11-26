@@ -1784,6 +1784,7 @@ fn recompute_wall_connectivity_target(
             // Never read here: the Ares answer decides only the
             // `requested == -1` query, and this one names its own overlay.
             false,
+            None,
         ) {
             crate::sim::cell_kernel::WallConnectionStep::Return(connected) => connected,
             // Existing residual: this cleanup view does not implement native
